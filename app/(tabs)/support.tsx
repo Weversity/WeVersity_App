@@ -1,0 +1,128 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, StatusBar, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import SupportForm from '@/src/components/SupportForm';
+import SupportChat from '@/src/components/SupportChat';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+
+export default function SupportScreen() {
+  const [formVisible, setFormVisible] = useState(false);
+  const [chatVisible, setChatVisible] = useState(false);
+  const [initialEmail, setInitialEmail] = useState('');
+  const [initialMessage, setInitialMessage] = useState('');
+  const params = useLocalSearchParams();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (params.chat === 'true') {
+      setChatVisible(true);
+    }
+  }, [params]);
+
+  const handleStartChat = (email: string, message: string) => {
+    setInitialEmail(email);
+    setInitialMessage(message);
+    setFormVisible(false);
+    // Use a timeout to allow the first modal to close before the second one opens
+    setTimeout(() => {
+        setChatVisible(true);
+    }, 500);
+  };
+
+  const handleClose = () => {
+    if (params.chat === 'true') {
+      router.back();
+    } else {
+      setChatVisible(false);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <View style={styles.header}>
+        <Text style={styles.headerText}>Support</Text>
+      </View>
+      <SafeAreaView style={styles.contentArea}>
+        <View style={styles.content}>
+          <Ionicons name="headset-outline" size={80} color="#8A2BE2" />
+          <Text style={styles.title}>How can we help?</Text>
+          <Text style={styles.subtitle}>Our support team is here for you 24/7.</Text>
+          <TouchableOpacity style={styles.button} onPress={() => setFormVisible(true)}>
+            <Text style={styles.buttonText}>Contact Support</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+
+      <SupportForm 
+        visible={formVisible} 
+        onClose={() => setFormVisible(false)}
+        onStartChat={handleStartChat}
+      />
+      
+      <SupportChat 
+        visible={chatVisible} 
+        onClose={handleClose}
+        initialEmail={initialEmail}
+        initialMessage={initialMessage}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F4F2F8',
+  },
+  header: {
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
+    paddingBottom: 5,
+    paddingHorizontal: 20,
+    backgroundColor: '#8A2BE2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  contentArea: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 20,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 10,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+    button: {
+    backgroundColor: '#8A2BE2',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    marginTop: 10,
+    width: '80%',
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+});
