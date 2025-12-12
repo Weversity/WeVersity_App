@@ -41,7 +41,11 @@ export default function SupportScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
         <Text style={styles.headerText}>Support</Text>
+        <View style={{ width: 24 }} />
       </View>
       <SafeAreaView style={styles.contentArea}>
         <View style={styles.content}>
@@ -76,12 +80,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F2F8',
   },
   header: {
+    flexDirection: 'row',
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
     paddingBottom: 5,
     paddingHorizontal: 20,
     backgroundColor: '#8A2BE2',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    padding: 5,
   },
   headerText: {
     fontSize: 18,

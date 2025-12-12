@@ -29,6 +29,7 @@ export default function RootLayout() {
             <Stack.Screen name="followers" options={{ headerShown: false }} />
             <Stack.Screen name="allMentors" options={{ headerShown: false }} />
             <Stack.Screen name="allReviews" options={{ headerShown: false }} />
+            <Stack.Screen name="support" options={{ headerShown: false }} />
 
             <Stack.Screen
               name="notifications"
