@@ -54,7 +54,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="myCourses"
         options={{
-          title: 'My Courses',
+          title: 'Courses',
           tabBarIcon: ({ color, size }) => <Ionicons name="library-outline" color={color} size={size} />,
         }}
       />
@@ -65,13 +65,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles-outline" color={color} size={size} />,
         }}
       />
-      <Tabs.Screen
-        name="support"
-        options={{
-          title: 'Support',
-          tabBarIcon: ({ color, size }) => <Ionicons name="headset-outline" color={color} size={size} />,
-        }}
-      />
+
       <Tabs.Screen
         name="profile"
         options={{

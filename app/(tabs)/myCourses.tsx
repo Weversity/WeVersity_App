@@ -162,7 +162,7 @@ export default function MyCoursesScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>My Courses</Text>
+        <Text style={styles.headerText}>Courses</Text>
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={showFilter} style={styles.headerIcon}>
             <Ionicons name="filter-outline" size={24} color="#fff" />

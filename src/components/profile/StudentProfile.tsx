@@ -145,7 +145,7 @@ const StudentProfile = () => {
             <Text style={styles.joinClassText}>Join Class</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.aiHelpButton} onPress={() => router.push({ pathname: '/(tabs)/support', params: { chat: 'true' } })}>
+          <TouchableOpacity style={styles.aiHelpButton} onPress={() => router.push({ pathname: '/support', params: { chat: 'true' } })}>
             <Text style={styles.aiHelpText}>Ask AI Help</Text>
           </TouchableOpacity>
         </LinearGradient>
