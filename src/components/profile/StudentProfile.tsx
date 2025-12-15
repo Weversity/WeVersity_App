@@ -201,96 +201,29 @@ const StudentProfile = () => {
           </ScrollView>
         </View>
 
-        {/* Continue Learning */}
-        <Text style={styles.sectionTitle}>Continue Learning</Text>
-        {continueLearning.map(item => (
+        {/* Recent Courses */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Recent Courses</Text>
+          <TouchableOpacity onPress={() => router.push('/allWatchedCourses' as any)}>
+            <Text style={styles.seeAllText}>See All</Text>
+          </TouchableOpacity>
+        </View>
+        {INITIAL_COURSES.slice(0, 3).map(item => (
           <View key={item.id} style={styles.learningCard}>
-            <View style={[styles.iconBox, { backgroundColor: item.color + '20' }]}>
-              {/* Adding opacity to color for background */}
-              <Ionicons name={item.icon as any} size={24} color={item.color} />
-            </View>
+            <Image source={{ uri: item.image }} style={styles.courseCardImage} />
             <View style={styles.learningContent}>
               <View style={styles.learningHeader}>
                 <Text style={styles.learningTitle}>{item.title}</Text>
                 <Ionicons name="play" size={16} color="#aaa" />
               </View>
+              <Text style={styles.instructorName}>{item.instructor}</Text>
               <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBar, { width: `${item.progress * 100}%`, backgroundColor: '#4CD964' }]} />
+                <View style={[styles.progressBar, { width: `${item.progress}`, backgroundColor: '#4CD964' }]} />
               </View>
-              <Text style={styles.learningTime}>{item.timeLeft}</Text>
+              <Text style={styles.learningTime}>{item.progress} complete</Text>
             </View>
           </View>
         ))}
-
-        {/* Most Popular Courses Section */}
-        <View style={styles.coursesSection}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Most Popular Courses</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/myCourses')}>
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Course Tabs */}
-          <View style={styles.courseTabsContainer}>
-            <TouchableOpacity
-              style={[
-                styles.courseTab,
-                selectedCourseTab === 'Technical Courses' && styles.courseTabActive
-              ]}
-              onPress={() => setSelectedCourseTab('Technical Courses')}
-            >
-              <Text
-                style={[
-                  styles.courseTabText,
-                  selectedCourseTab === 'Technical Courses' && styles.courseTabTextActive
-                ]}
-              >
-                Technical Courses
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.courseTab,
-                selectedCourseTab === 'Skills Courses' && styles.courseTabActive
-              ]}
-              onPress={() => setSelectedCourseTab('Skills Courses')}
-            >
-              <Text
-                style={[
-                  styles.courseTabText,
-                  selectedCourseTab === 'Skills Courses' && styles.courseTabTextActive
-                ]}
-              >
-                Skill Courses
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Course Cards */}
-          {popularCourses.map(course => (
-            <TouchableOpacity
-              key={course.id}
-              style={styles.courseCard}
-              onPress={() => router.push(`/courseDetails/${course.id}` as any)}
-            >
-              <Image source={{ uri: course.image }} style={styles.courseCardImage} />
-              <View style={styles.courseCardContent}>
-                <View style={styles.courseCardCategory}>
-                  <Text style={styles.courseCardCategoryText}>{course.subCategory}</Text>
-                </View>
-                <Text style={styles.courseCardTitle}>{course.title}</Text>
-                <View style={styles.courseCardFooter}>
-                  <Text style={styles.courseCardPrice}>{course.isFree ? 'Free' : 'Paid'}</Text>
-                  <View style={styles.courseCardRating}>
-                    <Ionicons name="star" size={12} color="#FFD700" />
-                    <Text style={styles.courseCardRatingText}>{course.rating}</Text>
-                  </View>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
 
         {/* Today's Schedule */}
         <View style={styles.scheduleContainer}>
@@ -526,8 +459,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 15,
   },
+  instructorName: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+  },
   learningContent: {
     flex: 1,
+    marginLeft: 15,
   },
   learningHeader: {
     flexDirection: 'row',

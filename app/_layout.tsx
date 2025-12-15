@@ -30,6 +30,8 @@ export default function RootLayout() {
             <Stack.Screen name="allMentors" options={{ headerShown: false }} />
             <Stack.Screen name="allReviews" options={{ headerShown: false }} />
             <Stack.Screen name="support" options={{ headerShown: false }} />
+            <Stack.Screen name="createCourse" options={{ headerShown: false }} />
+            <Stack.Screen name="allWatchedCourses" options={{ headerShown: false }} />
 
             <Stack.Screen
               name="notifications"

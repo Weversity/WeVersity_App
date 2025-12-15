@@ -46,13 +46,13 @@ const getTimeAgo = (dateString: string) => {
 };
 
 
-const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort }: { visible: boolean; onClose: () => void; logout: () => void; onGoLive: () => void; onUploadShort: () => void }) => {
+const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onCreateCourse }: { visible: boolean; onClose: () => void; logout: () => void; onGoLive: () => void; onUploadShort: () => void; onCreateCourse: () => void }) => {
   if (!visible) return null;
 
   const menuItems = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '2', title: 'Go Live', icon: 'radio-outline', onPress: () => { onClose(); onGoLive(); } },
-    { id: '3', title: 'Create Course', icon: 'add-circle-outline', onPress: () => { onClose(); } },
+    { id: '3', title: 'Create Course', icon: 'add-circle-outline', onPress: () => { onClose(); onCreateCourse(); } },
     { id: '4', title: 'Upload Shorts', icon: 'phone-portrait-outline', onPress: () => { onClose(); onUploadShort(); } },
     { id: '5', title: 'Logout', icon: 'log-out-outline', onPress: logout },
   ];
@@ -245,7 +245,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/createCourse')}>
           <View style={styles.actionIconCircle}>
             <Ionicons name="add" size={30} color="#8A2BE2" />
           </View>
@@ -300,6 +300,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         logout={logout}
         onGoLive={handleGoLive}
         onUploadShort={uploadShort}
+        onCreateCourse={() => router.push('/createCourse')}
       />
 
       {/* Camera Modal */}

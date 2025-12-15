@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Alert } from 'react-native';
+import NotificationPopup from './NotificationPopup';
 
 interface Course {
   id: string;
@@ -38,6 +39,10 @@ const UpcomingClasses: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [page, setPage] = useState<number>(1);
   const coursesPerPage = 6;
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+
 
   useEffect(() => {
     loadMoreCourses();
@@ -54,12 +59,28 @@ const UpcomingClasses: React.FC = () => {
     }, 1500);
   };
 
-  const handleNotifyMe = (courseTitle: string) => {
-    Alert.alert(
-      "You're on the list!",
-      `We will notify you when "${courseTitle}" is about to start.`
-    );
+  const handleNotifyMe = (course: Course) => {
+    setSelectedCourse(course);
+    setModalVisible(true);
   };
+
+  const handleCloseModal = () => {
+    setModalVisible(false);
+    setSelectedCourse(null);
+  };
+
+  const handleConfirmNotification = () => {
+    if (selectedCourse) {
+      setNotificationMessage(`You will be notified when "${selectedCourse.title}" starts! A confirmation email has been sent.`);
+      handleCloseModal();
+    }
+  };
+
+  useEffect(() => {
+    if (notificationMessage) {
+      Alert.alert("Confirmation", notificationMessage, [{ text: "OK", onPress: () => setNotificationMessage(null) }]);
+    }
+  }, [notificationMessage]);
 
   const renderItem = ({ item }: { item: Course }) => (
     <View style={styles.courseItem}>
@@ -73,7 +94,7 @@ const UpcomingClasses: React.FC = () => {
         <Text style={styles.coachName}>{item.coach.name}</Text>
         <Text style={styles.coachExpertise}>{item.coach.expertise}</Text>
         <Text style={styles.courseTitle} numberOfLines={1} ellipsizeMode='tail'>{item.title}</Text>
-        <TouchableOpacity style={styles.joinButton} onPress={() => handleNotifyMe(item.title)}>
+        <TouchableOpacity style={styles.joinButton} onPress={() => handleNotifyMe(item)}>
           <Text style={styles.joinButtonText}>Notify Me</Text>
         </TouchableOpacity>
       </View>
@@ -86,6 +107,7 @@ const UpcomingClasses: React.FC = () => {
   };
 
   return (
+    <View style={{flex: 1}}>
     <FlatList
       data={courses}
       renderItem={renderItem}
@@ -96,6 +118,15 @@ const UpcomingClasses: React.FC = () => {
       contentContainerStyle={styles.container}
       numColumns={2}
     />
+    {selectedCourse && (
+        <NotificationPopup
+          visible={modalVisible}
+          onClose={handleCloseModal}
+          onNotify={handleConfirmNotification}
+          courseTitle={selectedCourse.title}
+        />
+      )}
+    </View>
   );
 };
 
