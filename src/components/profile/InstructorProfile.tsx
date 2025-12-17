@@ -1,3 +1,4 @@
+import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -9,11 +10,6 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Dimensions, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
-
-const instructor = {
-  name: 'Professor',
-  profilePic: 'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3',
-};
 
 // Data based on the provided image inspiration
 const stats = [
@@ -44,7 +40,6 @@ const getTimeAgo = (dateString: string) => {
   const diffInDays = Math.floor(diffInHours / 24);
   return `${diffInDays} days ago`;
 };
-
 
 const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onCreateCourse }: { visible: boolean; onClose: () => void; logout: () => void; onGoLive: () => void; onUploadShort: () => void; onCreateCourse: () => void }) => {
   if (!visible) return null;
@@ -86,7 +81,31 @@ const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onCreateC
   );
 };
 
+const ShortViewerModal = ({ short, visible, onClose }: { short: Short; visible: boolean; onClose: () => void }) => {
+  const player = useVideoPlayer(short.type === 'video' ? short.uri : '', player => {
+    player.loop = true;
+    player.play();
+  });
+
+  return (
+    <Modal visible={visible} animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center' }}>
+        <TouchableOpacity style={styles.closeCameraBtn} onPress={onClose}>
+          <Ionicons name="close" size={30} color="#fff" />
+        </TouchableOpacity>
+
+        {short.type === 'video' ? (
+          <VideoView style={{ width: '100%', height: '100%' }} player={player} contentFit="contain" />
+        ) : (
+          <Image source={{ uri: short.uri }} style={{ width: '100%', height: '100%', resizeMode: 'contain' }} />
+        )}
+      </View>
+    </Modal>
+  );
+};
+
 const InstructorProfile = ({ logout }: { logout: () => void }) => {
+  const { user, profile } = useAuth();
   const [menuVisible, setMenuVisible] = useState(false);
   const router = useRouter();
 
@@ -98,6 +117,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const [shorts, setShorts] = useState<Short[]>([]);
   const [viewAllShortsVisible, setViewAllShortsVisible] = useState(false);
   const [selectedShort, setSelectedShort] = useState<Short | null>(null);
+
+  const firstName = user?.user_metadata?.first_name;
+  const lastName = user?.user_metadata?.last_name;
+  const emailUsername = profile?.email?.split('@')[0] || user?.email?.split('@')[0];
+
+  const instructorName = (firstName && lastName)
+    ? `${firstName} ${lastName}`
+    : (emailUsername || 'Instructor');
+
+  // Use a default avatar if none exists
+  const profilePic = user?.user_metadata?.avatar || 'https://example.com/default-avatar.png';
 
   useEffect(() => {
     loadShorts();
@@ -193,11 +223,19 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         <View style={styles.customHeader}>
           <View style={styles.profileContainer}>
             <TouchableOpacity onPress={() => router.push('/profileSettings')}>
-              <Image source={{ uri: instructor.profilePic }} style={styles.headerProfilePic} />
+              {profilePic && profilePic !== 'https://example.com/default-avatar.png' ? (
+                <Image source={{ uri: profilePic }} style={styles.headerProfilePic} />
+              ) : (
+                <View style={[styles.headerProfilePic, { backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' }]}>
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
+                    {firstName?.[0]?.toUpperCase()}{lastName?.[0]?.toUpperCase()}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <View style={styles.profileTextContainer}>
               <Text style={styles.welcomeText}>Welcome</Text>
-              <Text style={styles.profileTypeText}>Instructor Profile</Text>
+              <Text style={styles.profileTypeText}>{instructorName}</Text>
             </View>
           </View>
           <View style={styles.headerRight}>
@@ -212,7 +250,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.welcomeTitle}>Welcome back, {instructor.name}!</Text>
+        <Text style={styles.welcomeTitle}>Welcome back, {instructorName}!</Text>
         <Text style={styles.welcomeSubtitle}>Here is what's happening with your courses today.</Text>
 
         {/* Stats Cards */}
@@ -290,6 +328,50 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
               </TouchableOpacity>
             ))
           )}
+        </View>
+
+        {/* Your Uploaded Courses Section */}
+        <View style={styles.recentSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Uploaded Courses</Text>
+            <TouchableOpacity onPress={() => router.push('/myUploadedCourses')}>
+              <Text style={styles.seeAllText}>See All</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Mock Data for uploaded courses - limiting to 2 for preview */}
+          {[
+            {
+              id: '1',
+              title: 'Advanced React Patterns',
+              category: 'Development',
+              status: 'PUBLISHED',
+              image: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?q=80&w=2070&auto=format&fit=crop',
+            },
+            {
+              id: '2',
+              title: 'Next.js 14 Fundamentals',
+              category: 'Development',
+              status: 'DRAFT',
+              image: 'https://images.unsplash.com/photo-1618477247222-acbdb0e159b3?q=80&w=2664&auto=format&fit=crop',
+            }
+          ].map((course) => (
+            <View key={course.id} style={styles.uploadedCourseCard}>
+              <Image source={{ uri: course.image }} style={styles.uploadedCourseImage} />
+              <View style={styles.uploadedCourseContent}>
+                <Text style={styles.uploadedCourseTitle} numberOfLines={1}>{course.title}</Text>
+                <Text style={styles.uploadedCourseCategory}>{course.category}</Text>
+                <View style={[styles.statusBadge, course.status === 'PUBLISHED' ? styles.statusPublished : styles.statusDraft]}>
+                  <Text style={[styles.statusText, course.status === 'PUBLISHED' ? styles.statusTextPublished : styles.statusTextDraft]}>
+                    {course.status}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.editCourseButton}>
+                <Ionicons name="pencil-outline" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+          ))}
         </View>
 
       </ScrollView>
@@ -707,30 +789,70 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 18,
   },
+
+  // Uploaded Courses Styles
+  uploadedCourseCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  uploadedCourseImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 10,
+    backgroundColor: '#f0f0f0',
+  },
+  uploadedCourseContent: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  uploadedCourseTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  uploadedCourseCategory: {
+    fontSize: 10,
+    color: '#888',
+    marginBottom: 6,
+  },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  statusPublished: {
+    backgroundColor: '#E8F5E9',
+  },
+  statusDraft: {
+    backgroundColor: '#F5F5F5',
+  },
+  statusText: {
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  statusTextPublished: {
+    color: '#4CAF50',
+  },
+  statusTextDraft: {
+    color: '#757575',
+  },
+  editCourseButton: {
+    padding: 8,
+  },
 });
-
-
-const ShortViewerModal = ({ short, visible, onClose }: { short: Short; visible: boolean; onClose: () => void }) => {
-  const player = useVideoPlayer(short.type === 'video' ? short.uri : '', player => {
-    player.loop = true;
-    player.play();
-  });
-
-  return (
-    <Modal visible={visible} animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center' }}>
-        <TouchableOpacity style={styles.closeCameraBtn} onPress={onClose}>
-          <Ionicons name="close" size={30} color="#fff" />
-        </TouchableOpacity>
-
-        {short.type === 'video' ? (
-          <VideoView style={{ width: '100%', height: '100%' }} player={player} contentFit="contain" />
-        ) : (
-          <Image source={{ uri: short.uri }} style={{ width: '100%', height: '100%', resizeMode: 'contain' }} />
-        )}
-      </View>
-    </Modal>
-  );
-};
 
 export default InstructorProfile;

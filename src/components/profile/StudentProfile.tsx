@@ -9,11 +9,7 @@ import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacit
 
 const { width } = Dimensions.get('window');
 
-// Mock Data
-const user = {
-  name: 'Alex',
-  profilePic: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?q=80&w=2080&auto=format&fit=crop',
-};
+// Mock Data replaced by real auth data
 
 const liveClass = {
   title: 'UIUX Design',
@@ -80,10 +76,17 @@ const SideMenu = ({ visible, onClose, router }: { visible: boolean; onClose: () 
 };
 
 const StudentProfile = () => {
-  const { role } = useAuth();
+  const { role, user, profile } = useAuth();
 
-  const userDisplayName = user.name || 'Student';
-  const userProfilePic = user.profilePic || 'https://via.placeholder.com/150';
+  const firstName = user?.user_metadata?.first_name;
+  const lastName = user?.user_metadata?.last_name;
+  const emailUsername = profile?.email?.split('@')[0] || user?.email?.split('@')[0];
+
+  const userDisplayName = (firstName && lastName)
+    ? `${firstName} ${lastName}`
+    : (emailUsername || 'Student');
+
+  const userProfilePic = user?.user_metadata?.avatar || 'https://example.com/default-avatar.png';
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedCourseTab, setSelectedCourseTab] = useState('Technical Courses');
   const router = useRouter();
@@ -107,11 +110,19 @@ const StudentProfile = () => {
         <View style={styles.topBar}>
           <View style={styles.profileContainer}>
             <TouchableOpacity onPress={() => router.push('/profileSettings')}>
-              <Image source={{ uri: userProfilePic }} style={styles.headerProfilePic} />
+              {userProfilePic && userProfilePic !== 'https://example.com/default-avatar.png' ? (
+                <Image source={{ uri: userProfilePic }} style={styles.headerProfilePic} />
+              ) : (
+                <View style={[styles.headerProfilePic, { backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' }]}>
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
+                    {firstName?.[0]?.toUpperCase()}{lastName?.[0]?.toUpperCase()}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <View style={styles.profileTextContainer}>
               <Text style={styles.welcomeText}>Welcome</Text>
-              <Text style={styles.profileTypeText}>Student Profile</Text>
+              <Text style={styles.profileTypeText}>{userDisplayName}</Text>
             </View>
           </View>
           <View style={styles.topBarRight}>
@@ -218,7 +229,7 @@ const StudentProfile = () => {
               </View>
               <Text style={styles.instructorName}>{item.instructor}</Text>
               <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBar, { width: `${item.progress}`, backgroundColor: '#4CD964' }]} />
+                <View style={[styles.progressBar, { width: `${(typeof item.progress === 'number' ? item.progress : 0) * 100}%`, backgroundColor: '#4CD964' }]} />
               </View>
               <Text style={styles.learningTime}>{item.progress} complete</Text>
             </View>

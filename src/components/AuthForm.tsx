@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { loginUser } from '../auth/login';
+import { signUpUser } from '../auth/signup';
 import { Role, useAuth } from '../context/AuthContext';
 import PhoneInput from './PhoneNumberInput';
 
@@ -50,31 +52,53 @@ const AuthForm: React.FC<{
         const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
         const [loginMethod, setLoginMethod] = useState<'email' | 'phone'>('email');
 
-        const handleLogin = () => {
-            // Mock login for demonstration. A real app would verify credentials.
-            const mockRole: Role = email.includes('instructor') ? 'Instructor' : 'Student';
-            login(mockRole);
+        const handleLogin = async () => {
+            if (!email || !password) {
+                Alert.alert("Error", "Please enter email and password.");
+                return;
+            }
 
-            if (onAuthSuccess) {
-                onAuthSuccess();
-            } else {
-                router.replace('/(tabs)/profile');
+            try {
+                const { user, session } = await loginUser(email, password);
+                if (user && session) {
+                    const userRole = user.user_metadata?.role || 'student';
+                    const normalizedRole: Role = (userRole.charAt(0).toUpperCase() + userRole.slice(1)) as Role;
+                    login(normalizedRole);
+
+                    if (onAuthSuccess) {
+                        onAuthSuccess();
+                    } else {
+                        router.replace('/(tabs)/profile');
+                    }
+                }
+            } catch (error: any) {
+                Alert.alert('Login Failed', error.message || "An error occurred during login");
             }
         }
 
-        const handleSignUp = () => {
+        const handleSignUp = async () => {
             if (password !== confirmPassword) {
                 Alert.alert("Error", "Passwords do not match.");
                 return;
             }
-            const userRole: Role = role.charAt(0).toUpperCase() + role.slice(1) as Role;
 
-            login(userRole);
+            try {
+                const { user, session } = await signUpUser(email, password, role, firstName, lastName, userName);
 
-            if (onAuthSuccess) {
-                onAuthSuccess();
-            } else {
-                router.replace('/(tabs)/profile');
+                if (user && session) {
+                    const normalizedRole: Role = (role.charAt(0).toUpperCase() + role.slice(1)) as Role;
+                    login(normalizedRole);
+
+                    if (onAuthSuccess) {
+                        onAuthSuccess();
+                    } else {
+                        router.replace('/(tabs)/profile');
+                    }
+                } else if (user && !session) {
+                    Alert.alert("Success", "Account created! Please check your email to verify.");
+                }
+            } catch (error: any) {
+                Alert.alert('Signup Failed', error.message || "An error occurred during sign up");
             }
         };
 

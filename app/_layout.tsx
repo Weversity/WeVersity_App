@@ -43,6 +43,7 @@ export default function RootLayout() {
                 headerTitleAlign: 'center',
               }}
             />
+            <Stack.Screen name="myUploadedCourses" options={{ headerShown: false }} />
           </Stack>
           <StatusBar style="auto" />
         </ThemeProvider>

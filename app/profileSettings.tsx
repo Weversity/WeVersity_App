@@ -1,8 +1,11 @@
+import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext'; // Assuming AuthContext for logout
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Image,
   Modal,
@@ -16,12 +19,6 @@ import {
   View
 } from 'react-native';
 
-// Mock user data
-const user = {
-  name: 'Alex',
-  email: 'alex@example.com',
-  profilePic: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?q=80&w=2080&auto=format&fit=crop',
-};
 
 // Confirmation Dialog Component
 const ConfirmationDialog = ({ visible, message, onConfirm, onCancel }: { visible: boolean; message: string; onConfirm: () => void; onCancel: () => void }) => {
@@ -97,14 +94,18 @@ const dialogStyles = StyleSheet.create({
 });
 
 // Edit Profile Modal Component
-const EditProfileModal = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
-  const [firstName, setFirstName] = useState(user.name.split(' ')[0] || user.name || '');
-  const [lastName, setLastName] = useState(user.name.split(' ').slice(1).join(' ') || '');
-  const [profileImage, setProfileImage] = useState(user.profilePic);
+const EditProfileModal = ({ visible, onClose, initialData }: { visible: boolean; onClose: () => void; initialData: any }) => {
+  const [firstName, setFirstName] = useState(initialData?.firstName || '');
+  const [lastName, setLastName] = useState(initialData?.lastName || '');
+  const [profileImage, setProfileImage] = useState(initialData?.profilePic || '');
+  const [isUpdating, setIsUpdating] = useState(false);
   const scaleAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
+      setFirstName(initialData?.firstName || '');
+      setLastName(initialData?.lastName || '');
+      // setProfileImage(initialData?.profilePic); // Optional if dynamic
       Animated.spring(scaleAnim, {
         toValue: 1,
         friction: 7,
@@ -114,12 +115,33 @@ const EditProfileModal = ({ visible, onClose }: { visible: boolean; onClose: () 
     } else {
       scaleAnim.setValue(0);
     }
-  }, [visible]);
+  }, [visible, initialData]);
 
-  const handleUpdateProfile = () => {
-    // In a real app, send data to backend
-    console.log('Update Profile:', { firstName, lastName, profileImage });
-    onClose();
+  const handleUpdateProfile = async () => {
+    if (!firstName.trim()) {
+      Alert.alert('Error', 'First name is required');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+        }
+      });
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Profile updated successfully');
+      onClose();
+    } catch (error: any) {
+      console.error('Update profile error:', error);
+      Alert.alert('Error', error.message || 'Failed to update profile');
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   return (
@@ -144,6 +166,7 @@ const EditProfileModal = ({ visible, onClose }: { visible: boolean; onClose: () 
             value={firstName}
             onChangeText={setFirstName}
             placeholderTextColor="#666"
+            editable={!isUpdating}
           />
           <TextInput
             style={editProfileStyles.input}
@@ -151,10 +174,19 @@ const EditProfileModal = ({ visible, onClose }: { visible: boolean; onClose: () 
             value={lastName}
             onChangeText={setLastName}
             placeholderTextColor="#666"
+            editable={!isUpdating}
           />
 
-          <TouchableOpacity style={editProfileStyles.updateButton} onPress={handleUpdateProfile}>
-            <Text style={editProfileStyles.updateButtonText}>Update Profile</Text>
+          <TouchableOpacity
+            style={[editProfileStyles.updateButton, isUpdating && { opacity: 0.7 }]}
+            onPress={handleUpdateProfile}
+            disabled={isUpdating}
+          >
+            {isUpdating ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={editProfileStyles.updateButtonText}>Update Profile</Text>
+            )}
           </TouchableOpacity>
         </Animated.View>
       </TouchableOpacity>
@@ -383,12 +415,20 @@ const changePasswordStyles = StyleSheet.create({
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { logout } = useAuth(); // Get logout function from AuthContext
+  const { logout, user, profile } = useAuth(); // Get logout function from AuthContext
 
   const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
   const [changePasswordModalVisible, setChangePasswordModalVisible] = useState(false);
+
+  const firstName = user?.user_metadata?.first_name;
+  const lastName = user?.user_metadata?.last_name;
+  const fullName = firstName ? `${firstName} ${lastName || ''}`.trim() : (profile?.email?.split('@')[0] || 'User');
+  const userEmail = user?.email || '';
+
+  // Calculate initials
+  const initials = `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase() || (userEmail?.[0]?.toUpperCase() || 'U');
 
 
   const handleLogout = () => {
@@ -435,11 +475,13 @@ export default function ProfileSettingsScreen() {
           <View style={styles.userInfoRow}>
             {/* Avatar */}
             <View style={styles.avatarContainer}>
-              <Ionicons name="person-circle-outline" size={60} color="#8A2BE2" />
+              <View style={styles.initialsAvatar}>
+                <Text style={styles.initialsText}>{initials}</Text>
+              </View>
             </View>
             <View style={styles.userInfoText}>
-              <Text style={styles.userName}>{user.name}</Text>
-              <Text style={styles.userEmail}>{user.email}</Text>
+              <Text style={styles.userName}>{fullName}</Text>
+              <Text style={styles.userEmail}>{userEmail}</Text>
             </View>
           </View>
 
@@ -501,6 +543,7 @@ export default function ProfileSettingsScreen() {
       <EditProfileModal
         visible={editProfileModalVisible}
         onClose={() => setEditProfileModalVisible(false)}
+        initialData={{ firstName, lastName, profilePic: null }} // Passing null for pic as we don't have it yet
       />
 
       {/* Change Password Modal */}
@@ -565,6 +608,21 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
+  },
+  initialsAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F3E5F5', // Light purple background
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#8A2BE2',
+  },
+  initialsText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#8A2BE2',
   },
   userInfoText: {
     flex: 1,
