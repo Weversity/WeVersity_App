@@ -6,34 +6,33 @@ import {
     ActivityIndicator,
     Dimensions,
     Image,
-    LayoutAnimation,
-    Platform,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
-    UIManager,
-    View,
+    View
 } from 'react-native';
-
-// Enable LayoutAnimation for Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const { width } = Dimensions.get('window');
 
+type LessonType = 'video' | 'quiz' | 'article';
+
 interface Lesson {
     title: string;
-    duration: string;
-    type: 'video' | 'quiz' | 'article';
-    [key: string]: any;
+    type: LessonType;
+    duration?: string;
+    content?: string;
+    image?: string;
+    questions?: any[];
+    video_url?: string;
+    video_link?: string;
+    lessons?: Lesson[]; // For nested lessons
 }
 
 interface Section {
     title: string;
-    lessons: Lesson[];
-    [key: string]: any;
+    data: Lesson[];
+    isExpanded?: boolean;
 }
 
 interface MappedCourse {
@@ -50,9 +49,73 @@ interface MappedCourse {
     rating: number;
     reviews: any[];
     students: number;
+    lessonCount: number;
     duration: string;
     tools?: any[];
 }
+
+const getLessonType = (lesson: any): LessonType => {
+    if (lesson.type) return lesson.type;
+    if (lesson.lessons && Array.isArray(lesson.lessons) && lesson.lessons.length > 0) return 'article';
+
+    const content = lesson.video_url || lesson.video_link || lesson.content;
+    if (typeof content === 'string') {
+        const lowerContent = content.toLowerCase();
+        if (lowerContent.includes('.mp4') ||
+            lowerContent.includes('youtube.com') ||
+            lowerContent.includes('youtu.be') ||
+            lowerContent.includes('vimeo.com') ||
+            lowerContent.startsWith('http')) {
+            return 'video';
+        }
+    }
+
+    if (lesson.questions && Array.isArray(lesson.questions) && lesson.questions.length > 0) return 'quiz';
+    return 'article';
+};
+
+const processCourseContent = (content: any): Section[] => {
+    if (!content) return [];
+
+    const processLesson = (lessonData: any): Lesson => {
+        const lesson = typeof lessonData === 'object' ? lessonData : { title: String(lessonData) };
+        const processedLesson: Lesson = {
+            ...lesson,
+            type: getLessonType(lesson),
+        };
+        const subItems = lesson.lessons || lesson.children || lesson.data || lesson.items;
+        if (subItems && Array.isArray(subItems)) {
+            processedLesson.lessons = subItems.map(processLesson);
+        }
+        return processedLesson;
+    };
+
+    let rawSections: any[] = [];
+    if (Array.isArray(content)) {
+        rawSections = content;
+    } else if (typeof content === 'object') {
+        rawSections = content.sections || content.data || Object.values(content);
+    }
+
+    if (!Array.isArray(rawSections)) return [];
+
+    return rawSections.map((sectionData: any, index: number) => {
+        let title = sectionData.title || sectionData.name || `Section ${index + 1}`;
+        let lessons = [];
+
+        if (Array.isArray(sectionData)) {
+            lessons = sectionData;
+        } else if (typeof sectionData === 'object') {
+            lessons = sectionData.lessons || sectionData.data || sectionData.items || [];
+        }
+
+        return {
+            title,
+            data: Array.isArray(lessons) ? lessons.map(processLesson) : [],
+            isExpanded: index === 0,
+        };
+    });
+};
 
 // Helper to strip HTML tags
 const stripHtmlTags = (htmlString: string) => {
@@ -88,44 +151,29 @@ export default function CourseDetailsScreen() {
                 const data: any = await courseService.fetchCourseById(Number(id));
                 if (!data) throw new Error('Course not found');
 
-                // Parse content
-                let parsedContent: any[] = [];
-                try {
-                    parsedContent = typeof data.course_content === 'string'
-                        ? JSON.parse(data.course_content)
-                        : (data.course_content || []);
-                } catch (e) {
-                    console.error("JSON Parse error", e);
-                }
+                // Data Parsing
+                const transformedSections = processCourseContent(data.course_content);
 
-                // Normalize structure to Sections -> Lessons
-                let mappedSections: Section[] = [];
-                if (parsedContent.length > 0 && (parsedContent[0].data || parsedContent[0].child_lessons)) {
-                    mappedSections = parsedContent.map((s: any) => ({
-                        title: s.title || s.section_title || 'Module',
-                        lessons: s.data || s.child_lessons || []
-                    }));
-                } else {
-                    mappedSections = [{
-                        title: 'Course Content',
-                        lessons: parsedContent
-                    }];
-                }
-
-                // Stats calculation
-                let totalMin = 0;
+                // Stats calculation (Recursive)
                 let lessonCount = 0;
-                mappedSections.forEach(s => {
-                    s.lessons.forEach(l => {
+                let totalMin = 0;
+
+                const traverseStats = (lessons: Lesson[]) => {
+                    lessons.forEach(l => {
                         lessonCount++;
-                        const d = l.duration?.toString() || "";
-                        const val = parseInt(d.split(' ')[0]);
-                        if (!isNaN(val)) {
-                            if (d.includes('h')) totalMin += val * 60;
-                            else totalMin += val;
+                        if (l.duration) {
+                            const dStr = String(l.duration).toLowerCase();
+                            const val = parseInt(dStr.split(' ')[0]);
+                            if (!isNaN(val)) {
+                                if (dStr.includes('h')) totalMin += val * 60;
+                                else totalMin += val;
+                            }
                         }
+                        if (l.lessons) traverseStats(l.lessons);
                     });
-                });
+                };
+
+                transformedSections.forEach(s => traverseStats(s.data));
 
                 const studentCount = data.total_students || data.students_count || data.enrolled_students || 0;
                 const durationStr = totalMin > 0 ? `${Math.floor(totalMin / 60)}h ${totalMin % 60}m` : '1.5 Hours';
@@ -138,12 +186,13 @@ export default function CourseDetailsScreen() {
                     image: data.image_url || 'https://via.placeholder.com/400x250',
                     price: 'Free',
                     description: data.description || '',
-                    sections: mappedSections,
+                    sections: transformedSections,
                     instructor: data.instructor?.first_name ? `${data.instructor.first_name} ${data.instructor.last_name || ''}`.trim() : 'Unknown Instructor',
                     instructorAvatar: data.instructor?.avatar_url,
                     rating: data.avg_rating || 0,
                     reviews: data.reviews || [],
                     students: studentCount,
+                    lessonCount: lessonCount,
                     duration: durationStr,
                     tools: data.tools || []
                 });
@@ -202,8 +251,8 @@ export default function CourseDetailsScreen() {
 
                     <View style={styles.statsPanel}>
                         <StatItem icon="people" label={`${course.students} Students`} />
+                        <StatItem icon="play-circle-outline" label={`${course.lessonCount} Lessons`} />
                         <StatItem icon="time-outline" label={course.duration} />
-                        <StatItem icon="document-text-outline" label="Certificate" />
                     </View>
 
                     <View style={styles.tabs}>
@@ -254,32 +303,56 @@ const AboutTab = ({ course }: { course: MappedCourse }) => (
 );
 
 const LessonsTab = ({ sections, onLessonPress }: { sections: Section[], onLessonPress: () => void }) => {
-    const [expanded, setExpanded] = useState<number | null>(0);
+    const [localSections, setLocalSections] = useState(sections);
+
     const toggle = (i: number) => {
-        LayoutAnimation.easeInEaseOut();
-        setExpanded(expanded === i ? null : i);
+        const newSections = [...localSections];
+        newSections[i].isExpanded = !newSections[i].isExpanded;
+        setLocalSections(newSections);
+    };
+
+    const renderLessons = (lessons: Lesson[], level = 0) => {
+        return lessons.map((l, li) => {
+            const getIcon = () => {
+                if (l.type === 'quiz') return 'help-circle';
+                if (l.type === 'video') return 'play-circle';
+                return 'document-text';
+            };
+
+            const hasSub = l.lessons && l.lessons.length > 0;
+
+            return (
+                <View key={li}>
+                    <TouchableOpacity style={[styles.lessonRow, { paddingLeft: 15 + level * 15 }]} onPress={onLessonPress}>
+                        <View style={styles.iconCircle}>
+                            <Ionicons name={getIcon()} size={16} color="#8A2BE2" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.lessonTitle}>{l.title}</Text>
+                            {l.duration && <Text style={styles.lessonDur}>{l.duration}</Text>}
+                        </View>
+                        <Ionicons name="lock-closed" size={16} color="#ccc" />
+                    </TouchableOpacity>
+                    {hasSub && renderLessons(l.lessons!, level + 1)}
+                </View>
+            );
+        });
     };
 
     return (
         <View>
-            {sections.map((sec, i) => (
+            {localSections.map((sec, i) => (
                 <View key={i} style={styles.accContainer}>
                     <TouchableOpacity style={styles.accHeader} onPress={() => toggle(i)}>
-                        <Text style={styles.accTitle}>{sec.title}</Text>
-                        <Ionicons name={expanded === i ? "chevron-up" : "chevron-down"} size={20} color="#333" />
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.accTitle}>{sec.title}</Text>
+                            <Text style={styles.accSub}>{sec.data.length} Lessons</Text>
+                        </View>
+                        <Ionicons name={sec.isExpanded ? "chevron-up" : "chevron-down"} size={20} color="#333" />
                     </TouchableOpacity>
-                    {expanded === i && (
+                    {sec.isExpanded && (
                         <View style={styles.accContent}>
-                            {sec.lessons.map((l, li) => (
-                                <TouchableOpacity key={li} style={styles.lessonRow} onPress={onLessonPress}>
-                                    <View style={styles.lessonNum}><Text style={styles.lessonNumText}>{li + 1}</Text></View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.lessonTitle}>{l.title}</Text>
-                                        <Text style={styles.lessonDur}>{l.duration}</Text>
-                                    </View>
-                                    <Ionicons name={l.type === 'quiz' ? 'help-circle-outline' : 'play-circle-outline'} size={20} color="#8A2BE2" />
-                                </TouchableOpacity>
-                            ))}
+                            {renderLessons(sec.data)}
                         </View>
                     )}
                 </View>
@@ -335,13 +408,13 @@ const styles = StyleSheet.create({
     mentorRole: { fontSize: 12, color: '#666' },
     desc: { fontSize: 14, color: '#666', lineHeight: 22 },
     accContainer: { marginBottom: 10, borderRadius: 10, borderWidth: 1, borderColor: '#f0f0f0', overflow: 'hidden' },
-    accHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, backgroundColor: '#F9F9F9' },
-    accTitle: { fontSize: 16, fontWeight: '600' },
+    accHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: '#F9F9F9' },
+    accTitle: { fontSize: 16, fontWeight: '700', color: '#333' },
+    accSub: { fontSize: 12, color: '#666', marginTop: 2 },
     accContent: { backgroundColor: '#fff' },
-    lessonRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
-    lessonNum: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#F4F0FF', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-    lessonNumText: { color: '#8A2BE2', fontWeight: 'bold', fontSize: 12 },
-    lessonTitle: { fontSize: 14, fontWeight: '500' },
+    lessonRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderTopWidth: 1, borderTopColor: '#f5f5f5' },
+    iconCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F4F0FF', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+    lessonTitle: { fontSize: 14, fontWeight: '500', color: '#444' },
     lessonDur: { fontSize: 12, color: '#999' },
     reviewCard: { flexDirection: 'row', gap: 15, marginBottom: 20, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 15 },
     reviewerImg: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#eee' },

@@ -15,7 +15,7 @@ export const courseService = {
                 .select('id, title, image_url, price, categories, instructor:profiles(first_name)')
                 .eq('is_published', true)
                 .order('created_at', { ascending: false })
-                .limit(10); // Limit to 10 courses
+                .limit(10);
 
             if (error) {
                 console.error('Error in fetchPublishedCourses:', error.message);
@@ -27,22 +27,49 @@ export const courseService = {
         }
     },
 
-    // Fetch course by ID
-    async fetchCourseById(id) {
-        try {
-            const { data, error } = await supabase
-                .from('courses')
-                .select(`*, instructor:profiles(first_name, last_name, avatar_url)`)
-                .eq('id', id)
-                .single();
+    // Fetch course by ID with retry logic
+    async fetchCourseById(id, retries = 3) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                const { data, error } = await supabase
+                    .from('courses')
+                    .select(`
+                        id,
+                        title,
+                        description,
+                        course_content,
+                        image_url,
+                        instructor:profiles(first_name, last_name, avatar_url)
+                    `)
+                    .eq('id', id)
+                    .single();
 
-            if (error) {
-                console.error('Error in fetchCourseById:', error.message);
-                throw error;
+                if (error) {
+                    // Handle PGRST002: Could not query the database for the schema cache
+                    if (error.code === 'PGRST002') {
+                        console.error(`Error in fetchCourseById (Attempt ${i + 1}/${retries}): Database schema cache error (PGRST002). This often requires a PostgREST schema reload.`);
+                        if (i === retries - 1) {
+                            throw new Error('Database schema cache error. Please contact support or try reloading the schema.');
+                        }
+                    } else if (error.code === 'PGRST116') { // "Fetched result contains 0 rows"
+                        throw new Error('Course not found');
+                    } else {
+                        console.error(`Error in fetchCourseById (Attempt ${i + 1}/${retries}):`, error.message);
+                    }
+
+                    if (i === retries - 1) throw error; // Throw last error
+                    await new Promise(res => setTimeout(res, 1000)); // Wait 1s before retrying
+                    continue;
+                }
+
+                return data;
+
+            } catch (error) {
+                if (i === retries - 1) {
+                    console.error("Final attempt failed for fetchCourseById:", error);
+                    throw error;
+                }
             }
-            return data;
-        } catch (error) {
-            throw error;
         }
     }
 };
