@@ -76,6 +76,7 @@ export default function MyCoursesScreen() {
   const [filterVisible, setFilterVisible] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(5);
   const filterAnimation = useRef(new Animated.Value(0)).current;
 
   // Filter Modal State
@@ -210,11 +211,27 @@ export default function MyCoursesScreen() {
       }
     };
 
+    const renderFooter = () => {
+      const hasMore = filteredCourses.length > visibleCount;
+      const showLoadMore = hasMore && visibleCount < 10;
+
+      if (!showLoadMore) return <View style={{ height: 20 }} />;
+
+      return (
+        <TouchableOpacity
+          style={styles.loadMoreBtn}
+          onPress={() => setVisibleCount(10)}
+        >
+          <Text style={styles.loadMoreBtnText}>Load More Courses</Text>
+        </TouchableOpacity>
+      );
+    };
+
     return (
       <View style={{ flex: 1, minHeight: 500 }}>
         <FlatList
-          data={filteredCourses}
-          renderItem={({ item }) => (
+          data={filteredCourses.slice(0, visibleCount)}
+          renderItem={({ item }: { item: any }) => (
             <CourseCard
               course={item}
               onBookmarkToggle={toggleBookmark}
@@ -225,13 +242,14 @@ export default function MyCoursesScreen() {
               }}
             />
           )}
-          keyExtractor={item => item.id.toString()}
+          keyExtractor={(item: any) => item.id.toString()}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
           }
-          ListEmptyComponent={renderEmptyState()} // Call the function
+          ListEmptyComponent={renderEmptyState()}
+          ListFooterComponent={renderFooter()}
         />
       </View>
     );
@@ -633,5 +651,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  loadMoreBtn: {
+    borderWidth: 1,
+    borderColor: '#8A2BE2',
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 30,
+  },
+  loadMoreBtnText: {
+    color: '#8A2BE2',
+    fontSize: 15,
+    fontWeight: '600',
   }
 });
