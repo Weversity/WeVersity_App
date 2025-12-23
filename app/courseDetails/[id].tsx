@@ -1,38 +1,142 @@
-import { useCoursesContext } from '@/src/context/CoursesContext';
-import { Course } from '@/src/data/courses';
+import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
-import { Link, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+interface InstructorDetails {
+    first_name: string;
+    last_name?: string;
+    avatar_url?: string;
+}
+
+interface MappedCourse {
+    id: any;
+    title: string;
+    categories: string;
+    is_free: boolean;
+    image: string;
+    price: number;
+    description: string;
+    lessons: any[];
+    instructor: string;
+    instructorAvatar?: string;
+    rating: number;
+    reviews: any[];
+    students: number;
+    duration: string;
+    tools?: any[];
+}
 
 const { width } = Dimensions.get('window');
+
+const CourseDetailsStackScreenOptions = ({ courseTitle }: { courseTitle: string | undefined }) => ({
+    title: courseTitle || 'Course Details',
+    headerStyle: { backgroundColor: '#8A2BE2' },
+    headerTintColor: '#fff',
+    headerTitleStyle: { fontWeight: '700' as const },
+});
 
 export default function CourseDetailsScreen() {
     const { id } = useLocalSearchParams();
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'About' | 'Lessons' | 'Reviews'>('About');
+    const [course, setCourse] = useState<MappedCourse | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
-    const { courses } = useCoursesContext();
-    const course = courses.find(c => c.id === id);
+    useEffect(() => {
+        const fetchCourse = async () => {
+            if (!id) return;
+
+            setLoading(true);
+            setError(null);
+            try {
+                const numericId = Number(id);
+                if (isNaN(numericId)) {
+                    throw new Error('Invalid course ID provided.');
+                }
+                const fetchedCourse: any = await courseService.fetchCourseById(numericId);
+                if (!fetchedCourse) {
+                    throw new Error('Course not found.');
+                }
+
+                // Safe JSON Parsing Logic
+                let parsedLessons = [];
+                try {
+                    parsedLessons = typeof fetchedCourse.course_content === 'string'
+                        ? JSON.parse(fetchedCourse.course_content)
+                        : (fetchedCourse.course_content || []);
+                } catch (e) {
+                    parsedLessons = [];
+                }
+
+                const mappedCourse: MappedCourse = {
+                    id: fetchedCourse.id,
+                    title: fetchedCourse.title,
+                    categories: fetchedCourse.categories,
+                    is_free: true,
+                    image: fetchedCourse.image_url || 'https://via.placeholder.com/400x250',
+                    price: 0,
+                    description: fetchedCourse.description,
+                    lessons: parsedLessons,
+                    instructor: fetchedCourse.instructor?.first_name
+                        ? `${fetchedCourse.instructor.first_name} ${fetchedCourse.instructor.last_name || ''}`.trim()
+                        : 'Unknown Instructor',
+                    instructorAvatar: fetchedCourse.instructor?.avatar_url,
+                    rating: fetchedCourse.avg_rating || 0,
+                    reviews: [],
+                    students: fetchedCourse.total_students || 0,
+                    duration: fetchedCourse.total_duration || '0h 0m',
+                    tools: []
+                };
+
+                setCourse(mappedCourse);
+            } catch (err: any) {
+                console.error("Failed to fetch course details:", err);
+                setError(err.message || 'Failed to load course details.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchCourse();
+    }, [id]);
+
+    if (loading) {
+        return (
+            <View style={[styles.container, styles.centerContent]}>
+                <ActivityIndicator size="large" color="#8A2BE2" />
+                <Text style={styles.loadingText}>Loading course...</Text>
+            </View>
+        );
+    }
+
+    if (error) {
+        return (
+            <View style={[styles.container, styles.centerContent]}>
+                <Text style={styles.errorText}>Error: {error}</Text>
+                <TouchableOpacity style={styles.errorButton} onPress={() => router.back()}>
+                    <Text style={styles.errorButtonText}>Go Back</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     if (!course) {
         return (
-            <View style={styles.container}>
-                <Text>Course not found</Text>
+            <View style={[styles.container, styles.centerContent]}>
+                <Text style={styles.errorText}>Course not found.</Text>
+                <TouchableOpacity style={styles.errorButton} onPress={() => router.back()}>
+                    <Text style={styles.errorButtonText}>Go Back</Text>
+                </TouchableOpacity>
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            <Stack.Screen
-                options={{
-                    title: course.title,
-                    headerStyle: { backgroundColor: '#8A2BE2' },
-                    headerTintColor: '#fff',
-                    headerTitleStyle: { fontWeight: 'bold' },
-                }}
-            />
+            <Stack.Screen options={CourseDetailsStackScreenOptions({ courseTitle: course.title })} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
                 {/* Header Image & Back Button */}
@@ -51,24 +155,27 @@ export default function CourseDetailsScreen() {
                     <Text style={styles.title}>{course.title}</Text>
                     <View style={styles.tagRow}>
                         <View style={styles.categoryTag}>
-                            <Text style={styles.categoryText}>{course.category === 'Skills Courses' ? '3D Design' : 'Development'}</Text>
+                            <Text style={styles.categoryText}>{course.categories || 'General'}</Text>
                         </View>
                         <View style={styles.ratingContainer}>
                             <Ionicons name="star" size={16} color="#FFD700" />
-                            <Text style={styles.ratingText}>{course.rating} (4,479 reviews)</Text>
+                            <Text style={styles.ratingText}>
+                                {course.rating ? course.rating.toFixed(1) : 'New'}
+                                {course.reviews?.length ? ` (${course.reviews.length} reviews)` : ''}
+                            </Text>
                         </View>
                     </View>
 
-                    <Text style={styles.price}>{course.isFree ? 'Free' : '$99.99'}</Text>
+                    <Text style={styles.price}>Free</Text>
 
                     <View style={styles.courseStats}>
                         <View style={styles.statItem}>
                             <Ionicons name="people" size={18} color="#8A2BE2" />
-                            <Text style={styles.statText}>{course.students || '1,000'} Students</Text>
+                            <Text style={styles.statText}>{course.students} Students</Text>
                         </View>
                         <View style={styles.statItem}>
                             <Ionicons name="time-outline" size={18} color="#8A2BE2" />
-                            <Text style={styles.statText}>{course.duration || '2h 30m'} Hours</Text>
+                            <Text style={styles.statText}>{course.duration}</Text>
                         </View>
                         <View style={styles.statItem}>
                             <Ionicons name="document-text-outline" size={18} color="#8A2BE2" />
@@ -105,7 +212,9 @@ export default function CourseDetailsScreen() {
             {/* Footer Enroll Button */}
             <View style={styles.footer}>
                 <TouchableOpacity style={styles.enrollButton}>
-                    <Text style={styles.enrollButtonText}>Enroll Course - {course.isFree ? 'Free' : '$99.99'}</Text>
+                    <Text style={styles.enrollButtonText}>
+                        Enroll Now
+                    </Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -114,7 +223,7 @@ export default function CourseDetailsScreen() {
 
 // Sub-components for Tabs
 
-const AboutTab = ({ course }: { course: Course }) => (
+const AboutTab = ({ course }: { course: MappedCourse }) => (
     <View>
         <Text style={styles.sectionTitle}>Mentor</Text>
         <View style={styles.instructorCard}>
@@ -130,12 +239,12 @@ const AboutTab = ({ course }: { course: Course }) => (
 
         <Text style={styles.sectionTitle}>About Course</Text>
         <Text style={styles.descriptionText}>
-            {course.description || 'No description available.'}
+            {course.description || 'No description available for this course.'}
         </Text>
 
         <Text style={styles.sectionTitle}>Tools</Text>
         <View style={styles.toolsContainer}>
-            {course.tools?.length ? course.tools.map((tool, idx) => (
+            {course.tools?.length ? course.tools.map((tool: any, idx: number) => (
                 <View key={idx} style={styles.toolItem}>
                     <Image source={{ uri: tool.icon }} style={styles.toolIcon} />
                     <Text style={styles.toolName}>{tool.name}</Text>
@@ -145,70 +254,53 @@ const AboutTab = ({ course }: { course: Course }) => (
     </View>
 );
 
-const LessonsTab = ({ course }: { course: Course }) => (
+const LessonsTab = ({ course }: { course: MappedCourse }) => (
     <View>
         <View style={styles.lessonsHeader}>
             <Text style={styles.lessonsCount}>{course.lessons?.length || 0} Lessons</Text>
-            <Text style={styles.seeAllText}>See All</Text>
         </View>
 
-        <Text style={styles.sectionSubtitle}>Section 1 - Introduction</Text>
+        {/* Only show section title if lessons exist */}
+        {course.lessons?.length ? <Text style={styles.sectionSubtitle}>Course Content</Text> : null}
 
-        {course.lessons?.map((lesson, index) => (
-            <View key={lesson.id} style={styles.lessonItem}>
+        {course.lessons?.length ? course.lessons.map((lesson: any, index: number) => (
+            <View key={index} style={styles.lessonItem}>
                 <View style={styles.lessonNumber}>
                     <Text style={styles.lessonNumberText}>{index + 1 < 10 ? `0${index + 1}` : index + 1}</Text>
                 </View>
                 <View style={styles.lessonInfo}>
-                    <Text style={styles.lessonTitle}>{lesson.title}</Text>
-                    <Text style={styles.lessonDuration}>{lesson.duration}</Text>
+                    <Text style={styles.lessonTitle}>{lesson.title || `Lesson ${index + 1}`}</Text>
+                    <Text style={styles.lessonDuration}>{lesson.duration || '5 mins'}</Text>
                 </View>
                 <View style={styles.lessonStatus}>
-                    {lesson.isLocked ? (
-                        <Ionicons name="lock-closed-outline" size={20} color="#999" />
-                    ) : (
-                        <Ionicons name="play-circle" size={24} color="#8A2BE2" />
-                    )}
+                    <Ionicons name="play-circle" size={24} color="#8A2BE2" />
                 </View>
             </View>
-        ))}
+        )) : <Text style={styles.emptyText}>No lessons uploaded yet.</Text>}
     </View>
 );
 
-const ReviewsTab = ({ course }: { course: Course }) => (
+const ReviewsTab = ({ course }: { course: MappedCourse }) => (
     <View>
         <View style={styles.reviewSummary}>
             <View style={styles.ratingBig}>
                 <Ionicons name="star" size={20} color="#FFD700" />
-                <Text style={styles.ratingBigText}>{course.rating} (4,479 reviews)</Text>
+                <Text style={styles.ratingBigText}>
+                    {course.rating ? course.rating.toFixed(1) : 'New'}
+                    {course.reviews?.length ? ` (${course.reviews.length} reviews)` : ''}
+                </Text>
             </View>
-            <Link href={{ pathname: "/allReviews", params: { courseId: course.id } }} asChild>
-                <TouchableOpacity>
-                    <Text style={styles.seeAllText}>See All</Text>
-                </TouchableOpacity>
-            </Link>
         </View>
 
-        {course.reviews?.length ? course.reviews.map(review => (
+        {course.reviews?.length ? course.reviews.map((review: any) => (
             <View key={review.id} style={styles.reviewItem}>
                 <View style={styles.reviewHeader}>
                     <Image source={{ uri: review.avatar }} style={styles.reviewerAvatar} />
                     <View style={styles.reviewerInfo}>
                         <Text style={styles.reviewerName}>{review.user}</Text>
-                        <View style={styles.reviewRatingRow}>
-                            <Ionicons name="star" size={12} color="#8A2BE2" />
-                            <Text style={styles.reviewRatingVal}>{review.rating}</Text>
-                            <Text style={styles.reviewDate}>{review.date}</Text>
-                        </View>
                     </View>
-                    <Ionicons name="ellipsis-horizontal" size={20} color="#999" />
                 </View>
                 <Text style={styles.reviewMessage}>{review.message}</Text>
-                <View style={styles.reviewActions}>
-                    <Ionicons name="heart-outline" size={16} color="#999" />
-                    <Text style={styles.likesCount}>342</Text>
-                    <Text style={styles.replyText}>7 weeks ago</Text>
-                </View>
             </View>
         )) : <Text style={styles.emptyText}>No reviews yet.</Text>}
     </View>
@@ -219,6 +311,31 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#fff',
+    },
+    centerContent: {
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 16,
+        color: '#666',
+    },
+    errorText: {
+        fontSize: 18,
+        color: 'red',
+        textAlign: 'center',
+        marginBottom: 20,
+    },
+    errorButton: {
+        backgroundColor: '#8A2BE2',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 5,
+    },
+    errorButtonText: {
+        color: '#fff',
+        fontSize: 16,
     },
     scrollContent: {
         paddingBottom: 100, // Space for footer

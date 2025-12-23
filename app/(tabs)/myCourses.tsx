@@ -1,16 +1,17 @@
 import SearchEmptyState from '@/src/components/SearchEmptyState';
-import { CATEGORIES, Course, INITIAL_COURSES, bookmarksStore } from '@/src/data/courses';
+import { CATEGORIES, bookmarksStore } from '@/src/data/courses';
+import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRouter } from 'expo-router';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
-  Easing,
   FlatList,
   Image,
   Modal,
-  SafeAreaView,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -22,23 +23,29 @@ import {
 
 const { width } = Dimensions.get('window');
 
-// Card Component matching Image 0
-const CourseCard = ({ course, onBookmarkToggle, isBookmarked, onPress }: { course: Course; onBookmarkToggle: (id: string) => void; isBookmarked: boolean; onPress: () => void }) => {
+// Step 2: Key Name Matching Check
+const CourseCard = ({ course, onBookmarkToggle, isBookmarked, onPress }: { course: any; onBookmarkToggle: (id: string) => void; isBookmarked: boolean; onPress: () => void }) => {
+  // Log the props received by the card to check for key mismatches
+  // console.log('CourseCard received props:', course);
+
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
       <View style={styles.cardLeft}>
-        <Image source={{ uri: course.image }} style={styles.courseImage} />
+        <Image
+          source={{ uri: course.thumbnail || course.image_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop' }}
+          style={styles.courseImage}
+        />
       </View>
       <View style={styles.cardMiddle}>
         <View style={styles.categoryTag}>
-          <Text style={styles.categoryText}>{course.subCategory}</Text>
+          <Text style={styles.categoryText}>{course.categories || 'General'}</Text>
         </View>
-        <Text style={styles.courseTitle}>{course.title}</Text>
+        <Text style={styles.courseTitle} numberOfLines={2}>{course.title || course.course_name || 'Untitled Course'}</Text>
         <View style={styles.priceRow}>
-          {course.isFree && <Text style={styles.freeText}>Free</Text>}
+          <Text style={styles.freeText}>Free</Text>
           <View style={styles.ratingBadge}>
             <Ionicons name="star" size={12} color="#FFD700" />
-            <Text style={styles.ratingVal}>{course.rating.toFixed(2)}</Text>
+            <Text style={styles.ratingVal}>{(course.avg_rating || 5.0).toFixed(2)}</Text>
           </View>
         </View>
       </View>
@@ -58,6 +65,10 @@ export default function MyCoursesScreen() {
   const navigation = useNavigation();
 
   // State
+  const [courses, setCourses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('All');
   const [filterVisible, setFilterVisible] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
@@ -68,99 +79,165 @@ export default function MyCoursesScreen() {
   const [selectedFilterCategory, setSelectedFilterCategory] = useState('All');
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
 
+  // Step 5: Immediate State Update & Deep Logging
+  const loadCourses = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await courseService.fetchPublishedCourses();
+      // Calculate is_free based on price if missing
+      const processedData = (data || []).map(c => ({
+        ...c,
+        is_free: c.price === 0 // Derive is_free from price
+      }));
+      setCourses(processedData);
+    } catch (err: any) {
+      console.error('[loadCourses] An error occurred:', err);
+      setError(err.message || 'An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []); // Removed dependencies to allow manual control
+
+  useEffect(() => {
+    loadCourses();
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadCourses();
+  }, [loadCourses]);
+
+  // ... (rest of the component is largely the same)
+
   // Force update for Bookmark Store sync
   const [, setTick] = useState(0);
   const forceUpdate = () => setTick(t => t + 1);
 
-  React.useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      forceUpdate();
-    });
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', forceUpdate);
     return unsubscribe;
   }, [navigation]);
 
   const toggleBookmark = (id: string) => {
-    if (bookmarksStore.has(id)) {
-      bookmarksStore.delete(id);
-    } else {
-      bookmarksStore.add(id);
-    }
+    bookmarksStore.has(id) ? bookmarksStore.delete(id) : bookmarksStore.add(id);
     forceUpdate();
   };
 
+  // Memoized filtering logic
   const filteredCourses = useMemo(() => {
-    let currentCourses = INITIAL_COURSES;
+    let currentCourses = courses;
+    console.log(`[useMemo] Running filter logic on ${courses.length} courses.`);
 
-    // 1. Top Tab Filter (Main Tabs: All, Skills, Technical)
-    if (activeTab === 'Skills Courses') {
-      currentCourses = currentCourses.filter(course => course.category === 'Skills Courses');
-    } else if (activeTab === 'Technical Courses') {
-      currentCourses = currentCourses.filter(course => course.category === 'Technical Courses');
-    }
+    // Temporarily disabled for debugging
+    /* 
+    if (activeTab === 'Skills Courses') { ... }
+    */
 
-    // 2. Search
     if (searchQuery) {
       const lower = searchQuery.toLowerCase();
       currentCourses = currentCourses.filter(c =>
-        c.title.toLowerCase().includes(lower) ||
-        c.instructor.toLowerCase().includes(lower)
+        c.title?.toLowerCase().includes(lower) ||
+        (c.instructor?.first_name || '').toLowerCase().includes(lower)
       );
     }
 
-    // 3. Modal Filters (Category & Rating)
     if (selectedFilterCategory !== 'All') {
-      // Filter by subCategory (e.g., 'Learn HTML', 'Web Design')
-      currentCourses = currentCourses.filter(c => c.subCategory === selectedFilterCategory);
+      currentCourses = currentCourses.filter(c => c.category === selectedFilterCategory);
     }
 
     if (selectedRating !== null) {
-      // Filter by Rating (assuming >= logic)
-      currentCourses = currentCourses.filter(c => Math.floor(c.rating) >= selectedRating);
+      currentCourses = currentCourses.filter(c => Math.floor(c.avg_rating || 5) >= selectedRating);
     }
 
+    console.log(`[useMemo] Returning ${currentCourses.length} courses after filtering.`);
     return currentCourses;
-  }, [activeTab, searchQuery, selectedFilterCategory, selectedRating]);
+  }, [searchQuery, selectedFilterCategory, selectedRating, courses]);
 
-  // Animation
+  // Animation handlers
   const showFilter = () => {
     setFilterVisible(true);
-    Animated.timing(filterAnimation, {
-      toValue: 1,
-      duration: 300,
-      easing: Easing.out(Easing.ease),
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(filterAnimation, { toValue: 1, duration: 300, useNativeDriver: true }).start();
   };
-
   const hideFilter = () => {
-    Animated.timing(filterAnimation, {
-      toValue: 0,
-      duration: 300,
-      easing: Easing.in(Easing.ease),
-      useNativeDriver: true,
-    }).start(() => setFilterVisible(false));
+    Animated.timing(filterAnimation, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => setFilterVisible(false));
   };
-
-  const filterTranslateY = filterAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [500, 0],
-  });
-
+  const filterTranslateY = filterAnimation.interpolate({ inputRange: [0, 1], outputRange: [500, 0] });
   const resetFilters = () => {
     setSelectedFilterCategory('All');
     setSelectedRating(null);
   };
+  const applyFilters = () => hideFilter();
 
-  const applyFilters = () => {
-    hideFilter();
+  // Content rendering logic
+  const renderContent = () => {
+    if (loading && !refreshing) {
+      return (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#8A2BE2" />
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorText}>Failed to load courses.</Text>
+          <Text style={styles.errorSubText}>{error}</Text>
+          <TouchableOpacity style={styles.tryAgainButton} onPress={loadCourses}>
+            <Text style={styles.tryAgainButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // Step 4: FlatList Troubleshooting
+    // Define ListEmptyComponent as a separate function or component
+    const renderEmptyState = () => {
+      if (searchQuery.length > 0) {
+        return <SearchEmptyState query={searchQuery} />;
+      } else {
+        return (
+          <View style={styles.centerContainer}>
+            <Text style={styles.emptyText}>No courses available right now.</Text>
+            <Text style={styles.emptySubText}>Check back later or adjust your filters.</Text>
+          </View>
+        );
+      }
+    };
+
+    return (
+      <View style={{ flex: 1, minHeight: 500 }}>
+        <FlatList
+          data={filteredCourses}
+          renderItem={({ item }) => (
+            <CourseCard
+              course={item}
+              onBookmarkToggle={toggleBookmark}
+              isBookmarked={bookmarksStore.has(item.id)}
+              onPress={() => {
+                console.log('Navigating with ID:', item.id);
+                router.push({ pathname: '/courseDetails/[id]', params: { id: item.id } });
+              }}
+            />
+          )}
+          keyExtractor={item => item.id.toString()}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+          }
+          ListEmptyComponent={renderEmptyState()} // Call the function
+        />
+      </View>
+    );
   };
 
-
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerText}>Courses</Text>
         <View style={styles.headerRight}>
@@ -173,7 +250,6 @@ export default function MyCoursesScreen() {
         </View>
       </View>
 
-      {/* Tabs & Search */}
       <View style={styles.tabsAndSearchContainer}>
         <ScrollView
           horizontal
@@ -196,7 +272,6 @@ export default function MyCoursesScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Search Input */}
       {searchVisible && (
         <View style={styles.searchInputContainer}>
           <Ionicons name="search-outline" size={20} color="#999" style={styles.searchInputIcon} />
@@ -213,93 +288,51 @@ export default function MyCoursesScreen() {
         </View>
       )}
 
-      <FlatList
-        data={filteredCourses}
-        renderItem={({ item }) => (
-          <CourseCard
-            course={item}
-            onBookmarkToggle={toggleBookmark}
-            isBookmarked={bookmarksStore.has(item.id)}
-            onPress={() => router.push(`/courseDetails/${item.id}` as any)}
-          />
-        )}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          searchQuery.length > 0 ? (
-            <SearchEmptyState query={searchQuery} />
-          ) : null
-        }
-      />
+      {renderContent()}
 
-      {/* Filter Modal */}
       <Modal transparent visible={filterVisible} onRequestClose={hideFilter}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={hideFilter}>
           <Animated.View style={[styles.modalContent, { transform: [{ translateY: filterTranslateY }] }]}>
-
             <View style={styles.handleBar} />
             <Text style={styles.filterHeaderTitle}>Filter</Text>
-
-            {/* Category Section */}
             <Text style={styles.sectionTitle}>Category</Text>
             <View style={styles.chipsContainer}>
               {CATEGORIES.filter(c => c !== 'All' && c !== 'Skills Courses' && c !== 'Technical Courses').map(cat => (
                 <TouchableOpacity
                   key={cat}
-                  style={[
-                    styles.chip,
-                    selectedFilterCategory === cat && styles.chipActive
-                  ]}
+                  style={[styles.chip, selectedFilterCategory === cat && styles.chipActive]}
                   onPress={() => setSelectedFilterCategory(cat === selectedFilterCategory ? 'All' : cat)}
                 >
-                  <Text style={[
-                    styles.chipText,
-                    selectedFilterCategory === cat && styles.chipTextActive
-                  ]}>{cat}</Text>
+                  <Text style={[styles.chipText, selectedFilterCategory === cat && styles.chipTextActive]}>{cat}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-
-            {/* Rating Section */}
             <Text style={styles.sectionTitle}>Rating</Text>
             <View style={styles.chipsContainer}>
-              <TouchableOpacity
-                style={[styles.chip, selectedRating === null && styles.chipActive]}
-                onPress={() => setSelectedRating(null)}
-              >
+              <TouchableOpacity style={[styles.chip, selectedRating === null && styles.chipActive]} onPress={() => setSelectedRating(null)}>
                 <Ionicons name="star" size={14} color={selectedRating === null ? "#fff" : "#8A2BE2"} />
                 <Text style={[styles.chipText, selectedRating === null && styles.chipTextActive, { marginLeft: 4 }]}>All</Text>
               </TouchableOpacity>
               {[5, 4, 3, 2].map(star => (
-                <TouchableOpacity
-                  key={star}
-                  style={[styles.chip, selectedRating === star && styles.chipActive]}
-                  onPress={() => setSelectedRating(star)}
-                >
+                <TouchableOpacity key={star} style={[styles.chip, selectedRating === star && styles.chipActive]} onPress={() => setSelectedRating(star)}>
                   <Ionicons name="star" size={14} color={selectedRating === star ? "#fff" : "#8A2BE2"} />
                   <Text style={[styles.chipText, selectedRating === star && styles.chipTextActive, { marginLeft: 4 }]}>{star}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-
             <View style={styles.divider} />
-
-            {/* Footer Buttons */}
             <View style={styles.filterFooter}>
               <TouchableOpacity style={styles.resetBtn} onPress={resetFilters}>
                 <Text style={styles.resetBtnText}>Reset</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.applyBtn} onPress={applyFilters}>
                 <Text style={styles.applyBtnText}>Filter</Text>
               </TouchableOpacity>
             </View>
-
           </Animated.View>
         </TouchableOpacity>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -314,7 +347,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-    paddingBottom: 5,
+    paddingBottom: 15,
     backgroundColor: '#8A2BE2',
   },
   headerText: {
@@ -343,7 +376,7 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
-    gap: 5, // Reduced gap
+    gap: 5,
   },
   tabButton: {
     paddingVertical: 8,
@@ -363,7 +396,7 @@ const styles = StyleSheet.create({
   },
   searchIconContainer: {
     padding: 5,
-    marginLeft: 20, // Added margin to separation
+    marginLeft: 20,
   },
   searchInputContainer: {
     flexDirection: 'row',
@@ -461,8 +494,6 @@ const styles = StyleSheet.create({
   bookmarkBtn: {
     padding: 5,
   },
-
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -538,7 +569,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 15,
     borderRadius: 25,
-    backgroundColor: '#E6E6FA', // Light purple
+    backgroundColor: '#E6E6FA',
     alignItems: 'center',
   },
   resetBtnText: {
@@ -558,4 +589,46 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  emptySubText: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#D92D20',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  errorSubText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  tryAgainButton: {
+    backgroundColor: '#8A2BE2',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+  },
+  tryAgainButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  }
 });

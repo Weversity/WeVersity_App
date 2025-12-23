@@ -5,13 +5,13 @@ import React from 'react';
 import {
   FlatList,
   Image,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const ProgressBar = ({ progress }: { progress: string }) => {
     const progressVal = parseInt(progress.replace('%', ''));

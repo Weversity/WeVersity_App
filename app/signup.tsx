@@ -2,7 +2,8 @@ import AuthForm from '@/src/components/AuthForm';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { View, StyleSheet, SafeAreaView, StatusBar, Text, TouchableOpacity, Image } from 'react-native';
+import { View, StyleSheet, StatusBar, Text, TouchableOpacity, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SignUpScreen() {
   const router = useRouter();

@@ -9,7 +9,6 @@ import {
   FlatList,
   Modal,
   PanResponder,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -19,6 +18,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../constants/theme';
 import { useCoursesContext } from '../src/context/CoursesContext';
 

@@ -5,13 +5,13 @@ import React, { useState } from 'react';
 import {
   FlatList,
   Image,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 export default function BookmarkedCoursesScreen() {

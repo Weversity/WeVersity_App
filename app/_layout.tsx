@@ -1,11 +1,13 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import React, { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '@/src/context/AuthContext';
 import { CoursesProvider } from '@/src/context/CoursesContext';
+import { supabase } from '@/src/lib/supabase';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -13,6 +15,26 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    const testConnection = async () => {
+      console.log('🚀 Final Authenticated Test Start...');
+      // We try a simple select to verify the key's validity against the Project API
+      const { data, error } = await supabase.from('profiles').select('id').limit(1);
+
+      if (error) {
+        console.error('❌ Connection Result: Failed');
+        console.error('Error Message:', error.message);
+        console.error('Error Code:', error.code);
+        console.error('Probable Cause: Check if the ANON_KEY in your .env matches the one in your Supabase Dashboard.');
+      } else {
+        console.log('✅ Connection Result: Success!');
+        console.log('Verified database connectivity.');
+      }
+    };
+
+    testConnection();
+  }, []);
 
   return (
     <CoursesProvider>

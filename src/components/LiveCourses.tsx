@@ -1,100 +1,93 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, Image, TouchableOpacity } from 'react-native';
 import { Link } from 'expo-router';
+import React, { memo, useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { courseService } from '../services/courseService';
 
-interface Course {
-  id: string;
-  title: string;
-  coach: {
-    name: string;
-    expertise: string;
-    picture: string;
-  };
-}
+const CourseItem = memo(({ item }: { item: any }) => {
+  const instructorName = `${item.instructor?.first_name || ''} ${item.instructor?.last_name || ''}`.trim() || 'Instructor';
+  const instructorExpertise = item.categories || 'Expert';
+  const instructorPicture = item.instructor?.avatar_url || `https://randomuser.me/api/portraits/lego/1.jpg`;
 
-const mockData = {
-  names: ["John Doe", "Sarah Smith", "Victoria Chen", "Mike Johnson", "Emily White", "David Lee", "Jessica Brown", "Chris Green"],
-  courseBases: ["Web Development", "Mobile UI/UX Design", "Advanced JavaScript", "Public Speaking Mastery", "Data Science with Python", "Digital Marketing", "The Art of Photography", "Financial Planning"],
-  expertises: ["Full-Stack Developer", "Design Lead", "JavaScript Engineer", "Communication Coach", "Data Scientist", "Marketing Guru", "Pro Photographer", "Finance Expert"]
-};
-
-const getRealisticPicture = (index: number) => {
-    // Alternate between men and women portraits
-    const gender = index % 2 === 0 ? 'women' : 'men';
-    return `https://randomuser.me/api/portraits/${gender}/${index}.jpg`;
-}
-
-const allCourses: Course[] = Array.from({ length: 30 }, (_, i) => ({
-  id: `_` + (i + 1),
-  title: `${mockData.courseBases[i % mockData.courseBases.length]}`,
-  coach: {
-    name: `${mockData.names[i % mockData.names.length]}`,
-    expertise: `${mockData.expertises[i % mockData.expertises.length]}`,
-    picture: getRealisticPicture(i),
-  }
-}));
-
-const LiveCourses: React.FC = () => {
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [page, setPage] = useState<number>(1);
-  const coursesPerPage = 6;
-
-  useEffect(() => {
-    loadMoreCourses();
-  }, []);
-
-  const loadMoreCourses = () => {
-    if (loading) {
-      return;
-    }
-    setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      const newCourses = allCourses.slice(0, page * coursesPerPage);
-      setCourses(newCourses);
-      setPage(page + 1);
-      setLoading(false);
-    }, 1500);
-  };
-
-  const renderItem = ({ item }: { item: Course }) => {
-    console.log(`Rendering course with ID: ${item.id}`);
-    return (
-      <View style={styles.courseItem}>
-        <View>
-          <Image source={{ uri: item.coach.picture }} style={styles.coachImage} />
-          <View style={styles.liveTag}>
-              <Text style={styles.tagText}>LIVE</Text>
-          </View>
-        </View>
-        <View style={styles.detailsContainer}>
-          <Text style={styles.coachName}>{item.coach.name}</Text>
-          <Text style={styles.coachExpertise}>{item.coach.expertise}</Text>
-          <Text style={styles.courseTitle} numberOfLines={1} ellipsizeMode='tail'>{item.title}</Text>
-          <Link href={`/live/${item.id}`} asChild>
-            <TouchableOpacity style={styles.joinButton}>
-              <Text style={styles.joinButtonText}>Join Now</Text>
-            </TouchableOpacity>
-          </Link>
+  return (
+    <View style={styles.courseItem}>
+      <View>
+        <Image source={{ uri: instructorPicture }} style={styles.coachImage} />
+        <View style={styles.liveTag}>
+          <Text style={styles.tagText}>LIVE</Text>
         </View>
       </View>
-    );
-  };
+      <View style={styles.detailsContainer}>
+        <Text style={styles.coachName}>{instructorName}</Text>
+        <Text style={styles.coachExpertise}>{instructorExpertise}</Text>
+        <Text style={styles.courseTitle} numberOfLines={1} ellipsizeMode='tail'>{item.title}</Text>
+        <Link href={`/courseDetails/${item.id}`} asChild>
+          <TouchableOpacity style={styles.joinButton}>
+            <Text style={styles.joinButtonText}>Join Now</Text>
+          </TouchableOpacity>
+        </Link>
+      </View>
+    </View>
+  );
+});
 
-  const renderFooter = () => {
-    if (!loading) return null;
+const LiveCourses: React.FC = () => {
+  const [courses, setCourses] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(false); // Start with false
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  const loadCourses = useCallback(async () => {
+    if (loading) return; // Prevent re-fetching if already loading
+    
+    setLoading(true);
+    try {
+      const data = await courseService.fetchPublishedCourses();
+      setCourses(data);
+    } catch (error) {
+      console.error('Failed to fetch courses:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [loading]); // Add loading to dependency array
+
+  useEffect(() => {
+    loadCourses();
+  }, []); // Remove loadCourses from dependency array to only run on mount
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadCourses();
+  }, [loadCourses]);
+
+  const renderItem = useCallback(({ item }: { item: any }) => (
+    <CourseItem item={item} />
+  ), []);
+
+  const renderEmpty = useCallback(() => {
+    if (loading) return null; // Don't show empty text while loading
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>No live courses available right now.</Text>
+      </View>
+    );
+  }, [loading]);
+
+  const renderFooter = useCallback(() => {
+    // Show footer loading indicator only on initial load
+    if (!loading || courses.length > 0) return null;
     return <ActivityIndicator style={{ marginVertical: 20 }} size="large" color="#8A2BE2" />;
-  };
+  }, [loading, courses]);
 
   return (
     <FlatList
       data={courses}
       renderItem={renderItem}
-      keyExtractor={(item) => item.id}
-      onEndReached={loadMoreCourses}
-      onEndReachedThreshold={0.5}
+      keyExtractor={(item) => item.id.toString()}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+      }
       ListFooterComponent={renderFooter}
+      ListEmptyComponent={renderEmpty}
       contentContainerStyle={styles.container}
       numColumns={2}
     />
@@ -113,24 +106,21 @@ const styles = StyleSheet.create({
     flex: 1,
     margin: 5,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 5,
-    overflow: 'hidden', // Ensures the image respects the border radius
+    overflow: 'hidden',
   },
   coachImage: {
     width: '100%',
-    height: 140, // Increased height for better look
+    height: 140,
   },
   liveTag: {
     position: 'absolute',
     bottom: 8,
     right: 8,
-    backgroundColor: 'rgba(255, 0, 0, 0.9)', // Red color
+    backgroundColor: 'rgba(255, 0, 0, 0.9)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 5,
@@ -142,7 +132,7 @@ const styles = StyleSheet.create({
   },
   detailsContainer: {
     padding: 12,
-    alignItems: 'center', // Center-aligns all children
+    alignItems: 'center',
   },
   coachName: {
     fontSize: 16,
@@ -159,10 +149,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#444',
     marginBottom: 12,
-    textAlign: 'center', // Explicitly center for good measure
+    textAlign: 'center',
   },
   joinButton: {
-    backgroundColor: '#8A2BE2', // Purple color
+    backgroundColor: '#8A2BE2',
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 20,
@@ -173,6 +163,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
   },
 });
 

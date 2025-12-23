@@ -1,93 +1,29 @@
+import { useAuth } from '@/src/context/AuthContext';
+import { chatService } from '@/src/services/chatService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState, useEffect } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
+  RefreshControl,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-  SafeAreaView,
   useWindowDimensions,
+  View
 } from 'react-native';
-import { TabView, TabBar, SceneMap } from 'react-native-tab-view';
-
-const conversationsData = [
-    {
-      id: '1',
-      name: 'Dr. Sarah Smith',
-      message: "Don't forget about the live session today! We will be covering Redux state management in depth.",
-      time: '10:30 AM',
-      unread: 2,
-      online: true,
-      avatarColor: '#E0E7FF' // Light Indigo
-    },
-    {
-      id: '2',
-      name: 'Support Team',
-      message: 'Your ticket #492 has been resolved. Please let us know if you need anything else.',
-      time: 'Yesterday',
-      unread: 0,
-      isRead: true, // blue check equivalent
-      avatarColor: '#F0FDF4' // Light Green
-    },
-    {
-      id: '3',
-      name: 'John Doe',
-      message: 'Hey, can you help me with the assignment? I am stuck on the third problem.',
-      time: 'Tue',
-      unread: 0,
-      isRead: true,
-      online: true,
-      avatarColor: '#FFF7ED' // Light Orange
-    },
-    {
-      id: '4',
-      name: 'Course System',
-      message: 'New materials have been added to Python 101. Check out the new module on Decorators.',
-      time: 'Mon',
-      unread: 1,
-      system: true,
-      avatarColor: '#F3F4F6' // Light Gray
-    },
-    {
-      id: '5',
-      name: 'Emily Chen',
-      message: "Thanks for the notes! They were super helpful for the exam prep.",
-      time: 'Sun',
-      unread: 0,
-      isRead: true,
-      avatarColor: '#FCE7F3' // Light Pink
-    },
-    {
-      id: '6',
-      name: 'Python Course',
-      message: 'The deadline for the project is approaching. Make sure to submit it on time.',
-      time: 'Fri',
-      unread: 1,
-      system: true,
-      avatarColor: '#F3F4F6' // Light Gray
-    },
-    {
-      id: '7',
-      name: 'HTML Course',
-      message: 'A new discussion has been started on the topic of "CSS Grid vs. Flexbox".',
-      time: 'Thu',
-      unread: 0,
-      system: true,
-      avatarColor: '#F3F4F6' // Light Gray
-    },
-];
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { TabBar, TabView } from 'react-native-tab-view';
 
 // Reusable Conversation Item Component
-const ConversationItem = ({ item }: { item: any }) => {
-  const router = useRouter();
+const ConversationItem = memo(({ item, onPress }: { item: any; onPress: (id: string) => void }) => {
   return (
     <TouchableOpacity
       style={styles.conversationItem}
-      onPress={() => router.push(`/chat/${item.id}`)}
+      onPress={() => onPress(item.id)}
       activeOpacity={0.7}
     >
       <View style={[styles.avatarContainer, { backgroundColor: item.avatarColor }]}>
@@ -122,42 +58,61 @@ const ConversationItem = ({ item }: { item: any }) => {
       </View>
     </TouchableOpacity>
   );
-};
-
+});
 
 // Scenes for TabView
-const AllChatsRoute = ({ conversations }: { conversations: any[] }) => (
+const renderEmptyMessages = (message: string) => (
+  <View style={styles.emptyContainer}>
+    <Text style={styles.emptyText}>{message}</Text>
+  </View>
+);
+
+const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
     data={conversations}
-    renderItem={({ item }) => <ConversationItem item={item} />}
+    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
     contentContainerStyle={styles.listContent}
     showsVerticalScrollIndicator={false}
+    refreshControl={
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+    }
+    ListEmptyComponent={() => renderEmptyMessages('No messages found.')}
   />
-);
+));
 
-const UnreadRoute = ({ conversations }: { conversations: any[] }) => (
-    <FlatList
-        data={conversations.filter((c) => c.unread > 0)}
-        renderItem={({ item }) => <ConversationItem item={item} />}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-    />
-);
+const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+  <FlatList
+    data={conversations.filter((c) => c.unread > 0)}
+    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
+    keyExtractor={(item) => item.id}
+    contentContainerStyle={styles.listContent}
+    showsVerticalScrollIndicator={false}
+    refreshControl={
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+    }
+    ListEmptyComponent={() => renderEmptyMessages('No unread messages.')}
+  />
+));
 
-const CommunitiesRoute = ({ conversations }: { conversations: any[] }) => (
-    <FlatList
-        data={conversations.filter((c) => c.system)}
-        renderItem={({ item }) => <ConversationItem item={item} />}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-    />
-);
+const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+  <FlatList
+    data={conversations.filter((c) => c.system)}
+    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
+    keyExtractor={(item) => item.id}
+    contentContainerStyle={styles.listContent}
+    showsVerticalScrollIndicator={false}
+    refreshControl={
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+    }
+    ListEmptyComponent={() => renderEmptyMessages('No community updates yet.')}
+  />
+));
 
 export default function InboxScreen() {
+  const router = useRouter();
   const layout = useWindowDimensions();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [routes] = useState([
@@ -166,29 +121,84 @@ export default function InboxScreen() {
     { key: 'communities', title: 'Communities' },
   ]);
 
-  const [filteredConversations, setFilteredConversations] = useState(conversationsData);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadChats = useCallback(async () => {
+    try {
+      setLoading(true);
+      const messages = await chatService.fetchMessages();
+      setConversations(messages.map(m => ({
+        id: m.id,
+        name: m.sender_id === user?.id ? 'Me' : 'Instructor',
+        message: m.content,
+        time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        unread: 0,
+        avatarColor: '#F3F4F6',
+        system: false,
+      })));
+    } catch (error) {
+      console.error('Failed to load chats:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
-    const filtered = conversationsData.filter(conversation =>
-      conversation.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    setFilteredConversations(filtered);
-  }, [searchQuery]);
+    loadChats();
 
-  const renderScene = ({ route }: { route: { key: string } }) => {
+    const subscription = chatService.subscribeToGlobalChat((newMessage: any) => {
+      setConversations(prev => [
+        {
+          id: newMessage.id,
+          name: newMessage.sender_id === user?.id ? 'Me' : 'Instructor',
+          message: newMessage.content,
+          time: new Date(newMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          unread: 1,
+          avatarColor: '#F3F4F6',
+          system: false,
+        },
+        ...prev
+      ]);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [loadChats]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadChats();
+  }, [loadChats]);
+
+  const filteredConversations = useMemo(() => {
+    return conversations.filter(conversation =>
+      conversation.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      conversation.message?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [searchQuery, conversations]);
+
+  const handleChatPress = useCallback((id: string) => {
+    router.push(`/chat/${id}`);
+  }, [router]);
+
+  const renderScene = useCallback(({ route }: { route: { key: string } }) => {
     switch (route.key) {
       case 'all':
-        return <AllChatsRoute conversations={filteredConversations} />;
+        return <AllChatsRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       case 'unread':
-        return <UnreadRoute conversations={filteredConversations} />;
+        return <UnreadRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       case 'communities':
-        return <CommunitiesRoute conversations={filteredConversations} />;
+        return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       default:
         return null;
     }
-  };
+  }, [filteredConversations, handleChatPress, refreshing, onRefresh]);
 
-  const renderTabBar = (props: any) => (
+  const renderTabBar = useCallback((props: any) => (
     <TabBar
       {...props}
       indicatorStyle={{ backgroundColor: 'white' }}
@@ -197,7 +207,7 @@ export default function InboxScreen() {
       activeColor={'#fff'}
       inactiveColor={'#E0B0FF'}
     />
-  );
+  ), []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -219,36 +229,32 @@ export default function InboxScreen() {
           </View>
         </View>
 
-        <TabView
-          navigationState={{ index, routes }}
-          renderScene={renderScene}
-          onIndexChange={setIndex}
-          initialLayout={{ width: layout.width }}
-          renderTabBar={renderTabBar}
-        />
+        {loading && conversations.length === 0 ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#8A2BE2" />
+          </View>
+        ) : (
+          <TabView
+            navigationState={{ index, routes }}
+            renderScene={renderScene}
+            onIndexChange={setIndex}
+            initialLayout={{ width: layout.width }}
+            renderTabBar={renderTabBar}
+          />
+        )}
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  scene: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sceneText: {
-    fontSize: 16,
-    color: '#666',
-  },
   container: {
     flex: 1,
     backgroundColor: '#fff',
   },
   header: {
-    // paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45, // Tab bar is part of header now
-    paddingBottom: 5,
-    paddingTop: 40,
+    paddingBottom: 15,
+    paddingTop: 45,
     paddingHorizontal: 20,
     backgroundColor: '#8A2BE2',
     alignItems: 'center',
@@ -320,7 +326,7 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: '#22C55E', // Green
+    backgroundColor: '#22C55E',
     borderWidth: 2,
     borderColor: '#fff',
   },
@@ -356,7 +362,7 @@ const styles = StyleSheet.create({
   bottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start', // Align mainly to top of text
+    alignItems: 'flex-start',
   },
   messagePreview: {
     flex: 1,
@@ -382,5 +388,21 @@ const styles = StyleSheet.create({
   },
   readIcon: {
     marginTop: 2,
+  },
+  emptyContainer: {
+    flex: 1,
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
