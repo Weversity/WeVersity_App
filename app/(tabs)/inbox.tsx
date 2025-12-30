@@ -124,49 +124,74 @@ export default function InboxScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const formatConversation = useCallback((conv: any) => {
+    const msg = conv.last_message;
+    const isMe = msg.sender_id === user?.id;
+
+    return {
+      id: conv.id,
+      name: conv.name || 'User',
+      message: (isMe ? 'You: ' : '') + msg.content,
+      time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      unread: conv.unread_count || 0,
+      avatar: conv.avatar,
+      avatarColor: '#F3F4F6',
+      system: false,
+      timestamp: new Date(msg.created_at).getTime()
+    };
+  }, [user?.id]);
+
   const loadChats = useCallback(async () => {
     try {
+      if (!user) return;
       setLoading(true);
-      const messages = await chatService.fetchMessages();
-      setConversations(messages.map(m => ({
-        id: m.id,
-        name: m.sender_id === user?.id ? 'Me' : 'Instructor',
-        message: m.content,
-        time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        unread: 0,
-        avatarColor: '#F3F4F6',
-        system: false,
-      })));
+      const inboxData = await chatService.fetchInboxConversations(user.id);
+      const mapped = inboxData.map(formatConversation);
+      // Sort by timestamp descending
+      setConversations(mapped.sort((a, b) => b.timestamp - a.timestamp));
     } catch (error) {
       console.error('Failed to load chats:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [user, formatConversation]);
 
   useEffect(() => {
+    if (!user) return;
     loadChats();
 
     const subscription = chatService.subscribeToGlobalChat((newMessage: any) => {
-      setConversations(prev => [
-        {
-          id: newMessage.id,
-          name: newMessage.sender_id === user?.id ? 'Me' : 'Instructor',
-          message: newMessage.content,
+      // Logic to move conversation to top
+      setConversations(prev => {
+        const chatId = newMessage.group_id || newMessage.conversation_id;
+        if (!chatId) return prev;
+
+        const others = prev.filter(c => c.id !== chatId);
+
+        const existing = prev.find(c => c.id === chatId);
+
+        const isMe = newMessage.sender_id === user.id;
+        const updatedConv = {
+          id: chatId,
+          name: existing?.name || 'User',
+          avatar: existing?.avatar,
+          message: (isMe ? 'You: ' : '') + newMessage.content,
           time: new Date(newMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          unread: 1,
+          unread: isMe ? 0 : (existing?.unread || 0) + 1,
           avatarColor: '#F3F4F6',
           system: false,
-        },
-        ...prev
-      ]);
+          timestamp: new Date(newMessage.created_at).getTime()
+        };
+
+        return [updatedConv, ...others];
+      });
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [loadChats]);
+  }, [user, loadChats]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

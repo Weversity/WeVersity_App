@@ -5,29 +5,53 @@ const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 if (!supabaseUrl) {
     console.warn('chatService: EXPO_PUBLIC_SUPABASE_URL is not defined. Network requests will fail.');
 }
-
 export const chatService = {
-    // Fetch shared messages (common group)
-    async fetchMessages() {
+    // Fetch inbox conversations (latest message per conversation)
+    async fetchInboxConversations(currentUserId) {
         try {
-            const { data, error } = await supabase
+            // 1. Fetch messages with explicit profile join via sender_id
+            const { data: messages, error } = await supabase
                 .from('chat_messages')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(50);
+                .select(`
+                    *,
+                    sender:profiles!sender_id (id, first_name, last_name, avatar_url)
+                `)
+                .order('created_at', { ascending: false });
 
             if (error) throw error;
-            return data;
+
+            // 2. Group by group_id or conversation_id
+            const conversationsMap = new Map();
+
+            messages.forEach(msg => {
+                const chatId = msg.group_id || msg.conversation_id;
+                if (!chatId) return;
+
+                if (!conversationsMap.has(chatId)) {
+                    // partner info logic: if I sent it, the partner is the other messages' sender?
+                    // For inbox, we show the sender's name if it's not us.
+                    const isMe = msg.sender_id === currentUserId;
+
+                    conversationsMap.set(chatId, {
+                        id: chatId,
+                        name: isMe ? 'Me' : (msg.sender ? `${msg.sender.first_name || ''} ${msg.sender.last_name || ''}`.trim() : 'User'),
+                        avatar: isMe ? null : msg.sender?.avatar_url,
+                        last_message: msg,
+                    });
+                }
+            });
+
+            return Array.from(conversationsMap.values());
         } catch (error) {
-            console.error('Error in fetchMessages:', error.message);
+            console.error('Error in fetchInboxConversations:', error.message);
             throw error;
         }
     },
 
-    // Subscribe to real-time chat (Global common room)
+    // Subscribe to real-time chat (global updates)
     subscribeToGlobalChat(callback) {
         const channel = supabase
-            .channel('public:chat_messages')
+            .channel('global-chat-updates')
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'chat_messages' },
@@ -40,30 +64,15 @@ export const chatService = {
         return channel;
     },
 
-    // Send a message
-    async sendMessage(senderId, content) {
-        try {
-            const { data, error } = await supabase
-                .from('chat_messages')
-                .insert([{ sender_id: senderId, content }])
-                .select();
-
-            if (error) throw error;
-            return data[0];
-        } catch (error) {
-            console.error('Error in sendMessage:', error.message);
-            throw error;
-        }
-    },
-
-    // === CONVERSATION-BASED METHODS (1-on-1 Chats) ===
-
-    // Fetch messages for a specific conversation
+    // Fetch messages for a specific conversation with explicit join
     async fetchConversationMessages(conversationId) {
         try {
             const { data, error } = await supabase
                 .from('chat_messages')
-                .select('*')
+                .select(`
+                    *,
+                    sender:profiles!sender_id (id, first_name, last_name, avatar_url)
+                `)
                 .eq('conversation_id', conversationId)
                 .order('created_at', { ascending: true });
 
@@ -76,16 +85,19 @@ export const chatService = {
     },
 
     // Subscribe to real-time updates for a specific conversation
-    subscribeToConversation(conversationId, callback) {
+    subscribeToConversation(id, type = 'conversation', callback) {
+        // type can be 'conversation_id' or 'group_id'
+        const filter = type === 'group' ? `group_id=eq.${id}` : `conversation_id=eq.${id}`;
+
         const channel = supabase
-            .channel(`conversation:${conversationId}`)
+            .channel(`conversation:${id}`)
             .on(
                 'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'chat_messages',
-                    filter: `conversation_id=eq.${conversationId}`
+                    filter: filter
                 },
                 (payload) => {
                     callback(payload.new);

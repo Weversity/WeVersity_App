@@ -127,7 +127,7 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!id) return;
 
-    const subscription = chatService.subscribeToConversation(id as string, (newMessage: Message) => {
+    const subscription = chatService.subscribeToConversation(id as string, 'conversation', (newMessage: Message) => {
       setMessages(prevMessages => [...prevMessages, newMessage]);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
@@ -140,11 +140,12 @@ export default function ChatScreen() {
   const handleSend = async () => {
     if (inputText.trim().length > 0 && user && id) {
       const messageContent = inputText.trim();
+      const tempId = `temp-${Date.now()}`;
       setInputText('');
 
       // Optimistically add message to UI
       const tempMessage: Message = {
-        id: `temp-${Date.now()}`,
+        id: tempId,
         content: messageContent,
         sender_id: user.id,
         created_at: new Date().toISOString(),
@@ -155,11 +156,16 @@ export default function ChatScreen() {
 
       try {
         // Send message to Supabase
-        await chatService.sendConversationMessage(id as string, user.id, messageContent);
+        const realMessage = await chatService.sendConversationMessage(id as string, user.id, messageContent);
+
+        // Replace temp message with the real one from DB
+        if (realMessage) {
+          setMessages(prev => prev.map(msg => msg.id === tempId ? realMessage : msg));
+        }
       } catch (error) {
         console.error('Error sending message:', error);
         // Remove optimistic message on error
-        setMessages(prevMessages => prevMessages.filter(msg => msg.id !== tempMessage.id));
+        setMessages(prevMessages => prevMessages.filter(msg => msg.id !== tempId));
       }
     }
   };
