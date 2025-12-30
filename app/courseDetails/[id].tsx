@@ -28,7 +28,8 @@ interface Lesson {
     questions?: any[];
     video_url?: string;
     video_link?: string;
-    lessons?: Lesson[]; // For nested lessons
+    lessons?: Lesson[];
+    isCompleted?: boolean;
 }
 
 interface Section {
@@ -119,7 +120,6 @@ const processCourseContent = (content: any): Section[] => {
     });
 };
 
-// Helper to strip HTML tags
 const stripHtmlTags = (htmlString: string) => {
     if (!htmlString) return '';
     let cleanText = htmlString.replace(/WEVERSITY_BLOCKS_START[\s\S]*$/, '');
@@ -144,19 +144,22 @@ export default function CourseDetailsScreen() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // New Enrollment States
+    const [isEnrolled, setIsEnrolled] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
+
     useEffect(() => {
-        const fetchCourse = async () => {
+        const fetchData = async () => {
             if (!id) return;
             setLoading(true);
             setError(null);
             try {
+                // 1. Fetch Course Data
                 const data: any = await courseService.fetchCourseById(Number(id));
                 if (!data) throw new Error('Course not found');
 
-                // Data Parsing
                 const transformedSections = processCourseContent(data.course_content);
-
-                // Stats calculation (Recursive)
                 let lessonCount = 0;
                 let totalMin = 0;
 
@@ -176,7 +179,6 @@ export default function CourseDetailsScreen() {
                 };
 
                 transformedSections.forEach(s => traverseStats(s.data));
-
                 const studentCount = data.total_students || data.students_count || data.enrolled_students || 0;
                 const durationStr = totalMin > 0 ? `${Math.floor(totalMin / 60)}h ${totalMin % 60}m` : '1.5 Hours';
 
@@ -198,41 +200,73 @@ export default function CourseDetailsScreen() {
                     duration: durationStr,
                     tools: data.tools || []
                 });
+
+                // 2. Fetch Enrollment and Progress
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+
+                    // 1. Check enrollment (Using website schema: student_id)
+                    const { data: enrollData } = await supabase
+                        .from('enrollments')
+                        .select('student_id, course_id, completed_lessons')
+                        .eq('student_id', user.id)
+                        .eq('course_id', id)
+                        .maybeSingle();
+                    if (enrollData) {
+                        setIsEnrolled(true);
+
+
+                        let completedIds: string[] = [];
+                        if (enrollData.completed_lessons && Array.isArray(enrollData.completed_lessons)) {
+                            completedIds = enrollData.completed_lessons.map(String);
+                        }
+
+                        if (completedIds.length > 0) {
+                            setCompletedLessonIds(completedIds);
+                            // Calculate percentage
+                            if (lessonCount > 0) {
+                                setProgress(Math.round((completedIds.length / lessonCount) * 100));
+                            }
+                        }
+                    } else {
+                        setIsEnrolled(false);
+                    }
+                }
+
             } catch (err: any) {
+                console.error("Fetch error:", err);
                 setError(err.message || 'Failed to load course');
             } finally {
                 setLoading(false);
             }
         };
-        fetchCourse();
+        fetchData();
     }, [id]);
 
     const handleEnroll = async () => {
         if (!course?.id) return;
+        if (isEnrolled) {
+            router.push(`/learning/${course.id}` as any);
+            return;
+        }
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-
-            if (session) {
-                // Logged in: Proceed to Learning Player
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                // For now, if logged in, navigate to player
                 router.push(`/learning/${course.id}` as any);
             } else {
-                // Not logged in: Show alert and redirect to Profile/Login
                 Alert.alert(
                     "Login Required",
                     "Please login to enroll and start learning this course.",
                     [
                         { text: "Cancel", style: "cancel" },
-                        {
-                            text: "Login",
-                            onPress: () => router.push('/profile' as any)
-                        }
+                        { text: "Login", onPress: () => router.push('/profile' as any) }
                     ]
                 );
             }
         } catch (err) {
-            console.error("Auth check error during enrollment:", err);
-            // Fallback: If session check fails, try to push anyway or show error
+            console.error("Enrollment error:", err);
             router.push(`/learning/${course.id}` as any);
         }
     };
@@ -255,7 +289,7 @@ export default function CourseDetailsScreen() {
     return (
         <View style={styles.container}>
             <Stack.Screen options={CourseDetailsStackOptions({ title: course.title })} />
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
                 <View style={styles.header}>
                     <Image source={{ uri: course.image }} style={styles.headerImg} />
                     <View style={styles.playOverlay}>
@@ -293,15 +327,30 @@ export default function CourseDetailsScreen() {
 
                     <View style={styles.tabContent}>
                         {activeTab === 'About' && <AboutTab course={course} />}
-                        {activeTab === 'Lessons' && <LessonsTab sections={course.sections} onLessonPress={handleEnroll} />}
+                        {activeTab === 'Lessons' && <LessonsTab sections={course.sections} isEnrolled={isEnrolled} completedIds={completedLessonIds} onLessonPress={handleEnroll} />}
                         {activeTab === 'Reviews' && <ReviewsTab course={course} />}
                     </View>
                 </View>
             </ScrollView>
 
             <View style={styles.footer}>
-                <TouchableOpacity style={styles.enrollBtn} onPress={handleEnroll}>
-                    <Text style={styles.enrollBtnText}>Enroll Now</Text>
+                {isEnrolled && (
+                    <View style={styles.enrollmentContainer}>
+                        <Text style={styles.enrolledText}>You are enrolled!</Text>
+                        <View style={styles.progressRow}>
+                            <Text style={styles.progressLabel}>Progress</Text>
+                            <Text style={styles.progressPercent}>{progress}%</Text>
+                        </View>
+                        <View style={styles.progressBackground}>
+                            <View style={[styles.progressFill, { width: `${progress}%` }]} />
+                        </View>
+                    </View>
+                )}
+                <TouchableOpacity
+                    style={[styles.enrollBtn, isEnrolled && styles.continueBtn]}
+                    onPress={handleEnroll}
+                >
+                    <Text style={styles.enrollBtnText}>{isEnrolled ? "Continue Learning" : "Enroll Now"}</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -330,7 +379,11 @@ const AboutTab = ({ course }: { course: MappedCourse }) => (
     </View>
 );
 
-const LessonsTab = ({ sections, onLessonPress }: { sections: Section[], onLessonPress: () => void }) => {
+const getPathKey = (s: number, l: number, sl?: number) => {
+    return sl !== undefined ? `s-${s}-l-${l}-sl-${sl}` : `s-${s}-l-${l}`;
+};
+
+const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress }: { sections: Section[], isEnrolled: boolean, completedIds: string[], onLessonPress: () => void }) => {
     const [localSections, setLocalSections] = useState(sections);
 
     const toggle = (i: number) => {
@@ -339,13 +392,20 @@ const LessonsTab = ({ sections, onLessonPress }: { sections: Section[], onLesson
         setLocalSections(newSections);
     };
 
-    const renderLessons = (lessons: Lesson[], level = 0) => {
+    const renderLessons = (lessons: Lesson[], sectionIndex: number, level = 0) => {
         return lessons.map((l, li) => {
             const getIcon = () => {
                 if (l.type === 'quiz') return 'help-circle';
                 if (l.type === 'video') return 'play-circle';
                 return 'document-text';
             };
+
+            const currentPathKey = getPathKey(sectionIndex, li);
+            const isLessonCompleted = completedIds.includes(currentPathKey);
+            const trailingIcon = isEnrolled
+                ? (isLessonCompleted ? "checkmark-circle" : "play-circle")
+                : "lock-closed";
+            const iconColor = isLessonCompleted ? "#4CAF50" : (isEnrolled ? "#8A2BE2" : "#ccc");
 
             const hasSub = l.lessons && l.lessons.length > 0;
 
@@ -359,9 +419,27 @@ const LessonsTab = ({ sections, onLessonPress }: { sections: Section[], onLesson
                             <Text style={styles.lessonTitle}>{l.title}</Text>
                             {l.duration && <Text style={styles.lessonDur}>{l.duration}</Text>}
                         </View>
-                        <Ionicons name="lock-closed" size={16} color="#ccc" />
+                        <Ionicons name={trailingIcon} size={18} color={iconColor} />
                     </TouchableOpacity>
-                    {hasSub && renderLessons(l.lessons!, level + 1)}
+                    {hasSub && l.lessons && l.lessons.map((sl, sli) => {
+                        const subPathKey = getPathKey(sectionIndex, li, sli);
+                        const isSubCompleted = completedIds.includes(subPathKey);
+                        const subTrailingIcon = isEnrolled ? (isSubCompleted ? "checkmark-circle" : "play-circle") : "lock-closed";
+                        const subIconColor = isSubCompleted ? "#4CAF50" : (isEnrolled ? "#8A2BE2" : "#ccc");
+
+                        return (
+                            <TouchableOpacity key={`${li}-${sli}`} style={[styles.lessonRow, { paddingLeft: 30 + level * 15 }]} onPress={onLessonPress}>
+                                <View style={styles.iconCircle}>
+                                    <Ionicons name={getIcon()} size={14} color="#8A2BE2" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.lessonTitle}>{sl.title}</Text>
+                                    {sl.duration && <Text style={styles.lessonDur}>{sl.duration}</Text>}
+                                </View>
+                                <Ionicons name={subTrailingIcon} size={18} color={subIconColor} />
+                            </TouchableOpacity>
+                        );
+                    })}
                 </View>
             );
         });
@@ -380,7 +458,7 @@ const LessonsTab = ({ sections, onLessonPress }: { sections: Section[], onLesson
                     </TouchableOpacity>
                     {sec.isExpanded && (
                         <View style={styles.accContent}>
-                            {renderLessons(sec.data)}
+                            {renderLessons(sec.data, i)}
                         </View>
                     )}
                 </View>
@@ -449,7 +527,15 @@ const styles = StyleSheet.create({
     reviewerName: { fontSize: 14, fontWeight: 'bold' },
     reviewMsg: { fontSize: 14, color: '#444', marginTop: 5 },
     empty: { color: '#999', textAlign: 'center', marginTop: 20 },
-    footer: { position: 'absolute', bottom: 0, width: '100%', padding: 20, backgroundColor: '#fff' },
-    enrollBtn: { backgroundColor: '#8A2BE2', padding: 15, borderRadius: 30, alignItems: 'center' },
+    footer: { position: 'absolute', bottom: 0, width: '100%', padding: 20, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee' },
+    enrollBtn: { backgroundColor: '#8A2BE2', padding: 16, borderRadius: 30, alignItems: 'center' },
+    continueBtn: { backgroundColor: '#8A2BE2' },
     enrollBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+    enrollmentContainer: { marginBottom: 15 },
+    enrolledText: { color: '#2E7D32', fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
+    progressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 },
+    progressLabel: { fontSize: 14, color: '#666', fontWeight: '500' },
+    progressPercent: { fontSize: 14, color: '#333', fontWeight: 'bold' },
+    progressBackground: { height: 6, backgroundColor: '#f0f0f0', borderRadius: 3, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: '#4CAF50', borderRadius: 3 },
 });

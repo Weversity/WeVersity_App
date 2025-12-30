@@ -1,3 +1,4 @@
+import { supabase } from '@/src/auth/supabase';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
@@ -5,6 +6,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Animated,
     Dimensions,
     Image,
@@ -31,8 +33,8 @@ interface Lesson {
     image?: string;
     questions?: any[];
     video_url?: string;
-    video_link?: string; // Support alternative key
-    lessons?: Lesson[]; // For nested lessons
+    video_link?: string;
+    lessons?: Lesson[];
     isCompleted?: boolean;
 }
 
@@ -44,7 +46,8 @@ interface Section {
 
 const getLessonType = (lesson: any): LessonType => {
     if (lesson.type) return lesson.type;
-    if (lesson.lessons && Array.isArray(lesson.lessons) && lesson.lessons.length > 0) return 'article';
+    const subItems = lesson.lessons || lesson.children || lesson.data || lesson.items;
+    if (subItems && Array.isArray(subItems) && subItems.length > 0) return 'article';
 
     const content = lesson.video_url || lesson.video_link || lesson.content;
     if (typeof content === 'string') {
@@ -71,7 +74,6 @@ const processCourseContent = (content: any): Section[] => {
             ...lesson,
             type: getLessonType(lesson),
         };
-        // Explicitly check multiple keys for nested data/lessons
         const subItems = lesson.lessons || lesson.children || lesson.data || lesson.items;
         if (subItems && Array.isArray(subItems)) {
             processedLesson.lessons = subItems.map(processLesson);
@@ -83,7 +85,6 @@ const processCourseContent = (content: any): Section[] => {
     if (Array.isArray(content)) {
         rawSections = content;
     } else if (typeof content === 'object') {
-        // If content is an object with a sections/data key
         rawSections = content.sections || content.data || Object.values(content);
     }
 
@@ -96,7 +97,6 @@ const processCourseContent = (content: any): Section[] => {
         if (Array.isArray(sectionData)) {
             lessons = sectionData;
         } else if (typeof sectionData === 'object') {
-            // Check multiple keys for lesson data
             lessons = sectionData.lessons || sectionData.data || sectionData.items || [];
         }
 
@@ -215,13 +215,39 @@ export default function LearningPlayerScreen() {
     const [course, setCourse] = useState<any>(null);
     const [sections, setSections] = useState<Section[]>([]);
     const [activeLessonPath, setActiveLessonPath] = useState<{ s: number; l: number; sl?: number } | null>(null);
+    const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
 
     const [sidebarVisible, setSidebarVisible] = useState(false);
     const slideAnimation = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
 
     useEffect(() => {
-        if (id) fetchCourseData();
+        if (id) {
+            fetchCourseData();
+            fetchUserProgress();
+        }
     }, [id]);
+
+    const fetchUserProgress = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            // Fetch progress from enrollments table (completed_lessons column)
+            const { data, error } = await supabase
+                .from('enrollments')
+                .select('completed_lessons')
+                .eq('student_id', user.id)
+                .eq('course_id', id)
+                .maybeSingle();
+
+            if (!error && data?.completed_lessons) {
+                const completedList = Array.isArray(data.completed_lessons) ? data.completed_lessons : [];
+                setCompletedLessons(new Set(completedList.map(String)));
+            }
+        } catch (err) {
+            console.error("Error fetching user progress:", err);
+        }
+    };
 
     const fetchCourseData = async (retryCount = 0) => {
         if (retryCount === 0) setLoading(true);
@@ -301,11 +327,90 @@ export default function LearningPlayerScreen() {
 
     const currentLesson = getCurrentLesson();
 
+    const getPathKey = (s: number, l: number, sl?: number) => {
+        return sl !== undefined ? `s-${s}-l-${l}-sl-${sl}` : `s-${s}-l-${l}`;
+    };
+
+    const handleCompleteAndNext = async () => {
+        if (!activeLessonPath) return;
+
+        const currentKey = getPathKey(activeLessonPath.s, activeLessonPath.l, activeLessonPath.sl);
+
+        // 1. Update local state
+        const nextCompleted = new Set(completedLessons);
+        nextCompleted.add(currentKey);
+        setCompletedLessons(nextCompleted);
+
+        // 2. Persist to Database
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                console.log("[DEBUG] Saving progress for user:", user.id, "Lesson Key:", currentKey);
+
+                const completionData = {
+                    course_id: id,
+                    lesson_id: currentKey,
+                    is_completed: true,
+                    updated_at: new Date().toISOString()
+                };
+
+                const updatedList = Array.from(nextCompleted);
+                await supabase.from('enrollments')
+                    .update({ completed_lessons: updatedList })
+                    .eq('student_id', user.id)
+                    .eq('course_id', id);
+            }
+        } catch (err) {
+            console.error("[DEBUG] Error saving progress catch block:", err);
+        }
+
+        // Find Next Lesson Logic
+        let nextPath: { s: number; l: number; sl?: number } | null = null;
+
+        const currentSection = sections[activeLessonPath.s];
+        const currentLessonObj = currentSection.data[activeLessonPath.l];
+
+        // 1. Is there a nested sub-lesson next?
+        if (activeLessonPath.sl !== undefined && currentLessonObj.lessons && activeLessonPath.sl < currentLessonObj.lessons.length - 1) {
+            nextPath = { ...activeLessonPath, sl: activeLessonPath.sl + 1 };
+        }
+        // 2. Is there a nested sub-lesson starting?
+        else if (activeLessonPath.sl === undefined && currentLessonObj.lessons && currentLessonObj.lessons.length > 0) {
+            nextPath = { ...activeLessonPath, sl: 0 };
+        }
+        // 3. Next lesson in same section?
+        else if (activeLessonPath.l < currentSection.data.length - 1) {
+            nextPath = { s: activeLessonPath.s, l: activeLessonPath.l + 1 };
+        }
+        // 4. Next section first lesson?
+        else if (activeLessonPath.s < sections.length - 1) {
+            nextPath = { s: activeLessonPath.s + 1, l: 0 };
+            // Auto expand next section
+            const newSections = [...sections];
+            newSections[activeLessonPath.s + 1].isExpanded = true;
+            setSections(newSections);
+        }
+
+        if (nextPath) {
+            setActiveLessonPath(nextPath);
+            // Scroll to top of content when lesson changes
+            contentScrollViewRef.current?.scrollTo({ y: 0, animated: true });
+        } else {
+            Alert.alert("Congratulations! 🎉", "You have completed the entire course.", [
+                { text: "Go to My Courses", onPress: () => router.replace('/(tabs)/myCourses') },
+                { text: "Stay Here", style: 'cancel' }
+            ]);
+        }
+    };
+
+    const contentScrollViewRef = useRef<ScrollView>(null);
+
     const renderLessons = (lessons: Lesson[], sectionIndex: number, level = 0) => {
         return lessons.map((lesson, lessonIndex) => {
             const currentPath = { s: sectionIndex, l: lessonIndex };
             const isActive = activeLessonPath?.s === sectionIndex && activeLessonPath?.l === lessonIndex && activeLessonPath?.sl == null;
             const hasChildren = lesson.lessons && Array.isArray(lesson.lessons) && lesson.lessons.length > 0;
+            const isCompleted = completedLessons.has(getPathKey(sectionIndex, lessonIndex));
 
             return (
                 <View key={`${sectionIndex}-${lessonIndex}`}>
@@ -315,13 +420,14 @@ export default function LearningPlayerScreen() {
                         onSelect={handleLessonSelect}
                         isActive={isActive}
                         level={level}
-                        isCompleted={lesson.isCompleted}
+                        isCompleted={isCompleted}
                     />
                     {hasChildren && (
                         <View>
                             {lesson.lessons!.map((subLesson, subLessonIndex) => {
                                 const subLessonPath = { s: sectionIndex, l: lessonIndex, sl: subLessonIndex };
                                 const isSubActive = activeLessonPath?.s === sectionIndex && activeLessonPath?.l === lessonIndex && activeLessonPath?.sl === subLessonIndex;
+                                const isSubCompleted = completedLessons.has(getPathKey(sectionIndex, lessonIndex, subLessonIndex));
                                 return (
                                     <LessonItem
                                         key={`${sectionIndex}-${lessonIndex}-${subLessonIndex}`}
@@ -330,7 +436,7 @@ export default function LearningPlayerScreen() {
                                         onSelect={handleLessonSelect}
                                         isActive={isSubActive}
                                         level={level + 1}
-                                        isCompleted={subLesson.isCompleted}
+                                        isCompleted={isSubCompleted}
                                     />
                                 );
                             })}
@@ -376,9 +482,21 @@ export default function LearningPlayerScreen() {
                         </View>
                         <ScrollView>
                             {sections.length > 0 ? sections.map((section, sIndex) => {
-                                const completedCount = section.data.filter((l: any) => l.isCompleted).length;
-                                const totalCount = section.data.length;
-                                const progress = totalCount > 0 ? completedCount / totalCount : 0;
+                                // Calculate completion count
+                                let sectionCompleted = 0;
+                                let sectionTotal = 0;
+                                section.data.forEach((l, lIndex) => {
+                                    sectionTotal++;
+                                    if (completedLessons.has(getPathKey(sIndex, lIndex))) sectionCompleted++;
+                                    if (l.lessons) {
+                                        l.lessons.forEach((_, slIndex) => {
+                                            sectionTotal++;
+                                            if (completedLessons.has(getPathKey(sIndex, lIndex, slIndex))) sectionCompleted++;
+                                        });
+                                    }
+                                });
+
+                                const progress = sectionTotal > 0 ? sectionCompleted / sectionTotal : 0;
 
                                 return (
                                     <View key={sIndex} style={styles.sectionContainer}>
@@ -388,7 +506,7 @@ export default function LearningPlayerScreen() {
                                         >
                                             <View style={styles.sectionHeaderMain}>
                                                 <Text style={styles.sectionTitle}>{section.title}</Text>
-                                                <Text style={styles.sectionProgressText}>{completedCount}/{totalCount}</Text>
+                                                <Text style={styles.sectionProgressText}>{sectionCompleted}/{sectionTotal}</Text>
                                                 <Ionicons
                                                     name={section.isExpanded ? 'chevron-up' : 'chevron-down'}
                                                     size={18}
@@ -408,18 +526,27 @@ export default function LearningPlayerScreen() {
                 </View>
             )}
 
-            <ScrollView style={styles.scrollBody}>
+            <ScrollView ref={contentScrollViewRef} style={styles.scrollBody} contentContainerStyle={{ paddingBottom: 100 }}>
                 <View style={styles.lessonHeader}>
                     <Text style={styles.lessonTitle}>{currentLesson?.title || 'Select a Lesson'}</Text>
                 </View>
                 <ContentRenderer lesson={currentLesson} />
+
+                {currentLesson && (
+                    <View style={styles.actionArea}>
+                        <TouchableOpacity style={styles.nextButton} onPress={handleCompleteAndNext}>
+                            <Text style={styles.nextButtonText}>Mark as Complete & Next</Text>
+                            <Ionicons name="arrow-forward" size={20} color="#fff" style={{ marginLeft: 8 }} />
+                        </TouchableOpacity>
+                    </View>
+                )}
             </ScrollView>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f5f5f5' },
+    container: { flex: 1, backgroundColor: '#fcfcfc' },
     center: { justifyContent: 'center', alignItems: 'center', padding: 20 },
     errorText: { fontSize: 16, color: 'red', textAlign: 'center', marginBottom: 20 },
     retryButton: { backgroundColor: '#8A2BE2', paddingVertical: 10, paddingHorizontal: 30, borderRadius: 20 },
@@ -452,6 +579,9 @@ const styles = StyleSheet.create({
     lessonHeader: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
     lessonTitle: { fontSize: 22, fontWeight: 'bold' },
     contentContainer: { padding: 20 },
+    actionArea: { paddingHorizontal: 20, marginTop: 10, paddingBottom: 40 },
+    nextButton: { backgroundColor: '#8A2BE2', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 30, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    nextButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
     heading: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
     paragraph: { fontSize: 16, lineHeight: 24, color: '#444' },
     videoPlayer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000', borderRadius: 8, marginBottom: 15 },

@@ -57,7 +57,7 @@ const CourseItem = memo(({ item }: { item: any }) => {
             </View>
           </View>
 
-          <Link href={`/courseDetails/${item.id}`} asChild>
+          <Link href={`/live/${item.id}`} asChild>
             <TouchableOpacity style={styles.joinButton}>
               <Text style={styles.joinButtonText}>Join Now</Text>
               <Ionicons name="play" size={14} color="#fff" style={styles.playIcon} />
