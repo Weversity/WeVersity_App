@@ -217,8 +217,49 @@ export default function LearningPlayerScreen() {
     const [activeLessonPath, setActiveLessonPath] = useState<{ s: number; l: number; sl?: number } | null>(null);
     const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
 
+    const getPathKey = (s: number, l: number, sl?: number) => {
+        const section = sections[s];
+        if (!section) return `s-${s}-l-${l}${sl !== undefined ? `-sl-${sl}` : ''}`;
+
+        const lesson = section.data[l];
+        if (!lesson) return `s-${s}-l-${l}${sl !== undefined ? `-sl-${sl}` : ''}`;
+
+        const target = sl !== undefined && lesson.lessons ? lesson.lessons[sl] : lesson;
+
+        // Prioritize unique IDs from backend if available
+        const uniqueId = (target as any).id || (target as any).lesson_id || (target as any)._id;
+        if (uniqueId) return String(uniqueId);
+
+        return sl !== undefined ? `s-${s}-l-${l}-sl-${sl}` : `s-${s}-l-${l}`;
+    };
+
+    // Reactive progress calculation for each section
+    const sectionProgressData = React.useMemo(() => {
+        return sections.map((section, sIndex) => {
+            let sectionCompleted = 0;
+            let sectionTotal = 0;
+            section.data.forEach((l, lIndex) => {
+                sectionTotal++;
+                if (completedLessons.has(getPathKey(sIndex, lIndex))) sectionCompleted++;
+                if (l.lessons) {
+                    l.lessons.forEach((_, slIndex) => {
+                        sectionTotal++;
+                        if (completedLessons.has(getPathKey(sIndex, lIndex, slIndex))) sectionCompleted++;
+                    });
+                }
+            });
+            return {
+                completed: sectionCompleted,
+                total: sectionTotal,
+                percent: sectionTotal > 0 ? (sectionCompleted / sectionTotal) * 100 : 0
+            };
+        });
+    }, [sections, completedLessons]);
+
     const [sidebarVisible, setSidebarVisible] = useState(false);
+    const [showSuccessToast, setShowSuccessToast] = useState(false);
     const slideAnimation = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
+    const toastOpacity = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         if (id) {
@@ -240,8 +281,8 @@ export default function LearningPlayerScreen() {
                 .eq('course_id', id)
                 .maybeSingle();
 
-            if (!error && data?.completed_lessons) {
-                const completedList = Array.isArray(data.completed_lessons) ? data.completed_lessons : [];
+            if (!error) {
+                const completedList = Array.isArray(data?.completed_lessons) ? data.completed_lessons : [];
                 setCompletedLessons(new Set(completedList.map(String)));
             }
         } catch (err) {
@@ -327,9 +368,7 @@ export default function LearningPlayerScreen() {
 
     const currentLesson = getCurrentLesson();
 
-    const getPathKey = (s: number, l: number, sl?: number) => {
-        return sl !== undefined ? `s-${s}-l-${l}-sl-${sl}` : `s-${s}-l-${l}`;
-    };
+
 
     const handleCompleteAndNext = async () => {
         if (!activeLessonPath) return;
@@ -355,10 +394,21 @@ export default function LearningPlayerScreen() {
                 };
 
                 const updatedList = Array.from(nextCompleted);
-                await supabase.from('enrollments')
+                const { error: updateErr } = await supabase.from('enrollments')
                     .update({ completed_lessons: updatedList })
                     .eq('student_id', user.id)
                     .eq('course_id', id);
+
+                if (!updateErr) {
+                    console.log("[DEBUG] Progress synced with Supabase");
+                    // Show success toast
+                    setShowSuccessToast(true);
+                    Animated.sequence([
+                        Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+                        Animated.delay(1500),
+                        Animated.timing(toastOpacity, { toValue: 0, duration: 500, useNativeDriver: true })
+                    ]).start(() => setShowSuccessToast(false));
+                }
             }
         } catch (err) {
             console.error("[DEBUG] Error saving progress catch block:", err);
@@ -482,21 +532,7 @@ export default function LearningPlayerScreen() {
                         </View>
                         <ScrollView>
                             {sections.length > 0 ? sections.map((section, sIndex) => {
-                                // Calculate completion count
-                                let sectionCompleted = 0;
-                                let sectionTotal = 0;
-                                section.data.forEach((l, lIndex) => {
-                                    sectionTotal++;
-                                    if (completedLessons.has(getPathKey(sIndex, lIndex))) sectionCompleted++;
-                                    if (l.lessons) {
-                                        l.lessons.forEach((_, slIndex) => {
-                                            sectionTotal++;
-                                            if (completedLessons.has(getPathKey(sIndex, lIndex, slIndex))) sectionCompleted++;
-                                        });
-                                    }
-                                });
-
-                                const progress = sectionTotal > 0 ? sectionCompleted / sectionTotal : 0;
+                                const progress = sectionProgressData[sIndex] || { completed: 0, total: 0, percent: 0 };
 
                                 return (
                                     <View key={sIndex} style={styles.sectionContainer}>
@@ -506,7 +542,7 @@ export default function LearningPlayerScreen() {
                                         >
                                             <View style={styles.sectionHeaderMain}>
                                                 <Text style={styles.sectionTitle}>{section.title}</Text>
-                                                <Text style={styles.sectionProgressText}>{sectionCompleted}/{sectionTotal}</Text>
+                                                <Text style={styles.sectionProgressText}>{progress.completed}/{progress.total}</Text>
                                                 <Ionicons
                                                     name={section.isExpanded ? 'chevron-up' : 'chevron-down'}
                                                     size={18}
@@ -514,7 +550,7 @@ export default function LearningPlayerScreen() {
                                                 />
                                             </View>
                                             <View style={styles.progressBarContainer}>
-                                                <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
+                                                <View style={[styles.progressBar, { width: `${progress.percent}%` }]} />
                                             </View>
                                         </TouchableOpacity>
                                         {section.isExpanded && <View>{renderLessons(section.data, sIndex)}</View>}
@@ -541,6 +577,13 @@ export default function LearningPlayerScreen() {
                     </View>
                 )}
             </ScrollView>
+
+            {showSuccessToast && (
+                <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
+                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                    <Text style={styles.toastText}>Progress Synced!</Text>
+                </Animated.View>
+            )}
         </View>
     );
 }
@@ -591,4 +634,21 @@ const styles = StyleSheet.create({
     quizSubText: { fontSize: 14, color: '#666', marginTop: 5, marginBottom: 20, textAlign: 'center' },
     quizButton: { backgroundColor: '#8A2BE2', paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25 },
     quizButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+    toastContainer: {
+        position: 'absolute',
+        bottom: 50,
+        alignSelf: 'center',
+        backgroundColor: '#22C55E',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 25,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+    },
+    toastText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
 });
