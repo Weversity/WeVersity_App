@@ -15,7 +15,6 @@ import {
   useWindowDimensions,
   View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { TabBar, TabView } from 'react-native-tab-view';
 
 // Reusable Conversation Item Component
@@ -210,7 +209,7 @@ export default function InboxScreen() {
   ), []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <Text style={styles.headerText}>Inbox</Text>
@@ -243,7 +242,7 @@ export default function InboxScreen() {
           />
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -253,8 +252,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   header: {
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
     paddingBottom: 15,
-    paddingTop: 45,
     paddingHorizontal: 20,
     backgroundColor: '#8A2BE2',
     alignItems: 'center',

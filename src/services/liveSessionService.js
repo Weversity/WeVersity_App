@@ -13,9 +13,15 @@ export const liveSessionService = {
             const { data, error } = await supabase
                 .from('live_sessions')
                 .select(`
-          *,
-          course:courses(title)
-        `)
+                  *,
+                  course:courses(
+                    id,
+                    title,
+                    image_url,
+                    categories,
+                    instructor:profiles(first_name, last_name, avatar_url)
+                  )
+                `)
                 .gte('scheduled_at', new Date().toISOString())
                 .order('scheduled_at', { ascending: true });
 
@@ -24,7 +30,7 @@ export const liveSessionService = {
             console.log('--- Live Session Service ---');
             console.log('Fetched Upcoming Classes Count:', data ? data.length : 0);
             console.log('Fetched Data:', JSON.stringify(data, null, 2));
-            
+
             return data;
         } catch (error) {
             console.error('Error in fetchUpcomingClasses:', error.message);

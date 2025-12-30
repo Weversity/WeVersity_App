@@ -1,9 +1,11 @@
+import { supabase } from '@/src/auth/supabase';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     Image,
     ScrollView,
@@ -205,8 +207,34 @@ export default function CourseDetailsScreen() {
         fetchCourse();
     }, [id]);
 
-    const handleEnroll = () => {
-        if (course?.id) router.push(`/learning/${course.id}` as any);
+    const handleEnroll = async () => {
+        if (!course?.id) return;
+
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+
+            if (session) {
+                // Logged in: Proceed to Learning Player
+                router.push(`/learning/${course.id}` as any);
+            } else {
+                // Not logged in: Show alert and redirect to Profile/Login
+                Alert.alert(
+                    "Login Required",
+                    "Please login to enroll and start learning this course.",
+                    [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                            text: "Login",
+                            onPress: () => router.push('/profile' as any)
+                        }
+                    ]
+                );
+            }
+        } catch (err) {
+            console.error("Auth check error during enrollment:", err);
+            // Fallback: If session check fails, try to push anyway or show error
+            router.push(`/learning/${course.id}` as any);
+        }
     };
 
     if (loading) return (

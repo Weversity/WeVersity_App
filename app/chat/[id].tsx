@@ -1,10 +1,14 @@
+import { useAuth } from '@/src/context/AuthContext';
+import { chatService } from '@/src/services/chatService';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   StatusBar,
   StyleSheet,
@@ -12,64 +16,23 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Message = {
   id: string;
-  text: string;
-  from: 'me' | 'other';
+  content: string;
+  sender_id: string;
+  created_at: string;
+  conversation_id?: string;
 };
 
-// Mock data - in a real app, you'd fetch this based on the ID
-const conversationDetails: { [key: string]: any } = {
-  '1': {
-    name: 'Dr. Sarah Smith',
-    online: true,
-    avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?q=80&w=2070&auto=format&fit=crop',
-    messages: [
-      { id: 'a', text: 'Hello! How can I help you with your project?', from: 'other' },
-      { id: 'b', text: "Hi Dr. Smith. I'm having trouble with the Redux implementation.", from: 'me' },
-      { id: 'c', text: "Don't forget about the live session today! We will be covering Redux state management in depth.", from: 'other' },
-    ],
-  },
-  '2': {
-    name: 'Support Team',
-    online: false,
-    lastSeen: '1h ago',
-    avatar: 'https://images.unsplash.com/photo-1599305445671-ac291c95aaa9?q=80&w=2069&auto=format&fit=crop',
-    messages: [
-        { id: 'f', text: 'Your ticket #492 has been resolved. Please let us know if you need anything else.', from: 'other' },
-    ],
-  },
-  '3': {
-    name: 'John Doe',
-    online: false,
-    lastSeen: '5m ago',
-    avatar: 'https://images.unsplash.com/photo-1547425260-76bc4ddd9f32?q=80&w=2070&auto=format&fit=crop',
-    messages: [
-      { id: 'd', text: 'Hey, can you help me with the assignment? I am stuck on the third problem.', from: 'other' },
-      { id: 'e', text: 'Sure, which part are you struggling with?', from: 'me' },
-    ],
-  },
-  '4': {
-    name: 'Course System',
-    online: true,
-    system: true,
-    avatar: 'https://images.unsplash.com/photo-1636772523547-5577d04e8dc1?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Nnx8Y291cnNlJTIwc3lzdGVtfGVufDB8fDB8fHww',
-    messages: [
-        { id: 'g', text: 'New materials have been added to Python 101. Check out the new module on Decorators.', from: 'other' },
-    ],
-  },
-  '5': {
-    name: 'Emily Chen',
-    online: true,
-    avatar: 'https://images.unsplash.com/photo-1602233158242-3ba0ac4d2167?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8Z2lybHxlbnwwfHwwfHx8MA%3D%3D',
-    messages: [
-        { id: 'h', text: "Thanks for the notes! They were super helpful for the exam prep.", from: 'other' },
-    ],
-  }
+type ChatPartner = {
+  id: string;
+  name: string;
+  avatar: string;
+  online: boolean;
+  lastSeen?: string;
 };
 
 const ChatMenu = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
@@ -103,44 +66,131 @@ const ChatMenu = ({ visible, onClose }: { visible: boolean; onClose: () => void 
 export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { id } = params;
+  const { id } = params; // This is the conversation_id
   const flatListRef = useRef<FlatList>(null);
+  const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [chatPartner, setChatPartner] = useState<ChatPartner>({
+    id: '',
+    name: 'Loading...',
+    avatar: '',
+    online: false,
+  });
 
-  const chatPartner = conversationDetails[id as string] || { name: 'Unknown', messages: [], online: false, avatar: '' };
-
+  // Fetch messages and chat partner info
   useEffect(() => {
-    // Set initial messages
-    if (chatPartner.messages) {
-        setMessages([...chatPartner.messages].reverse()); // Reverse for flatlist
-    }
+    const loadChatData = async () => {
+      if (!id) return;
+
+      try {
+        setLoading(true);
+
+        // Fetch messages for this conversation
+        const conversationMessages = await chatService.fetchConversationMessages(id as string);
+        setMessages(conversationMessages);
+
+        // Determine chat partner ID from messages
+        if (conversationMessages.length > 0 && user) {
+          const partnerMessage = conversationMessages.find(msg => msg.sender_id !== user.id);
+          const partnerId = partnerMessage?.sender_id;
+
+          if (partnerId) {
+            const partnerProfile = await chatService.fetchChatPartner(partnerId);
+            if (partnerProfile) {
+              setChatPartner({
+                id: partnerProfile.id,
+                name: `${partnerProfile.first_name || ''} ${partnerProfile.last_name || ''}`.trim() || 'Unknown User',
+                avatar: partnerProfile.avatar_url || 'https://via.placeholder.com/100',
+                online: false, // You can add online status logic later
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading chat data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadChatData();
+
     // Scroll to bottom on initial load
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
-  }, [id, chatPartner.messages]);
+  }, [id, user]);
 
-  const handleSend = () => {
-    if (inputText.trim().length > 0) {
-      const newMessage: Message = {
-        id: `msg-${Date.now()}`,
-        text: inputText,
-        from: 'me',
-      };
-      setMessages(prevMessages => [newMessage, ...prevMessages]);
+  // Subscribe to real-time messages
+  useEffect(() => {
+    if (!id) return;
+
+    const subscription = chatService.subscribeToConversation(id as string, (newMessage: Message) => {
+      setMessages(prevMessages => [...prevMessages, newMessage]);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [id]);
+
+  const handleSend = async () => {
+    if (inputText.trim().length > 0 && user && id) {
+      const messageContent = inputText.trim();
       setInputText('');
+
+      // Optimistically add message to UI
+      const tempMessage: Message = {
+        id: `temp-${Date.now()}`,
+        content: messageContent,
+        sender_id: user.id,
+        created_at: new Date().toISOString(),
+        conversation_id: id as string,
+      };
+      setMessages(prevMessages => [...prevMessages, tempMessage]);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+
+      try {
+        // Send message to Supabase
+        await chatService.sendConversationMessage(id as string, user.id, messageContent);
+      } catch (error) {
+        console.error('Error sending message:', error);
+        // Remove optimistic message on error
+        setMessages(prevMessages => prevMessages.filter(msg => msg.id !== tempMessage.id));
+      }
     }
   };
 
   const renderMessage = ({ item }: { item: Message }) => {
-    const isMyMessage = item.from === 'me';
+    const isMyMessage = user && item.sender_id === user.id;
     return (
       <View style={[styles.messageBubble, isMyMessage ? styles.myMessage : styles.theirMessage]}>
-        <Text style={styles.messageText}>{item.text}</Text>
+        <Text style={styles.messageText}>{item.content}</Text>
       </View>
     );
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerLeft}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerName}>Loading...</Text>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#8A2BE2" />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -148,11 +198,13 @@ export default function ChatScreen() {
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerLeft}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
-          <Image source={{ uri: chatPartner.avatar }} style={styles.headerAvatar} />
+          {chatPartner.avatar ? (
+            <Image source={{ uri: chatPartner.avatar }} style={styles.headerAvatar} />
+          ) : null}
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerName}>{chatPartner.name}</Text>
-          <Text style={styles.headerStatus}>{chatPartner.online ? 'Online' : `Last seen ${chatPartner.lastSeen}`}</Text>
+          <Text style={styles.headerStatus}>{chatPartner.online ? 'Online' : `Last seen ${chatPartner.lastSeen || 'recently'}`}</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.headerIcon}>
@@ -176,9 +228,8 @@ export default function ChatScreen() {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => item.id || `msg-${index}`}
           contentContainerStyle={styles.listContent}
-          inverted // Typical for chat interfaces
         />
 
         <View style={styles.inputContainer}>
@@ -210,6 +261,12 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+    backgroundColor: '#F4F7FC',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: '#F4F7FC',
   },
   header: {
@@ -252,6 +309,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   messageBubble: {
     paddingVertical: 10,
