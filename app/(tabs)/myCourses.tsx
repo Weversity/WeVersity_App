@@ -1,5 +1,5 @@
 import SearchEmptyState from '@/src/components/SearchEmptyState';
-import { CATEGORIES, bookmarksStore } from '@/src/data/courses';
+import { bookmarksStore } from '@/src/data/courses';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRouter } from 'expo-router';
@@ -132,12 +132,24 @@ export default function MyCoursesScreen() {
   // Memoized filtering logic
   const filteredCourses = useMemo(() => {
     let currentCourses = courses;
-    console.log(`[useMemo] Running filter logic on ${courses.length} courses.`);
 
-    // Temporarily disabled for debugging
-    /* 
-    if (activeTab === 'Skills Courses') { ... }
-    */
+    // Tab Filtering Logic
+    if (activeTab === 'Skills Courses') {
+      const skillsKeywords = ['Marketing', 'Content', 'Design', 'Writing', 'Management', 'Sales'];
+      currentCourses = currentCourses.filter(c => {
+        const title = (c.title || c.course_name || '').toLowerCase();
+        const category = (c.categories || '').toLowerCase();
+        const matchesCategory = category.includes('skills');
+        const matchesTitle = skillsKeywords.some(kw => title.includes(kw.toLowerCase()));
+        return matchesCategory || matchesTitle;
+      });
+    } else if (activeTab === 'Technical Courses') {
+      const techKeywords = ['Web', 'App', 'HTML', 'WordPress', 'CSS', 'JS', 'Coding', 'Graphic Design', 'Shopify', 'SEO', 'eCommerce'];
+      currentCourses = currentCourses.filter(c => {
+        const title = (c.title || c.course_name || '').toLowerCase();
+        return techKeywords.some(kw => title.includes(kw.toLowerCase()));
+      });
+    }
 
     if (searchQuery) {
       const lower = searchQuery.toLowerCase();
@@ -148,16 +160,15 @@ export default function MyCoursesScreen() {
     }
 
     if (selectedFilterCategory !== 'All') {
-      currentCourses = currentCourses.filter(c => c.category === selectedFilterCategory);
+      currentCourses = currentCourses.filter(c => (c.categories || c.category) === selectedFilterCategory);
     }
 
     if (selectedRating !== null) {
-      currentCourses = currentCourses.filter(c => Math.floor(c.avg_rating || 5) >= selectedRating);
+      currentCourses = currentCourses.filter(c => Math.floor(c.avg_rating || 0) >= selectedRating);
     }
 
-    console.log(`[useMemo] Returning ${currentCourses.length} courses after filtering.`);
     return currentCourses;
-  }, [searchQuery, selectedFilterCategory, selectedRating, courses]);
+  }, [searchQuery, selectedFilterCategory, selectedRating, courses, activeTab]);
 
   // Animation handlers
   const showFilter = () => {
@@ -316,9 +327,9 @@ export default function MyCoursesScreen() {
           <Animated.View style={[styles.modalContent, { transform: [{ translateY: filterTranslateY }] }]}>
             <View style={styles.handleBar} />
             <Text style={styles.filterHeaderTitle}>Filter</Text>
-            <Text style={styles.sectionTitle}>Category</Text>
+            <Text style={styles.sectionTitle}>Most Demanded Courses</Text>
             <View style={styles.chipsContainer}>
-              {CATEGORIES.filter(c => c !== 'All' && c !== 'Skills Courses' && c !== 'Technical Courses').map(cat => (
+              {['Web Development', 'App Development', 'UI/UX Design', 'Digital Marketing', 'Graphic Design', 'E-Commerce'].map(cat => (
                 <TouchableOpacity
                   key={cat}
                   style={[styles.chip, selectedFilterCategory === cat && styles.chipActive]}
