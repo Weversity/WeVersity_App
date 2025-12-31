@@ -10,7 +10,8 @@ export const courseService = {
     // Fetch all published courses
     async fetchPublishedCourses() {
         try {
-            const { data, error } = await supabase
+            // 1. Fetch courses
+            const { data: courses, error } = await supabase
                 .from('courses')
                 .select('id, title, image_url, price, categories, instructor:profiles(first_name)')
                 .eq('is_published', true)
@@ -21,7 +22,31 @@ export const courseService = {
                 console.error('Error in fetchPublishedCourses:', error.message);
                 throw error;
             }
-            return data;
+
+            if (!courses || courses.length === 0) return [];
+
+            // 2. Fetch reviews manually for each course to calculate counts and ratings
+            const coursesWithCounts = await Promise.all(courses.map(async (course) => {
+                const { data: reviewsData } = await supabase
+                    .from('reviews')
+                    .select('rating')
+                    .eq('course_id', course.id);
+
+                const count = reviewsData?.length || 0;
+                let avg = 0.0;
+                if (count > 0) {
+                    const sum = reviewsData.reduce((acc, r) => acc + (r.rating || 0), 0);
+                    avg = sum / count;
+                }
+
+                return {
+                    ...course,
+                    avg_rating: avg,
+                    reviewCount: count
+                };
+            }));
+
+            return coursesWithCounts;
         } catch (error) {
             throw error;
         }

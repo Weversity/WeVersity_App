@@ -38,6 +38,17 @@ interface Section {
     isExpanded?: boolean;
 }
 
+interface Review {
+    id: any;
+    rating: number;
+    content: string;
+    created_at: string;
+    user: {
+        name: string;
+        avatar: string;
+    };
+}
+
 interface MappedCourse {
     id: any;
     title: string;
@@ -50,7 +61,8 @@ interface MappedCourse {
     instructor: string;
     instructorAvatar?: string;
     rating: number;
-    reviews: any[];
+    reviews: Review[];
+    reviewCount: number;
     students: number;
     lessonCount: number;
     duration: string;
@@ -144,7 +156,7 @@ export default function CourseDetailsScreen() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // New Enrollment States
+    // Enrollment and Progress States
     const [isEnrolled, setIsEnrolled] = useState(false);
     const [progress, setProgress] = useState(0);
     const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
@@ -206,6 +218,50 @@ export default function CourseDetailsScreen() {
                     durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''} (Est.)`.trim() : `${m}m (Est.)`;
                 }
 
+                // 4. Fetch Reviews from 'reviews' table
+                const { data: reviewsRaw, error: reviewsError } = await supabase
+                    .from('reviews')
+                    .select('id, rating, content, created_at, student_id')
+                    .eq('course_id', id)
+                    .order('created_at', { ascending: false });
+
+                const reviewsCount = reviewsRaw?.length || 0;
+                let calculatedAvgRating = 0.0;
+                let mappedReviews: Review[] = [];
+
+                if (reviewsCount > 0) {
+                    const sum = reviewsRaw!.reduce((acc, r) => acc + (r.rating || 0), 0);
+                    calculatedAvgRating = sum / reviewsCount;
+
+                    // 5. Fetch Profiles manually for the reviewers
+                    const studentIds = Array.from(new Set(reviewsRaw!.map(r => r.student_id).filter(Boolean)));
+                    let profileMap: Record<string, any> = {};
+
+                    if (studentIds.length > 0) {
+                        const { data: profilesData } = await supabase
+                            .from('profiles')
+                            .select('id, first_name, last_name, avatar_url')
+                            .in('id', studentIds);
+
+                        profilesData?.forEach(p => {
+                            profileMap[p.id] = p;
+                        });
+                    }
+
+                    mappedReviews = reviewsRaw!.map((r: any) => ({
+                        id: r.id,
+                        rating: r.rating,
+                        content: r.content,
+                        created_at: r.created_at,
+                        user: {
+                            name: profileMap[r.student_id]
+                                ? `${profileMap[r.student_id].first_name || ''} ${profileMap[r.student_id].last_name || ''}`.trim()
+                                : 'Anonymous Student',
+                            avatar: profileMap[r.student_id]?.avatar_url
+                        }
+                    }));
+                }
+
                 setCourse({
                     id: data.id,
                     title: data.title,
@@ -217,29 +273,27 @@ export default function CourseDetailsScreen() {
                     sections: transformedSections,
                     instructor: data.instructor?.first_name ? `${data.instructor.first_name} ${data.instructor.last_name || ''}`.trim() : 'Unknown Instructor',
                     instructorAvatar: data.instructor?.avatar_url,
-                    rating: data.avg_rating || 0,
-                    reviews: data.reviews || [],
+                    rating: calculatedAvgRating,
+                    reviews: mappedReviews,
+                    reviewCount: reviewsCount,
                     students: finalStudentCount,
                     lessonCount: lessonCount,
                     duration: durationStr,
                     tools: data.tools || []
                 });
 
-                // 2. Fetch Enrollment and Progress
+                // 5. Fetch Enrollment and Progress for current user
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user) {
-
-                    // 1. Check enrollment (Using website schema: student_id)
                     const { data: enrollData } = await supabase
                         .from('enrollments')
                         .select('student_id, course_id, completed_lessons')
                         .eq('student_id', user.id)
                         .eq('course_id', id)
                         .maybeSingle();
+
                     if (enrollData) {
                         setIsEnrolled(true);
-
-
                         let completedIds: string[] = [];
                         if (enrollData.completed_lessons && Array.isArray(enrollData.completed_lessons)) {
                             completedIds = enrollData.completed_lessons.map(String);
@@ -247,7 +301,6 @@ export default function CourseDetailsScreen() {
 
                         if (completedIds.length > 0) {
                             setCompletedLessonIds(completedIds);
-                            // Calculate percentage
                             if (lessonCount > 0) {
                                 setProgress(Math.round((completedIds.length / lessonCount) * 100));
                             }
@@ -277,7 +330,6 @@ export default function CourseDetailsScreen() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                // For now, if logged in, navigate to player
                 router.push(`/learning/${course.id}` as any);
             } else {
                 Alert.alert(
@@ -329,7 +381,7 @@ export default function CourseDetailsScreen() {
                         <View style={styles.badge}><Text style={styles.badgeText}>{course.categories}</Text></View>
                         <View style={styles.rating}>
                             <Ionicons name="star" size={16} color="#FFD700" />
-                            <Text style={styles.ratingText}>{course.rating.toFixed(1)} ({course.reviews.length})</Text>
+                            <Text style={styles.ratingText}>{course.rating.toFixed(1)} ({course.reviewCount})</Text>
                         </View>
                     </View>
 
@@ -491,19 +543,54 @@ const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress }: { sec
     );
 };
 
-const ReviewsTab = ({ course }: { course: MappedCourse }) => (
-    <View>
-        {course.reviews.length > 0 ? course.reviews.map((r, i) => (
-            <View key={i} style={styles.reviewCard}>
-                <Image source={{ uri: r.avatar || 'https://via.placeholder.com/40' }} style={styles.reviewerImg} />
-                <View style={{ flex: 1 }}>
-                    <Text style={styles.reviewerName}>{r.user || 'Anonymous'}</Text>
-                    <Text style={styles.reviewMsg}>{r.message}</Text>
-                </View>
+const ReviewsTab = ({ course }: { course: MappedCourse }) => {
+    const renderStars = (rating: number) => {
+        return (
+            <View style={styles.starsRow}>
+                {[1, 2, 3, 4, 5].map((s) => (
+                    <Ionicons
+                        key={s}
+                        name="star"
+                        size={14}
+                        color={s <= rating ? "#FFD700" : "#E0E0E0"}
+                        style={{ marginRight: 2 }}
+                    />
+                ))}
             </View>
-        )) : <Text style={styles.empty}>No reviews yet</Text>}
-    </View>
-);
+        );
+    };
+
+    const formatDate = (dateString: string) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+    };
+
+    return (
+        <View>
+            <Text style={styles.tabSectionTitle}>Student Reviews</Text>
+            {course.reviews.length > 0 ? course.reviews.map((r, i) => (
+                <View key={i} style={styles.reviewCard}>
+                    <Image
+                        source={{ uri: r.user.avatar || 'https://via.placeholder.com/40' }}
+                        style={styles.reviewerImg}
+                    />
+                    <View style={{ flex: 1 }}>
+                        <View style={styles.reviewHeader}>
+                            <Text style={styles.reviewerName}>{r.user.name}</Text>
+                            <Text style={styles.reviewDate}>{formatDate(r.created_at)}</Text>
+                        </View>
+                        {renderStars(r.rating)}
+                        <Text style={styles.reviewMsg}>{r.content}</Text>
+                    </View>
+                </View>
+            )) : <Text style={styles.empty}>No reviews yet</Text>}
+        </View>
+    );
+};
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#fff' },
@@ -546,10 +633,14 @@ const styles = StyleSheet.create({
     iconCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F4F0FF', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
     lessonTitle: { fontSize: 14, fontWeight: '500', color: '#444' },
     lessonDur: { fontSize: 12, color: '#999' },
-    reviewCard: { flexDirection: 'row', gap: 15, marginBottom: 20, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 15 },
-    reviewerImg: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#eee' },
-    reviewerName: { fontSize: 14, fontWeight: 'bold' },
-    reviewMsg: { fontSize: 14, color: '#444', marginTop: 5 },
+    tabSectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#1A1A1A', marginBottom: 20, marginTop: 10 },
+    reviewCard: { flexDirection: 'row', gap: 15, marginBottom: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0', paddingBottom: 20 },
+    reviewerImg: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#eee' },
+    reviewHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+    reviewerName: { fontSize: 15, fontWeight: '700', color: '#333' },
+    reviewDate: { fontSize: 12, color: '#999', fontWeight: '400' },
+    starsRow: { flexDirection: 'row', marginBottom: 8 },
+    reviewMsg: { fontSize: 14, color: '#555', lineHeight: 20 },
     empty: { color: '#999', textAlign: 'center', marginTop: 20 },
     footer: { position: 'absolute', bottom: 0, width: '100%', padding: 20, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee' },
     enrollBtn: { backgroundColor: '#8A2BE2', padding: 16, borderRadius: 30, alignItems: 'center' },

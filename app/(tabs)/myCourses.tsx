@@ -47,9 +47,9 @@ const CourseCard = ({ course, onBookmarkToggle, isBookmarked, onPress }: { cours
           <View style={styles.ratingBadge}>
             <Ionicons name="star" size={12} color="#FFD700" />
             <Text style={styles.ratingVal}>{(course.avg_rating || 0).toFixed(1)}</Text>
-            {course.reviews && course.reviews.length > 0 && (
-              <Text style={[styles.ratingVal, { fontSize: 10, marginLeft: 2 }]}>({course.reviews.length})</Text>
-            )}
+            <Text style={[styles.ratingVal, { fontSize: 10, marginLeft: 2 }]}>
+              ({course.reviewCount || 0})
+            </Text>
           </View>
         </View>
       </View>
