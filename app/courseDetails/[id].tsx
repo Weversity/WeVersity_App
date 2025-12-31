@@ -168,19 +168,43 @@ export default function CourseDetailsScreen() {
                         lessonCount++;
                         if (l.duration) {
                             const dStr = String(l.duration).toLowerCase();
-                            const val = parseInt(dStr.split(' ')[0]);
-                            if (!isNaN(val)) {
-                                if (dStr.includes('h')) totalMin += val * 60;
-                                else totalMin += val;
-                            }
+                            let mins = 0;
+                            const hMatch = dStr.match(/(\d+)\s*h/);
+                            const mMatch = dStr.match(/(\d+)\s*m/);
+                            const bareMatch = dStr.match(/^(\d+)(\s*mins?)?$/);
+
+                            if (hMatch) mins += parseInt(hMatch[1]) * 60;
+                            if (mMatch) mins += parseInt(mMatch[1]);
+                            if (bareMatch && !hMatch && !mMatch) mins += parseInt(bareMatch[1]);
+
+                            totalMin += mins;
                         }
-                        if (l.lessons) traverseStats(l.lessons);
+                        if (l.lessons && Array.isArray(l.lessons)) traverseStats(l.lessons);
                     });
                 };
 
                 transformedSections.forEach(s => traverseStats(s.data));
-                const studentCount = data.total_students || data.students_count || data.enrolled_students || 0;
-                const durationStr = totalMin > 0 ? `${Math.floor(totalMin / 60)}h ${totalMin % 60}m` : '1.5 Hours';
+
+                // 2. Fetch Real Student Count from enrollments table
+                const { count: realStudentCount } = await supabase
+                    .from('enrollments')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('course_id', id);
+
+                const finalStudentCount = realStudentCount || 0;
+
+                // 3. Format Duration with fallback logic
+                let durationStr = 'Flexible Duration';
+                if (totalMin > 0) {
+                    const h = Math.floor(totalMin / 60);
+                    const m = totalMin % 60;
+                    durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}`.trim() : `${m}m`;
+                } else if (lessonCount > 0) {
+                    const estMin = lessonCount * 5;
+                    const h = Math.floor(estMin / 60);
+                    const m = estMin % 60;
+                    durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''} (Est.)`.trim() : `${m}m (Est.)`;
+                }
 
                 setCourse({
                     id: data.id,
@@ -195,7 +219,7 @@ export default function CourseDetailsScreen() {
                     instructorAvatar: data.instructor?.avatar_url,
                     rating: data.avg_rating || 0,
                     reviews: data.reviews || [],
-                    students: studentCount,
+                    students: finalStudentCount,
                     lessonCount: lessonCount,
                     duration: durationStr,
                     tools: data.tools || []
