@@ -36,5 +36,41 @@ export const liveSessionService = {
             console.error('Error in fetchUpcomingClasses:', error.message);
             throw error;
         }
+    },
+
+    // Fetch currently active live sessions
+    async fetchActiveLiveSessions() {
+        try {
+            const { data, error } = await supabase
+                .from('live_sessions')
+                .select(`
+                  id,
+                  status,
+                  course_id,
+                  course:courses(
+                    id,
+                    title,
+                    image_url,
+                    categories,
+                    instructor:profiles(
+                      id,
+                      first_name,
+                      last_name,
+                      avatar_url
+                    )
+                  )
+                `)
+                .eq('status', 'active');
+
+            if (error) {
+                console.error('Error in fetchActiveLiveSessions:', error.message);
+                throw error;
+            }
+
+            return data || [];
+        } catch (error) {
+            console.error('Error in fetchActiveLiveSessions caught:', error.message);
+            throw error;
+        }
     }
 };

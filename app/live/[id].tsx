@@ -1,7 +1,10 @@
+import { supabase } from '@/src/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { ResizeMode, Video } from 'expo-av';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList,
   Image,
@@ -15,216 +18,336 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Mock data for multiple instructors with local images
-const mockLiveStreams = [
-  {
-    id: '1',
-    instructorName: 'Priscilla Ehrman',
-    role: 'UI Designer',
-    courseTitle: 'Web Development Masterclass',
-    imageSource: require('@/assets/images/liveone.jpg'),
-    profileImage: require('@/assets/images/liveone.jpg'),
-  },
-  {
-    id: '2',
-    instructorName: 'John Anderson',
-    role: 'Senior Developer',
-    courseTitle: 'Advanced JavaScript',
-    imageSource: require('@/assets/images/livetwo.jpg'),
-    profileImage: require('@/assets/images/livetwo.jpg'),
-  },
-  {
-    id: '3',
-    instructorName: 'Sarah Mitchell',
-    role: 'React Expert',
-    courseTitle: 'React Native Development',
-    imageSource: require('@/assets/images/livethree.jpg'),
-    profileImage: require('@/assets/images/livethree.jpg'),
-  },
-];
+const getInitials = (firstName: string = '', lastName: string = '') => {
+  const f = firstName ? firstName.charAt(0).toUpperCase() : '';
+  const l = lastName ? lastName.charAt(0).toUpperCase() : '';
+  return `${f}${l}` || '?';
+};
 
 interface Comment {
   id: string;
-  username: string;
-  text: string;
-  timestamp: string;
-  likes: number;
-  replies: number;
+  user_id: string;
+  content: string;
+  created_at: string;
+  profile?: {
+    first_name: string;
+    last_name: string;
+    avatar_url: string;
+  };
 }
 
-interface LiveStreamItemProps {
-  item: typeof mockLiveStreams[0];
-  isActive: boolean;
-}
-
-const LiveStreamItem: React.FC<LiveStreamItemProps> = ({ item, isActive }) => {
+const LiveClassScreen = () => {
+  const { id } = useLocalSearchParams();
+  const router = useRouter();
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [likes, setLikes] = useState(0);
-  const [dislikes, setDislikes] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
-  const [isDisliked, setIsDisliked] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
-  const [commentsList, setCommentsList] = useState<Comment[]>([
-    {
-      id: '1',
-      username: 'Sarah Johnson',
-      text: 'Great explanation! This helps a lot 👍',
-      timestamp: '2 hours ago',
-      likes: 245,
-      replies: 12,
-    },
-    {
-      id: '2',
-      username: 'Mike Chen',
-      text: 'Can you explain the difference between const and let?',
-      timestamp: '1 hour ago',
-      likes: 89,
-      replies: 5,
-    },
-  ]);
+  const [commentsList, setCommentsList] = useState<Comment[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-  const handleLike = () => {
-    if (isLiked) {
-      setLikes(likes - 1);
-      setIsLiked(false);
-    } else {
-      setLikes(likes + 1);
-      setIsLiked(true);
-      if (isDisliked) {
-        setDislikes(dislikes - 1);
-        setIsDisliked(false);
+  const fetchSessionData = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('live_sessions')
+        .select(`
+          *,
+          course:courses(
+            id,
+            title,
+            instructor:profiles(
+              id,
+              first_name,
+              last_name,
+              avatar_url
+            )
+          )
+        `)
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+      setSession(data);
+
+      // Fetch initial likes
+      const { count: likesCount } = await supabase
+        .from('live_interactions')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', id)
+        .eq('type', 'like');
+
+      setLikes(likesCount || 0);
+
+      // Fetch initial chat
+      const { data: messages } = await supabase
+        .from('chat_messages')
+        .select(`
+          *,
+          profile:profiles(first_name, last_name, avatar_url)
+        `)
+        .eq('session_id', id)
+        .order('created_at', { ascending: false });
+
+      setCommentsList(messages || []);
+
+      // Check if user has already liked
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user) {
+        setCurrentUser(userData.user);
+        const { data: likeData } = await supabase
+          .from('live_interactions')
+          .select('id')
+          .eq('session_id', id)
+          .eq('user_id', userData.user.id)
+          .eq('type', 'like')
+          .maybeSingle();
+
+        setIsLiked(!!likeData);
       }
-    }
-  };
 
-  const handleDislike = () => {
-    if (isDisliked) {
-      setDislikes(dislikes - 1);
-      setIsDisliked(false);
-    } else {
-      setDislikes(dislikes + 1);
-      setIsDisliked(true);
+    } catch (error) {
+      console.error('Error fetching session:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchSessionData();
+
+    // Subscribe to interactions (likes)
+    const interactionSubscription = supabase
+      .channel(`live_interactions:${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_interactions',
+          filter: `session_id=eq.${id}`
+        },
+        async () => {
+          const { count } = await supabase
+            .from('live_interactions')
+            .select('*', { count: 'exact', head: true })
+            .eq('session_id', id)
+            .eq('type', 'like');
+          setLikes(count || 0);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to chat
+    const chatSubscription = supabase
+      .channel(`chat_messages:${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `session_id=eq.${id}`
+        },
+        async (payload) => {
+          // Fetch the profile for the new message
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('first_name, last_name, avatar_url')
+            .eq('id', payload.new.user_id)
+            .single();
+
+          const newMessage: Comment = {
+            ...payload.new as any,
+            profile: profileData || undefined
+          };
+          setCommentsList(prev => [newMessage, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(interactionSubscription);
+      supabase.removeChannel(chatSubscription);
+    };
+  }, [id, fetchSessionData]);
+
+  const handleLike = async () => {
+    if (!currentUser) return;
+
+    try {
       if (isLiked) {
-        setLikes(likes - 1);
+        await supabase
+          .from('live_interactions')
+          .delete()
+          .eq('session_id', id)
+          .eq('user_id', currentUser.id)
+          .eq('type', 'like');
         setIsLiked(false);
+      } else {
+        await supabase
+          .from('live_interactions')
+          .insert({
+            session_id: id,
+            user_id: currentUser.id,
+            type: 'like'
+          });
+        setIsLiked(true);
       }
+    } catch (error) {
+      console.error('Error toggling like:', error);
     }
   };
 
-  const handleCommentPress = () => {
-    setShowComments(true);
-  };
+  const handleSubmitComment = async () => {
+    if (!commentText.trim() || !currentUser) return;
 
-  const handleSubmitComment = () => {
-    if (commentText.trim()) {
-      const newComment: Comment = {
-        id: Date.now().toString(),
-        username: 'You',
-        text: commentText.trim(),
-        timestamp: 'Just now',
-        likes: 0,
-        replies: 0,
-      };
-      setCommentsList([newComment, ...commentsList]);
+    try {
+      const { error } = await supabase
+        .from('chat_messages')
+        .insert({
+          session_id: id,
+          user_id: currentUser.id,
+          content: commentText.trim()
+        });
+
+      if (error) throw error;
       setCommentText('');
+    } catch (error) {
+      console.error('Error submitting comment:', error);
     }
   };
 
-  const renderComment = ({ item }: { item: Comment }) => (
-    <View style={styles.commentItem}>
-      <View style={styles.commentAvatar}>
-        <Ionicons name="person-circle" size={40} color="#8A2BE2" />
-      </View>
-      <View style={styles.commentContent}>
-        <View style={styles.commentHeader}>
-          <Text style={styles.commentUsername}>{item.username}</Text>
-          <Text style={styles.commentTimestamp}>{item.timestamp}</Text>
-        </View>
-        <Text style={styles.commentText}>{item.text}</Text>
-        <View style={styles.commentActions}>
-          <TouchableOpacity style={styles.commentAction}>
-            <Ionicons name="heart-outline" size={16} color="#666" />
-            <Text style={styles.commentActionText}>{item.likes}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.commentAction}>
-            <Ionicons name="chatbubble-outline" size={16} color="#666" />
-            <Text style={styles.commentActionText}>Reply</Text>
-          </TouchableOpacity>
-          {item.replies > 0 && (
-            <TouchableOpacity>
-              <Text style={styles.viewRepliesText}>View {item.replies} replies</Text>
-            </TouchableOpacity>
-          )}
+  const renderComment = ({ item }: { item: Comment }) => {
+    const username = `${item.profile?.first_name || ''} ${item.profile?.last_name || ''}`.trim() || 'User';
+    const initials = getInitials(item.profile?.first_name, item.profile?.last_name);
+
+    return (
+      <View style={styles.commentItem}>
+        {item.profile?.avatar_url ? (
+          <Image source={{ uri: item.profile.avatar_url }} style={styles.commentAvatarImage} />
+        ) : (
+          <View style={[styles.commentAvatarImage, styles.initialsCircle, { width: 36, height: 36, borderRadius: 18 }]}>
+            <Text style={[styles.initialsText, { fontSize: 14 }]}>{initials}</Text>
+          </View>
+        )}
+        <View style={styles.commentContent}>
+          <View style={styles.commentHeader}>
+            <Text style={styles.commentUsername}>{username}</Text>
+            <Text style={styles.commentTimestamp}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+          </View>
+          <Text style={styles.commentText}>{item.content}</Text>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#8A2BE2" />
+      </View>
+    );
+  }
+
+  if (!session) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Text style={styles.errorText}>Live session not found.</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.retryButton}>
+          <Text style={styles.retryButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const instructor = session.course?.instructor || {};
+  const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() || 'Instructor';
 
   return (
-    <View style={styles.streamContainer}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      {/* Background Image */}
-      <Image
-        source={item.imageSource}
-        style={styles.backgroundImage}
-        resizeMode="cover"
-      />
 
-      <View style={styles.overlay}>
-        <SafeAreaView style={styles.contentContainer}>
-          {/* Instructor Info */}
-          <View style={styles.userInfo}>
-            <Image
-              source={item.profileImage}
-              style={styles.profileImage}
-            />
-            <View style={styles.userTextInfo}>
-              <Text style={styles.userName}>{item.instructorName}</Text>
-              <Text style={styles.userRole}>{item.role}</Text>
-              <Text style={styles.courseTitle}>{item.courseTitle}</Text>
+      {/* Background Video */}
+      {session.meeting_url ? (
+        <Video
+          source={{ uri: session.meeting_url }}
+          style={StyleSheet.absoluteFill}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay
+          isLooping
+          isMuted={false}
+        />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1a1a1a', justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="videocam-off" size={60} color="#333" />
+          <Text style={{ color: '#666', marginTop: 10 }}>Stream unavailable</Text>
+        </View>
+      )}
+
+      {/* Main Overlay */}
+      <SafeAreaView style={styles.overlay}>
+        {/* Header - Back Button */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={28} color="white" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Bottom Content Wrapper */}
+        <View style={styles.bottomWrapper}>
+          {/* Instructor Info - Bottom Left */}
+          <View style={styles.instructorContainer}>
+            <View style={styles.instructorProfileRow}>
+              {instructor.avatar_url ? (
+                <Image source={{ uri: instructor.avatar_url }} style={styles.instructorAvatar} />
+              ) : (
+                <View style={[styles.instructorAvatar, styles.initialsCircle]}>
+                  <Text style={styles.initialsText}>{getInitials(instructor.first_name, instructor.last_name)}</Text>
+                </View>
+              )}
+              <View style={styles.instructorTextContainer}>
+                <View style={styles.liveBadgeRow}>
+                  <Text style={styles.instructorName}>{instructorName}</Text>
+                  <View style={styles.liveBadge}>
+                    <Text style={styles.liveBadgeText}>LIVE</Text>
+                  </View>
+                </View>
+                <Text style={styles.courseTitle} numberOfLines={1}>{session.course?.title}</Text>
+              </View>
             </View>
           </View>
 
-          {/* Right Actions */}
+          {/* Right Side Actions */}
           <View style={styles.rightActions}>
-            {/* Like Button */}
             <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-              <Ionicons
-                name={isLiked ? 'heart' : 'heart-outline'}
-                size={35}
-                color={isLiked ? '#FF0050' : 'white'}
-              />
-              <Text style={styles.actionLabel}>{likes}</Text>
+              <View style={[styles.iconWrapper, isLiked && styles.iconWrapperActive]}>
+                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={30} color={isLiked ? "#FF0050" : "white"} />
+              </View>
+              <Text style={styles.actionCount}>{likes >= 1000 ? (likes / 1000).toFixed(1) + 'k' : likes}</Text>
             </TouchableOpacity>
 
-            {/* Dislike Button */}
-            <TouchableOpacity style={styles.actionButton} onPress={handleDislike}>
-              <Ionicons
-                name={isDisliked ? 'heart-dislike' : 'heart-dislike-outline'}
-                size={35}
-                color={isDisliked ? '#FF0050' : 'white'}
-              />
-              <Text style={styles.actionLabel}>{dislikes}</Text>
+            <TouchableOpacity style={styles.actionButton} onPress={() => setShowComments(true)}>
+              <View style={styles.iconWrapper}>
+                <Ionicons name="chatbubble-ellipses" size={28} color="white" />
+              </View>
+              <Text style={styles.actionCount}>{commentsList.length}</Text>
             </TouchableOpacity>
 
-            {/* Comment Button */}
-            <TouchableOpacity style={styles.actionButton} onPress={handleCommentPress}>
-              <Ionicons name="chatbubble-outline" size={35} color="white" />
-              <Text style={styles.actionLabel}>{commentsList.length}</Text>
-            </TouchableOpacity>
-
-            {/* Share Button */}
             <TouchableOpacity style={styles.actionButton}>
-              <Ionicons name="share-social-outline" size={35} color="white" />
-              <Text style={styles.actionLabel}>Share</Text>
+              <View style={styles.iconWrapper}>
+                <Ionicons name="share-social" size={28} color="white" />
+              </View>
+              <Text style={styles.actionCount}>Share</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
-      </View>
+        </View>
+      </SafeAreaView>
 
-      {/* YouTube-Style Comment Bottom Sheet */}
+      {/* Chat Modal */}
       <Modal
         visible={showComments}
         transparent
@@ -238,53 +361,41 @@ const LiveStreamItem: React.FC<LiveStreamItemProps> = ({ item, isActive }) => {
             onPress={() => setShowComments(false)}
           />
           <View style={styles.commentSheet}>
-            {/* Sheet Header */}
             <View style={styles.sheetHeader}>
               <View style={styles.sheetHandle} />
               <View style={styles.sheetTitleRow}>
-                <Text style={styles.sheetTitle}>{commentsList.length.toLocaleString()} comments</Text>
+                <Text style={styles.sheetTitle}>{commentsList.length} Comments</Text>
                 <TouchableOpacity onPress={() => setShowComments(false)}>
-                  <Ionicons name="close" size={28} color="#333" />
+                  <Ionicons name="close" size={24} color="#333" />
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Comments List */}
             <FlatList
               data={commentsList}
               renderItem={renderComment}
               keyExtractor={(item) => item.id}
               style={styles.commentsList}
               showsVerticalScrollIndicator={false}
+              inverted={false}
             />
 
-            {/* Comment Input */}
             <View style={styles.commentInputContainer}>
-              <View style={styles.commentInputWrapper}>
-                <Ionicons name="person-circle" size={36} color="#8A2BE2" />
-                <TextInput
-                  style={styles.commentInput}
-                  placeholder="Add comment..."
-                  placeholderTextColor="#999"
-                  value={commentText}
-                  onChangeText={setCommentText}
-                  multiline
-                />
-                <TouchableOpacity
-                  style={styles.emojiButton}
-                  onPress={() => { }}
-                >
-                  <Ionicons name="happy-outline" size={24} color="#666" />
-                </TouchableOpacity>
-                {commentText.trim().length > 0 && (
-                  <TouchableOpacity
-                    style={styles.sendIconButton}
-                    onPress={handleSubmitComment}
-                  >
-                    <Ionicons name="send" size={20} color="#8A2BE2" />
-                  </TouchableOpacity>
-                )}
-              </View>
+              <TextInput
+                style={styles.commentInput}
+                placeholder="Support with a comment..."
+                placeholderTextColor="#999"
+                value={commentText}
+                onChangeText={setCommentText}
+                multiline
+              />
+              <TouchableOpacity
+                onPress={handleSubmitComment}
+                disabled={!commentText.trim()}
+                style={[styles.sendButton, !commentText.trim() && { opacity: 0.5 }]}
+              >
+                <Ionicons name="send" size={20} color="white" />
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -293,164 +404,117 @@ const LiveStreamItem: React.FC<LiveStreamItemProps> = ({ item, isActive }) => {
   );
 };
 
-const LiveClassScreen = () => {
-  const { id } = useLocalSearchParams();
-  const router = useRouter();
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const flatListRef = useRef<FlatList>(null);
-
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      setCurrentIndex(viewableItems[0].index || 0);
-    }
-  }).current;
-
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 50,
-  }).current;
-
-  return (
-    <View style={styles.container}>
-      {/* Back Button */}
-      <SafeAreaView style={styles.backButtonContainer}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={28} color="white" />
-        </TouchableOpacity>
-      </SafeAreaView>
-
-      <FlatList
-        ref={flatListRef}
-        data={mockLiveStreams}
-        renderItem={({ item, index }) => (
-          <LiveStreamItem item={item} isActive={index === currentIndex} />
-        )}
-        keyExtractor={(item) => item.id}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        snapToInterval={SCREEN_HEIGHT}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-      />
-    </View>
-  );
-};
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'black',
+    backgroundColor: '#000',
   },
-  streamContainer: {
-    height: SCREEN_HEIGHT,
-    width: '100%',
-  },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  contentContainer: {
     flex: 1,
-    justifyContent: 'flex-end',
-    padding: 15,
+    justifyContent: 'space-between',
   },
-  rightActions: {
-    position: 'absolute',
-    right: 15,
-    bottom: 100,
+  header: {
+    padding: 16,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 25,
   },
-  actionButton: {
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 2,
+  bottomWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 24,
   },
-  actionLabel: {
-    color: 'white',
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '600',
+  instructorContainer: {
+    flex: 1,
+    marginRight: 60,
   },
-  userInfo: {
-    position: 'absolute',
-    bottom: 80,
-    left: 15,
-    right: 80,
+  instructorProfileRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  profileImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  instructorAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 2,
-    borderColor: 'white',
+    borderColor: '#8A2BE2',
   },
-  userTextInfo: {
+  instructorTextContainer: {
     flex: 1,
   },
-  userName: {
-    color: 'white',
+  liveBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  instructorName: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.8,
-    shadowRadius: 1,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  userRole: {
-    color: 'white',
-    fontSize: 13,
-    marginBottom: 4,
-    opacity: 0.9,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.8,
-    shadowRadius: 1,
+  liveBadge: {
+    backgroundColor: '#FF0050',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  liveBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
   },
   courseTitle: {
-    color: 'white',
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 13,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.8,
-    shadowRadius: 1,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  backButtonContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
+  rightActions: {
+    alignItems: 'center',
+    gap: 20,
   },
-  backButton: {
-    marginTop: 40,
-    marginLeft: 10,
-    marginRight: 10,
-    marginBottom: 10,
-    padding: 10,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 25,
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
+  actionButton: {
     alignItems: 'center',
   },
-  // Modal & Comment Sheet Styles
+  iconWrapper: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  iconWrapperActive: {
+    borderColor: 'rgba(255, 0, 80, 0.3)',
+  },
+  actionCount: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
   modalContainer: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -460,56 +524,55 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   commentSheet: {
-    backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: SCREEN_HEIGHT * 0.9,
-    paddingBottom: 20,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    height: SCREEN_HEIGHT * 0.75,
   },
   sheetHeader: {
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 15,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#f0f0f0',
   },
   sheetHandle: {
-    width: 40,
+    width: 36,
     height: 4,
     backgroundColor: '#ddd',
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 15,
+    marginBottom: 8,
   },
   sheetTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
   },
   sheetTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1a1a1a',
   },
   commentsList: {
     flex: 1,
-    paddingHorizontal: 20,
-    minHeight: SCREEN_HEIGHT * 0.6,
+    padding: 16,
   },
   commentItem: {
     flexDirection: 'row',
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    gap: 12,
+    marginBottom: 20,
   },
-  commentAvatar: {
-    marginRight: 12,
+  commentAvatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   commentContent: {
     flex: 1,
   },
   commentHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
   },
@@ -517,63 +580,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#333',
-    marginRight: 8,
   },
   commentTimestamp: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
   },
   commentText: {
     fontSize: 14,
-    color: '#333',
+    color: '#444',
     lineHeight: 20,
-    marginBottom: 8,
-  },
-  commentActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 20,
-  },
-  commentAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  commentActionText: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '500',
-  },
-  viewRepliesText: {
-    fontSize: 13,
-    color: '#8A2BE2',
-    fontWeight: '600',
   },
   commentInputContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  commentInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    backgroundColor: '#fff',
   },
   commentInput: {
     flex: 1,
     backgroundColor: '#f5f5f5',
     borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     fontSize: 14,
+    color: '#333',
     maxHeight: 100,
   },
-  emojiButton: {
-    padding: 5,
+  sendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#8A2BE2',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  sendIconButton: {
-    padding: 5,
+  errorText: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#8A2BE2',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  initialsCircle: {
+    backgroundColor: '#8A2BE2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  initialsText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 18,
   },
 });
 

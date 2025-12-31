@@ -2,17 +2,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { Link } from 'expo-router';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { courseService } from '../services/courseService';
+import { supabase } from '../lib/supabase';
+import { liveSessionService } from '../services/liveSessionService';
 
 const CourseItem = memo(({ item }: { item: any }) => {
-  const instructorName = `${item.instructor?.first_name || ''} ${item.instructor?.last_name || ''}`.trim() || 'Instructor';
-  const instructorPicture = item.instructor?.avatar_url || `https://ui-avatars.com/api/?name=${instructorName}&background=8A2BE2&color=fff`;
-  const courseImage = item.image_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop';
-  const category = item.categories || 'DEVELOPMENT';
-  const rating = item.avg_rating || 4.8;
-
-  // Use real viewer count from database, default to 0 if not present
-  const viewerCount = item.active_viewers || 0;
+  // item is a live_session object, course is nested
+  const course = item.course || {};
+  const instructor = course.instructor || {};
+  const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() || 'Instructor';
+  const instructorPicture = instructor.avatar_url || `https://ui-avatars.com/api/?name=${instructorName}&background=8A2BE2&color=fff`;
+  const courseImage = course.image_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop';
+  const category = course.categories || 'DEVELOPMENT';
 
   return (
     <View style={styles.courseCard}>
@@ -24,12 +24,6 @@ const CourseItem = memo(({ item }: { item: any }) => {
         <View style={styles.liveBadge}>
           <View style={styles.liveDot} />
           <Text style={styles.liveText}>LIVE</Text>
-        </View>
-
-        {/* Viewer Count - Top Right */}
-        <View style={styles.viewerBadge}>
-          <Ionicons name="eye" size={14} color="#fff" />
-          <Text style={styles.viewerText}>{viewerCount.toLocaleString()} viewers</Text>
         </View>
       </View>
 
@@ -44,7 +38,7 @@ const CourseItem = memo(({ item }: { item: any }) => {
 
         {/* Course Title */}
         <Text style={styles.courseTitle} numberOfLines={2} ellipsizeMode="tail">
-          {item.title}
+          {course.title || 'Live Session'}
         </Text>
 
         {/* Footer - Instructor & Join Button */}
@@ -57,7 +51,7 @@ const CourseItem = memo(({ item }: { item: any }) => {
             </View>
           </View>
 
-          <Link href={`/live/${item.id}`} asChild>
+          <Link href={`/live/${course.id}`} asChild>
             <TouchableOpacity style={styles.joinButton}>
               <Text style={styles.joinButtonText}>Join Now</Text>
               <Ionicons name="play" size={14} color="#fff" style={styles.playIcon} />
@@ -75,23 +69,23 @@ interface LiveCoursesProps {
 }
 
 const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery = '' }) => {
-  const [courses, setCourses] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  const loadCourses = useCallback(async () => {
+  const loadSessions = useCallback(async (showLoading = true) => {
     if (loading) return;
+    if (showLoading) setLoading(true);
 
-    setLoading(true);
     try {
-      const data = await courseService.fetchPublishedCourses();
-      setCourses(data);
-      // Notify parent about course count
+      const data = await liveSessionService.fetchActiveLiveSessions();
+      setSessions(data);
+      // Notify parent about course count (active sessions)
       if (onCoursesLoaded) {
         onCoursesLoaded(data.length);
       }
     } catch (error) {
-      console.error('Failed to fetch courses:', error);
+      console.error('Failed to fetch live sessions:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -99,29 +93,53 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
   }, [loading, onCoursesLoaded]);
 
   useEffect(() => {
-    loadCourses();
+    loadSessions();
+
+    // Set up real-time subscription for live_sessions
+    const subscription = supabase
+      .channel('live_sessions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'live_sessions'
+        },
+        (payload) => {
+          console.log('Live session change detected:', payload.eventType);
+          // Refresh the list when any change occurs in live_sessions
+          loadSessions(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadCourses();
-  }, [loadCourses]);
+    loadSessions();
+  }, [loadSessions]);
 
-  // Filter courses based on search query
-  const filteredCourses = useMemo(() => {
+  // Filter sessions based on search query (searching through nested course data)
+  const filteredSessions = useMemo(() => {
     if (!searchQuery.trim()) {
-      return courses;
+      return sessions;
     }
 
     const query = searchQuery.toLowerCase();
-    return courses.filter(course => {
+    return sessions.filter(session => {
+      const course = session.course || {};
+      const instructor = course.instructor || {};
       const title = course.title?.toLowerCase() || '';
-      const instructorName = `${course.instructor?.first_name || ''} ${course.instructor?.last_name || ''}`.toLowerCase();
+      const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.toLowerCase();
       const category = course.categories?.toLowerCase() || '';
 
       return title.includes(query) || instructorName.includes(query) || category.includes(query);
     });
-  }, [courses, searchQuery]);
+  }, [sessions, searchQuery]);
 
   const renderItem = useCallback(({ item }: { item: any }) => (
     <CourseItem item={item} />
@@ -131,22 +149,29 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
     if (loading) return null;
     return (
       <View style={styles.emptyContainer}>
-        <Ionicons name="videocam-off-outline" size={60} color="#ccc" />
-        <Text style={styles.emptyText}>No live courses available right now.</Text>
-        <Text style={styles.emptySubText}>Check back later for live sessions!</Text>
+        <View style={styles.emptyIconContainer}>
+          <Ionicons name="videocam-off" size={48} color="#8A2BE2" />
+        </View>
+        <Text style={styles.emptyText}>No Live Classes Right Now</Text>
+        <Text style={styles.emptySubText}>
+          Our instructors aren't live at the moment. Check the schedule for upcoming sessions!
+        </Text>
+        <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
+          <Text style={styles.refreshButtonText}>Refresh</Text>
+        </TouchableOpacity>
       </View>
     );
-  }, [loading]);
+  }, [loading, onRefresh]);
 
   const renderFooter = useCallback(() => {
-    if (!loading || filteredCourses.length > 0) return null;
+    if (!loading || filteredSessions.length > 0) return null;
     return <ActivityIndicator style={{ marginVertical: 20 }} size="large" color="#8A2BE2" />;
-  }, [loading, filteredCourses]);
+  }, [loading, filteredSessions]);
 
   return (
     <FlatList
       key="single-column-list"
-      data={filteredCourses}
+      data={filteredSessions}
       renderItem={renderItem}
       keyExtractor={(item) => item.id.toString()}
       refreshControl={
@@ -159,6 +184,7 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
     />
   );
 };
+
 
 const styles = StyleSheet.create({
   listContainer: {
@@ -306,19 +332,51 @@ const styles = StyleSheet.create({
     padding: 60,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#fcfaff',
+    borderRadius: 24,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: '#f0e6ff',
+    borderStyle: 'dashed',
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#f3ebff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
   emptyText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#1a1a1a',
+    fontSize: 20,
+    fontWeight: 'bold',
     textAlign: 'center',
-    marginTop: 16,
+    marginBottom: 10,
   },
   emptySubText: {
-    color: '#999',
-    fontSize: 14,
+    color: '#666',
+    fontSize: 15,
     textAlign: 'center',
-    marginTop: 8,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  refreshButton: {
+    backgroundColor: '#8A2BE2',
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 25,
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  refreshButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
   },
 });
 
