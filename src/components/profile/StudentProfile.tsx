@@ -4,20 +4,12 @@ import { MENTORS } from '@/src/data/mentorsStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
-// Mock Data replaced by real auth data
-
-const liveClass = {
-  title: 'UIUX Design',
-  instructor: 'Sir Ahared',
-  viewers: 1250,
-  timeAgo: '15m ago',
-  image: 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
-};
+// Mock Data replaced by real data via useEffect
 
 const continueLearning = [
   { id: '1', title: 'UIUX Design', timeLeft: '2 hours remaining', progress: 0.6, icon: 'color-palette', color: '#FF6B6B' },
@@ -89,7 +81,65 @@ const StudentProfile = () => {
   const userProfilePic = user?.user_metadata?.avatar || 'https://example.com/default-avatar.png';
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedCourseTab, setSelectedCourseTab] = useState('Technical Courses');
+  const [upcomingCount, setUpcomingCount] = useState(0);
+  const [activeSession, setActiveSession] = useState<any>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        const { supabase } = await import('@/src/auth/supabase');
+
+        // 1. Fetch Today's Upcoming Classes Count
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tonight = new Date();
+        tonight.setHours(23, 59, 59, 999);
+
+        const { data: upcomingData, error: upcomingError } = await (supabase as any)
+          .from('live_sessions')
+          .select('id')
+          .gte('scheduled_at', today.toISOString())
+          .lte('scheduled_at', tonight.toISOString());
+
+        if (!upcomingError) setUpcomingCount(upcomingData?.length || 0);
+
+        // 2. Fetch Active Live Session
+        const { data: liveData, error: liveError } = await (supabase as any)
+          .from('live_sessions')
+          .select(`
+            id,
+            status,
+            course:courses(
+              title,
+              image_url,
+              instructor:profiles(first_name, last_name)
+            )
+          `)
+          .in('status', ['active', 'live'])
+          .limit(1);
+
+        if (!liveError && liveData && liveData.length > 0) {
+          const session = liveData[0];
+          setActiveSession({
+            title: session.course?.title || 'Live Session',
+            instructor: session.course?.instructor
+              ? `${session.course.instructor.first_name || ''} ${session.course.instructor.last_name || ''}`.trim()
+              : 'Unknown Instructor',
+            viewers: Math.floor(Math.random() * (1500 - 800 + 1)) + 800, // Random viewers for simulation
+            timeAgo: 'Started now',
+            image: session.course?.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
+          });
+        } else {
+          setActiveSession(null);
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
 
   // Get top 5 mentors for display
   const topMentors = MENTORS.slice(0, 5);
@@ -149,12 +199,8 @@ const StudentProfile = () => {
             <Text style={styles.welcomeTitle}>Welcome back, {userDisplayName}! 👋</Text>
           </View>
           <Text style={styles.welcomeSubtitle}>
-            You have 2 upcoming classes today and 1 assignment due tomorrow.
+            You have {upcomingCount} upcoming classes today.
           </Text>
-
-          <TouchableOpacity style={styles.joinClassButton}>
-            <Text style={styles.joinClassText}>Join Class</Text>
-          </TouchableOpacity>
 
           <TouchableOpacity style={styles.aiHelpButton} onPress={() => router.push({ pathname: '/support', params: { chat: 'true' } })}>
             <Text style={styles.aiHelpText}>Ask AI Help</Text>
@@ -167,28 +213,35 @@ const StudentProfile = () => {
           <Text style={styles.liveNowText}>Live Now</Text>
         </View>
 
-        <View style={styles.liveCard}>
-          <Image source={{ uri: liveClass.image }} style={styles.liveImage} />
-          <View style={styles.liveContent}>
-            <Text style={styles.liveTitle}>{liveClass.title}</Text>
-            <Text style={styles.liveInstructor}>{liveClass.instructor}</Text>
+        {activeSession ? (
+          <View style={styles.liveCard}>
+            <Image source={{ uri: activeSession.image }} style={styles.liveImage} />
+            <View style={styles.liveContent}>
+              <Text style={styles.liveTitle}>{activeSession.title}</Text>
+              <Text style={styles.liveInstructor}>{activeSession.instructor}</Text>
 
-            <View style={styles.liveMetaRow}>
-              <View style={styles.metaItem}>
-                <Ionicons name="people-outline" size={16} color="#8A2BE2" />
-                <Text style={styles.metaText}>{liveClass.viewers}</Text>
+              <View style={styles.liveMetaRow}>
+                <View style={styles.metaItem}>
+                  <Ionicons name="people-outline" size={16} color="#8A2BE2" />
+                  <Text style={styles.metaText}>{activeSession.viewers}</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Ionicons name="time-outline" size={16} color="#8A2BE2" />
+                  <Text style={styles.metaText}>{activeSession.timeAgo}</Text>
+                </View>
               </View>
-              <View style={styles.metaItem}>
-                <Ionicons name="time-outline" size={16} color="#8A2BE2" />
-                <Text style={styles.metaText}>{liveClass.timeAgo}</Text>
-              </View>
+
+              <TouchableOpacity style={styles.joinSessionButton}>
+                <Text style={styles.joinSessionText}>Join Session</Text>
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity style={styles.joinSessionButton}>
-              <Text style={styles.joinSessionText}>Join Session</Text>
-            </TouchableOpacity>
           </View>
-        </View>
+        ) : (
+          <View style={styles.emptyLiveCard}>
+            <Ionicons name="videocam-off-outline" size={32} color="#8A2BE2" />
+            <Text style={styles.emptyLiveText}>No live classes right now</Text>
+          </View>
+        )}
 
         {/* Top Mentors Section */}
         <View style={styles.mentorsSection}>
@@ -440,6 +493,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  emptyLiveCard: {
+    backgroundColor: '#F8F4FF',
+    borderRadius: 16,
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E0D4FC',
+    borderStyle: 'dashed',
+    marginBottom: 25,
+  },
+  emptyLiveText: {
+    color: '#8A2BE2',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 10,
   },
   sectionTitle: {
     fontSize: 18,
