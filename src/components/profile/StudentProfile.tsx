@@ -3,8 +3,8 @@ import { INITIAL_COURSES } from '@/src/data/courses';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -76,19 +76,76 @@ const StudentProfile = () => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedCourseTab, setSelectedCourseTab] = useState('Technical Courses');
   const [upcomingCount, setUpcomingCount] = useState(0);
-  const [activeSession, setActiveSession] = useState<any>(null);
+  const [activeSessions, setActiveSessions] = useState<any[]>([]); // Changed to array
   const [topInstructors, setTopInstructors] = useState<any[]>([]);
   const [isLoadingInstructors, setIsLoadingInstructors] = useState(true);
   const [recentCourses, setRecentCourses] = useState<any[]>([]);
   const [isLoadingRecent, setIsLoadingRecent] = useState(true);
+
+  // Create animated value for pulse effect
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  // Timer state for forcing re-renders every minute
+  const [now, setNow] = useState(Date.now());
   const router = useRouter();
 
+
+  // 1. Setup Pulse Animation
   useEffect(() => {
+    const startPulse = () => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.2,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    };
+
+    if (activeSessions.length > 0) {
+      startPulse();
+    } else {
+      pulseAnim.setValue(1); // Reset if no session
+    }
+  }, [activeSessions.length]);
+
+  // 2. Timer Effect (Updates 'now' every minute)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 60000); // 60 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  // Helper to format time ago
+  const formatTimeAgo = (startedAt: string) => {
+    if (!startedAt) return 'Live Now';
+    const diffMs = now - new Date(startedAt).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Just started';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    return `${hours}h ${mins}m ago`;
+  };
+
+
+  // 3. Fetch Data & Subscribe
+  useEffect(() => {
+    let subscription: any;
+
     const fetchDashboardData = async () => {
       try {
         const { supabase } = await import('@/src/auth/supabase');
 
-        // 1. Fetch Today's Upcoming Classes Count
+        // A. Fetch Upcoming Classes Logic (unchanged)
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tonight = new Date();
@@ -102,36 +159,58 @@ const StudentProfile = () => {
 
         if (!upcomingError) setUpcomingCount(upcomingData?.length || 0);
 
-        // 2. Fetch Active Live Session
-        const { data: liveData, error: liveError } = await (supabase as any)
-          .from('live_sessions')
-          .select(`
-            id,
-            status,
-            course:courses(
-              title,
-              image_url,
-              instructor:profiles(first_name, last_name)
-            )
-          `)
-          .in('status', ['active', 'live'])
-          .limit(1);
+        // B. Fetch REAL Active Live Sessions (List)
+        const fetchLiveSessions = async () => {
+          const { data: liveData, error: liveError } = await (supabase as any)
+            .from('live_sessions')
+            .select(`
+                id,
+                title,
+                status,
+                started_at,
+                course:courses(
+                    id,
+                    title,
+                    image_url,
+                    instructor:profiles(first_name, last_name)
+                )
+            `)
+            .in('status', ['active', 'live'])
+            .order('started_at', { ascending: false });
 
-        if (!liveError && liveData && liveData.length > 0) {
-          const session = liveData[0];
-          setActiveSession({
-            title: session.course?.title || 'Live Session',
-            instructor: session.course?.instructor
-              ? `${session.course.instructor.first_name || ''} ${session.course.instructor.last_name || ''}`.trim()
-              : 'Unknown Instructor',
-            viewers: Math.floor(Math.random() * (1500 - 800 + 1)) + 800, // Random viewers for simulation
-            timeAgo: 'Started now',
-            image: session.course?.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
-          });
-        } else {
-          setActiveSession(null);
-        }
-        // 3. Fetch Top 10 Instructors
+          if (!liveError && liveData && liveData.length > 0) {
+            // Fetch real enrollment counts for each session
+            const sessionsWithCounts = await Promise.all(liveData.map(async (session: any) => {
+              let viewerCount = 0;
+              if (session.course?.id) {
+                const { count, error } = await (supabase as any)
+                  .from('enrollments')
+                  .select('*', { count: 'exact', head: true })
+                  .eq('course_id', session.course.id);
+                if (!error) viewerCount = count || 0;
+              }
+
+              return {
+                id: session.id, // Important for joining
+                title: session.course?.title || session.title || 'Live Session',
+                instructor: session.course?.instructor
+                  ? `${session.course.instructor.first_name || ''} ${session.course.instructor.last_name || ''}`.trim()
+                  : 'Unknown Instructor',
+                viewers: viewerCount, // Real enrollment count
+                startedAt: session.started_at, // For timer
+                image: session.course?.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
+              };
+            }));
+            setActiveSessions(sessionsWithCounts);
+          } else {
+            setActiveSessions([]);
+          }
+        };
+
+        await fetchLiveSessions();
+
+
+        // C. Fetch Top 10 Instructors (unchanged)
         const { data: instructorsData, error: instructorsError } = await (supabase as any)
           .from('profiles')
           .select('id, first_name, last_name, avatar_url')
@@ -154,7 +233,7 @@ const StudentProfile = () => {
           setTopInstructors(mapped);
         }
 
-        // 4. Fetch Recent Courses (Enrollments)
+        // D. Fetch Recent Courses (unchanged)
         if (user?.id) {
           const { data: enrollData, error: enrollError } = await (supabase as any)
             .from('enrollments')
@@ -178,7 +257,7 @@ const StudentProfile = () => {
                 ? `${c.instructor.first_name || ''} ${c.instructor.last_name || ''}`.trim()
                 : 'Unknown Instructor';
 
-              // Calculate progress
+              // Calculate progress logic (unchanged)
               let lessonCount = 0;
               if (c.course_content) {
                 try {
@@ -215,6 +294,20 @@ const StudentProfile = () => {
             setRecentCourses(mapped);
           }
         }
+
+        // E. Real-time Subscription for Live Sessions
+        subscription = (supabase as any)
+          .channel('public:live_sessions:profile')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'live_sessions' },
+            (payload: any) => {
+              console.log('Profile Live Session Update:', payload);
+              fetchLiveSessions(); // Re-fetch on any change
+            }
+          )
+          .subscribe();
+
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
@@ -224,7 +317,11 @@ const StudentProfile = () => {
     };
 
     fetchDashboardData();
-  }, []);
+
+    return () => {
+      if (subscription) subscription.unsubscribe();
+    };
+  }, []); // Run once on mount
 
   // No longer using static MENTORS
 
@@ -293,33 +390,56 @@ const StudentProfile = () => {
 
         {/* Live Now Section */}
         <View style={styles.sectionHeader}>
-          <View style={styles.redDot} />
+          {activeSessions.length > 0 && (
+            <Animated.View
+              style={[
+                styles.redDot,
+                {
+                  transform: [{ scale: pulseAnim }],
+                  opacity: pulseAnim.interpolate({
+                    inputRange: [1, 1.2],
+                    outputRange: [1, 0.6]
+                  })
+                }
+              ]}
+            />
+          )}
           <Text style={styles.liveNowText}>Live Now</Text>
         </View>
 
-        {activeSession ? (
-          <View style={styles.liveCard}>
-            <Image source={{ uri: activeSession.image }} style={styles.liveImage} />
-            <View style={styles.liveContent}>
-              <Text style={styles.liveTitle}>{activeSession.title}</Text>
-              <Text style={styles.liveInstructor}>{activeSession.instructor}</Text>
-
-              <View style={styles.liveMetaRow}>
-                <View style={styles.metaItem}>
-                  <Ionicons name="people-outline" size={16} color="#8A2BE2" />
-                  <Text style={styles.metaText}>{activeSession.viewers}</Text>
-                </View>
-                <View style={styles.metaItem}>
-                  <Ionicons name="time-outline" size={16} color="#8A2BE2" />
-                  <Text style={styles.metaText}>{activeSession.timeAgo}</Text>
+        {activeSessions.length > 0 ? (
+          activeSessions.map(session => (
+            <View key={session.id} style={styles.liveCard}>
+              <View style={styles.liveImageContainer}>
+                <Image source={{ uri: session.image }} style={styles.liveImage} />
+                <View style={styles.liveBadge}>
+                  <Text style={styles.liveBadgeText}>LIVE</Text>
                 </View>
               </View>
+              <View style={styles.liveContent}>
+                <Text style={styles.liveTitle} numberOfLines={1}>{session.title}</Text>
+                <Text style={styles.liveInstructor}>{session.instructor}</Text>
 
-              <TouchableOpacity style={styles.joinSessionButton}>
-                <Text style={styles.joinSessionText}>Join Session</Text>
-              </TouchableOpacity>
+                <View style={styles.liveMetaRow}>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="people-outline" size={16} color="#8A2BE2" />
+                    <Text style={styles.metaText}>{session.viewers} Enrolled</Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="time-outline" size={16} color="#8A2BE2" />
+                    <Text style={styles.metaText}>{formatTimeAgo(session.startedAt)}</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.joinSessionButton}
+                  onPress={() => router.push(`/live/${session.id}` as any)}
+                >
+                  <Text style={styles.joinSessionText}>Join Session</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          ))
         ) : (
           <View style={styles.emptyLiveCard}>
             <Ionicons name="videocam-off-outline" size={32} color="#8A2BE2" />
@@ -535,11 +655,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
+  liveImageContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
   liveImage: {
     width: '100%',
     height: 180,
     borderRadius: 12,
-    marginBottom: 12,
+  },
+  liveBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: '#FF3B30',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  liveBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   liveContent: {
     paddingHorizontal: 4,
