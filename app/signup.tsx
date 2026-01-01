@@ -2,12 +2,12 @@ import AuthForm from '@/src/components/AuthForm';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { View, StyleSheet, StatusBar, Text, TouchableOpacity, Image } from 'react-native';
+import { Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SignUpScreen() {
   const router = useRouter();
-  const [userType, setUserType] = useState('student');
+  const [role, setRole] = useState<'student' | 'instructor'>('student');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -25,14 +25,14 @@ export default function SignUpScreen() {
           style={styles.logo}
         />
         <Text style={styles.title}>
-          Sign up as a {userType === 'student' ? 'Student' : 'Instructor'}
+          Sign up as a {role === 'student' ? 'Student' : 'Instructor'}
         </Text>
       </View>
-      <AuthForm 
-        initialView="signup" 
-        hideSignUpTitle={true} 
-        onRoleChange={setUserType}
-        role={userType}
+      <AuthForm
+        initialView="signup"
+        hideSignUpTitle={true}
+        onRoleChange={setRole}
+        role={role}
       />
     </SafeAreaView>
   );

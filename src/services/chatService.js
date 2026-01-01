@@ -6,42 +6,59 @@ if (!supabaseUrl) {
     console.warn('chatService: EXPO_PUBLIC_SUPABASE_URL is not defined. Network requests will fail.');
 }
 export const chatService = {
-    // Fetch inbox conversations (latest message per conversation)
-    async fetchInboxConversations(currentUserId) {
+    // Fetch inbox conversations (chat groups)
+    // Note: Instructors fetch created groups; Students fetch groups they are members of.
+    async fetchInboxConversations(currentUserId, role = 'student') {
         try {
-            // 1. Fetch messages with explicit profile join via sender_id
-            const { data: messages, error } = await supabase
-                .from('chat_messages')
-                .select(`
-                    *,
-                    sender:profiles!sender_id (id, first_name, last_name, avatar_url)
-                `)
-                .order('created_at', { ascending: false });
+            let groups = [];
 
-            if (error) throw error;
+            if (role === 'instructor') {
+                // Instructor: Fetch groups where creator_id is current user, include course details
+                const { data, error } = await supabase
+                    .from('chat_groups')
+                    .select('*, courses(title, image_url)')
+                    .eq('creator_id', currentUserId)
+                    .order('created_at', { ascending: false });
 
-            // 2. Group by group_id or conversation_id
-            const conversationsMap = new Map();
+                if (error) throw error;
+                groups = data || [];
 
-            messages.forEach(msg => {
-                const chatId = msg.group_id || msg.conversation_id;
-                if (!chatId) return;
+            } else {
+                // Student: Fetch groups via group_members junction table
+                const { data, error } = await supabase
+                    .from('group_members')
+                    .select(`
+                        group:chat_groups(
+                            *,
+                            courses(title, image_url)
+                        )
+                    `)
+                    .eq('user_id', currentUserId);
 
-                if (!conversationsMap.has(chatId)) {
-                    // partner info logic: if I sent it, the partner is the other messages' sender?
-                    // For inbox, we show the sender's name if it's not us.
-                    const isMe = msg.sender_id === currentUserId;
+                if (error) throw error;
+                groups = data ? data.map(item => item.group).filter(Boolean) : [];
+            }
 
-                    conversationsMap.set(chatId, {
-                        id: chatId,
-                        name: isMe ? 'Me' : (msg.sender ? `${msg.sender.first_name || ''} ${msg.sender.last_name || ''}`.trim() : 'User'),
-                        avatar: isMe ? null : msg.sender?.avatar_url,
-                        last_message: msg,
-                    });
-                }
+            // Map groups to a standard format for the Inbox
+            return groups.map(group => {
+                // Determine Name: Course Title > Group Name > Fallback
+                const displayName = group.courses?.title || group.name || 'Community Chat';
+
+                // Determine Avatar: Course Image > Group Image > Fallback
+                const displayAvatar = group.courses?.image_url || group.image || null;
+
+                return {
+                    id: group.id,
+                    name: displayName,
+                    avatar: displayAvatar,
+                    last_message: {
+                        content: 'Tap to join the discussion',
+                        created_at: group.created_at || new Date().toISOString()
+                    },
+                    isGroup: true
+                };
             });
 
-            return Array.from(conversationsMap.values());
         } catch (error) {
             console.error('Error in fetchInboxConversations:', error.message);
             throw error;
@@ -64,8 +81,8 @@ export const chatService = {
         return channel;
     },
 
-    // Fetch messages for a specific conversation with explicit join
-    async fetchConversationMessages(conversationId) {
+    // Fetch messages for a specific group using group_id
+    async fetchConversationMessages(groupId) {
         try {
             const { data, error } = await supabase
                 .from('chat_messages')
@@ -73,7 +90,7 @@ export const chatService = {
                     *,
                     sender:profiles!sender_id (id, first_name, last_name, avatar_url)
                 `)
-                .eq('conversation_id', conversationId)
+                .eq('group_id', groupId)
                 .order('created_at', { ascending: true });
 
             if (error) throw error;
@@ -84,20 +101,18 @@ export const chatService = {
         }
     },
 
-    // Subscribe to real-time updates for a specific conversation
+    // Subscribe to real-time updates for a specific group
     subscribeToConversation(id, type = 'conversation', callback) {
-        // type can be 'conversation_id' or 'group_id'
-        const filter = type === 'group' ? `group_id=eq.${id}` : `conversation_id=eq.${id}`;
-
+        // type is ignored now, we purely use group_id for chat_messages filtering
         const channel = supabase
-            .channel(`conversation:${id}`)
+            .channel(`group:${id}`)
             .on(
                 'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'chat_messages',
-                    filter: filter
+                    filter: `group_id=eq.${id}`
                 },
                 (payload) => {
                     callback(payload.new);
@@ -108,15 +123,15 @@ export const chatService = {
         return channel;
     },
 
-    // Send a message to a specific conversation
-    async sendConversationMessage(conversationId, senderId, content) {
+    // Send a message to a specific group
+    async sendConversationMessage(groupId, senderId, content) {
         try {
             const { data, error } = await supabase
                 .from('chat_messages')
                 .insert([{
-                    conversation_id: conversationId,
+                    group_id: groupId,
                     sender_id: senderId,
-                    content
+                    content // Can be text or JSON/URL string
                 }])
                 .select();
 
@@ -128,7 +143,75 @@ export const chatService = {
         }
     },
 
-    // Fetch chat partner profile info
+    // Fetch specific group details
+    async fetchGroupDetails(groupId) {
+        try {
+            const { data, error } = await supabase
+                .from('chat_groups')
+                .select('*, courses(title, image_url)')
+                .eq('id', groupId)
+                .single();
+
+            if (error) throw error;
+
+            // Map keys to prioritize Course details
+            return {
+                ...data,
+                name: data.courses?.title || data.name || 'Community Chat',
+                image: data.courses?.image_url || data.image || null
+            };
+        } catch (error) {
+            console.error('Error in fetchGroupDetails:', error.message);
+            return null;
+        }
+    },
+
+    // Fetch members of a group
+    async fetchGroupMembers(groupId) {
+        try {
+            const { data, error } = await supabase
+                .from('group_members')
+                .select(`
+                    *,
+                    profile:profiles(*)
+                `)
+                .eq('group_id', groupId);
+
+            if (error) throw error;
+
+            // Map to a cleaner format
+            return data.map(member => ({
+                id: member.user_id,
+                name: member.profile ? `${member.profile.first_name || ''} ${member.profile.last_name || ''}`.trim() : 'Unknown',
+                role: member.role || member.profile?.role || 'Student', // Fallback to profile role if group role is missing
+                avatar: member.profile?.avatar_url,
+                joined_at: member.joined_at
+            }));
+        } catch (error) {
+            console.error('Error in fetchGroupMembers:', error.message);
+            return [];
+        }
+    },
+
+    // Leave a group
+    async leaveGroup(groupId, userId) {
+        try {
+            const { error } = await supabase
+                .from('group_members')
+                .delete()
+                .eq('group_id', groupId)
+                .eq('user_id', userId);
+
+            if (error) throw error;
+            return true;
+        } catch (error) {
+            console.error('Error in leaveGroup:', error.message);
+            return false;
+        }
+    },
+
+    // Fetch chat partner profile info 
+    // (Used in ChatScreen, though for Groups it might be less relevant, kept for compatibility)
     async fetchChatPartner(userId) {
         try {
             const { data, error } = await supabase

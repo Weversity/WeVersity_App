@@ -6,6 +6,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -26,7 +27,16 @@ const ConversationItem = memo(({ item, onPress }: { item: any; onPress: (id: str
       activeOpacity={0.7}
     >
       <View style={[styles.avatarContainer, { backgroundColor: item.avatarColor }]}>
-        {item.system ? (
+        {item.avatar ? (
+          <Image
+            source={{ uri: item.avatar }}
+            style={{ width: 52, height: 52, borderRadius: 26 }}
+            resizeMode="cover"
+          />
+        ) : item.isGroup ? (
+          // Community Fallback Icon
+          <Ionicons name="people" size={24} color="#555" />
+        ) : item.system ? (
           <Ionicons name="notifications" size={24} color="#555" />
         ) : (
           <Text style={styles.avatarInitials}>{item.name.charAt(0)}</Text>
@@ -36,7 +46,9 @@ const ConversationItem = memo(({ item, onPress }: { item: any; onPress: (id: str
 
       <View style={styles.conversationContent}>
         <View style={styles.topRow}>
-          <Text style={styles.name}>{item.name}</Text>
+          <Text style={styles.name} numberOfLines={2}>
+            {item.name}
+          </Text>
           <View style={styles.metaContainer}>
             <Text style={[styles.time, item.unread > 0 && styles.activeTime]}>{item.time}</Text>
           </View>
@@ -68,7 +80,7 @@ const renderEmptyMessages = (message: string) => (
 
 const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
-    data={conversations}
+    data={conversations} // Show all conversations including Communities
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
     contentContainerStyle={styles.listContent}
@@ -96,7 +108,7 @@ const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { c
 
 const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
-    data={conversations.filter((c) => c.system)}
+    data={conversations.filter((c) => c.isGroup)}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
     contentContainerStyle={styles.listContent}
@@ -115,7 +127,7 @@ export default function InboxScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [routes] = useState([
-    { key: 'all', title: 'All' },
+    { key: 'all', title: 'Chats' }, // Renamed from All to Chats to imply DMs, but let's see logic
     { key: 'unread', title: 'Unread' },
     { key: 'communities', title: 'Communities' },
   ]);
@@ -125,27 +137,51 @@ export default function InboxScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const formatConversation = useCallback((conv: any) => {
-    const msg = conv.last_message;
+    // Safety check for last_message
+    const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
     const isMe = msg.sender_id === user?.id;
+
+    // Robust Date handling
+    let timeStr = '';
+    let timestamp = 0;
+
+    try {
+      const dateInput = msg.created_at || new Date().toISOString();
+      const dateObj = new Date(dateInput);
+
+      // Check if date is valid
+      if (!isNaN(dateObj.getTime())) {
+        timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        timestamp = dateObj.getTime();
+      } else {
+        // Fallback
+        timeStr = 'Now';
+        timestamp = Date.now();
+      }
+    } catch (e) {
+      timeStr = '';
+    }
 
     return {
       id: conv.id,
-      name: conv.name || 'User',
-      message: (isMe ? 'You: ' : '') + msg.content,
-      time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      name: conv.name || 'Group Chat',
+      message: (isMe ? 'You: ' : '') + (msg.content || 'Tap to view'),
+      time: timeStr,
       unread: conv.unread_count || 0,
-      avatar: conv.avatar,
+      avatar: conv.avatar, // Uses course image if available
       avatarColor: '#F3F4F6',
-      system: false,
-      timestamp: new Date(msg.created_at).getTime()
+      isGroup: !!conv.isGroup,
+      timestamp: timestamp,
+      system: false // Legacy flag
     };
   }, [user?.id]);
+
 
   const loadChats = useCallback(async () => {
     try {
       if (!user) return;
       setLoading(true);
-      const inboxData = await chatService.fetchInboxConversations(user.id);
+      const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
       const mapped = inboxData.map(formatConversation);
       // Sort by timestamp descending
       setConversations(mapped.sort((a, b) => b.timestamp - a.timestamp));
@@ -174,13 +210,15 @@ export default function InboxScreen() {
         const isMe = newMessage.sender_id === user.id;
         const updatedConv = {
           id: chatId,
-          name: existing?.name || 'User',
+          // Robust name fallback to prevent flickering
+          name: existing?.name || newMessage.group_name || 'Community Chat',
           avatar: existing?.avatar,
           message: (isMe ? 'You: ' : '') + newMessage.content,
           time: new Date(newMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           unread: isMe ? 0 : (existing?.unread || 0) + 1,
           avatarColor: '#F3F4F6',
           system: false,
+          isGroup: existing?.isGroup || !!newMessage.group_id,
           timestamp: new Date(newMessage.created_at).getTime()
         };
 
@@ -362,17 +400,21 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start', // Align start for multiline
     marginBottom: 4,
   },
   name: {
+    flex: 1, // Allow name to take available space
     fontSize: 16,
     fontWeight: '700',
     color: '#1F2937',
+    lineHeight: 20, // Tighter line height
+    marginRight: 8, // Space between name and time
   },
   metaContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 2, // Align with text
   },
   time: {
     fontSize: 12,
