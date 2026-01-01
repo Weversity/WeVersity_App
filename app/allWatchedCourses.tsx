@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 const WatchedCourseCard = ({ course, onPress }: { course: any; onPress: () => void }) => {
   return (
@@ -113,7 +112,7 @@ export default function AllWatchedCoursesScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
       {/* Header */}
@@ -152,7 +151,7 @@ export default function AllWatchedCoursesScreen() {
           </TouchableOpacity>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -194,8 +193,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 20 : 45,
-    paddingBottom: 20,
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
+    paddingBottom: 15,
     backgroundColor: '#8A2BE2',
   },
   headerText: {

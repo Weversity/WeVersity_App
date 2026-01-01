@@ -17,7 +17,6 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 // Confirmation Dialog Component
@@ -456,7 +455,7 @@ export default function ProfileSettingsScreen() {
 
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
       {/* Header */}
@@ -551,7 +550,7 @@ export default function ProfileSettingsScreen() {
         visible={changePasswordModalVisible}
         onClose={() => setChangePasswordModalVisible(false)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

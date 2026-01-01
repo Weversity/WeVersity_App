@@ -14,7 +14,6 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -127,7 +126,7 @@ export default function AllMentorsScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
+        <View style={styles.container}>
             <StatusBar barStyle="light-content" />
 
             {/* Header */}
@@ -173,7 +172,7 @@ export default function AllMentorsScreen() {
                     <Text style={{ marginTop: 10, color: '#999', fontSize: 16 }}>No mentors found</Text>
                 </View>
             )}
-        </SafeAreaView>
+        </View>
     );
 }
 

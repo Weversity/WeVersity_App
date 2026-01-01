@@ -15,11 +15,6 @@ const continueLearning = [
   { id: '2', title: 'Web Development', timeLeft: 'Module 2: Syllabus', progress: 0.3, icon: 'globe', color: '#4ECDC4' },
 ];
 
-const schedule = [
-  { id: '1', title: 'UIUX Design', time: 'Now - 6th March 09:00', status: 'HAPPENING NOW', icon: 'brush', color: '#E0D4FC' },
-  { id: '2', title: 'Web Development', time: '13:00 PM - 1st April 2024', status: 'UPCOMING', icon: 'code', color: '#E0D4FC' },
-  { id: '3', title: 'Social Media Marketing', time: '15:30 PM - 14th April 2024', status: 'UPCOMING', icon: 'share-social', color: '#E0D4FC' },
-];
 
 const SideMenu = ({ visible, onClose, router }: { visible: boolean; onClose: () => void; router: any }) => {
   const { logout } = useAuth(); // Get logout from useAuth
@@ -403,27 +398,6 @@ const StudentProfile = () => {
           </View>
         )}
 
-        {/* Today's Schedule */}
-        <View style={styles.scheduleContainer}>
-          <Text style={styles.scheduleTitle}>Today's Schedule</Text>
-
-          {schedule.map((item, index) => (
-            <View key={item.id} style={styles.scheduleItem}>
-              <View style={[styles.scheduleIconCircle, { backgroundColor: item.color }]}>
-                <Ionicons name={item.icon as any} size={20} color="#8A2BE2" />
-              </View>
-              <View style={styles.scheduleContent}>
-                <Text style={styles.scheduleItemTitle}>{item.title}</Text>
-                <Text style={styles.scheduleTime}>{item.time}</Text>
-                {item.status === 'HAPPENING NOW' && (
-                  <View style={styles.statusBadge}>
-                    <Text style={styles.statusText}>HAPPENING NOW</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          ))}
-        </View>
 
       </ScrollView>
       <SideMenu visible={menuVisible} onClose={() => setMenuVisible(false)} router={router} />
@@ -689,59 +663,6 @@ const styles = StyleSheet.create({
   learningTime: {
     fontSize: 10,
     color: '#888',
-  },
-  scheduleContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-    marginTop: 10,
-  },
-  scheduleTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#333',
-  },
-  scheduleItem: {
-    flexDirection: 'row',
-    marginBottom: 24, // Spacing between items
-  },
-  scheduleIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  scheduleContent: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  scheduleItemTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 4,
-  },
-  scheduleTime: {
-    fontSize: 12,
-    color: '#888',
-    marginBottom: 4,
-  },
-  statusBadge: {
-    backgroundColor: '#FF6B6B30', // Light red bg
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-  },
-  statusText: {
-    color: '#FF6B6B',
-    fontSize: 10,
-    fontWeight: 'bold',
   },
   // Mentors Section
   mentorsSection: {
