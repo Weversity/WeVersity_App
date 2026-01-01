@@ -1,8 +1,9 @@
-import { followedMentorsStore, Mentor, MENTORS, toggleFollow } from '@/src/data/mentorsStore';
+import { followedMentorsStore, toggleFollow } from '@/src/data/mentorsStore';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     Dimensions,
     FlatList,
     Image,
@@ -20,24 +21,85 @@ const { width } = Dimensions.get('window');
 export default function AllMentorsScreen() {
     const router = useRouter();
     const [search, setSearch] = useState('');
+    const [instructors, setInstructors] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [followed, setFollowed] = useState(new Set(followedMentorsStore));
+
+    const fetchInstructors = async (query = '') => {
+        setIsLoading(true);
+        try {
+            const { supabase } = await import('@/src/auth/supabase');
+            let supabaseQuery = (supabase as any)
+                .from('profiles')
+                .select('id, first_name, last_name, avatar_url') // Removed invalid columns
+                .eq('role', 'instructor');
+
+            if (query) {
+                // Use .or() for searching in both first_name and last_name
+                supabaseQuery = supabaseQuery.or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
+            }
+
+            const { data, error } = await supabaseQuery;
+
+            if (error) throw error;
+
+            if (data) {
+                const mapped = data.map((p: any) => {
+                    const first = p.first_name || '';
+                    const last = p.last_name || '';
+                    const initials = (first?.[0] || '') + (last?.[0] || '');
+
+                    return {
+                        id: p.id,
+                        name: `${first} ${last}`.trim() || 'Instructor',
+                        avatar: p.avatar_url,
+                        initials: initials.toUpperCase() || 'IN',
+                        specialty: 'Professional Mentor', // Placeholder since specialty column is missing
+                        followers: 0, // Placeholder
+                        rating: 0.0 // Placeholder
+                    };
+                });
+                setInstructors(mapped);
+            }
+        } catch (error) {
+            console.error('Error fetching instructors:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchInstructors();
+    }, []);
+
+    // Debounced search could be better, but simple useEffect for now
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(() => {
+            fetchInstructors(search);
+        }, 500);
+
+        return () => clearTimeout(delayDebounceFn);
+    }, [search]);
 
     const handleToggleFollow = (mentorId: string) => {
         toggleFollow(mentorId);
         setFollowed(new Set(followedMentorsStore));
     };
 
-    const filteredMentors = MENTORS.filter(mentor =>
-        mentor.name.toLowerCase().includes(search.toLowerCase()) ||
-        mentor.specialty.toLowerCase().includes(search.toLowerCase())
-    );
+    // No longer using local filteredMentors
 
-    const renderMentorCard = ({ item }: { item: Mentor }) => {
+    const renderMentorCard = ({ item }: { item: any }) => {
         const isFollowed = followed.has(item.id);
 
         return (
             <View style={styles.mentorCard}>
-                <Image source={{ uri: item.avatar }} style={styles.mentorAvatar} />
+                {item.avatar ? (
+                    <Image source={{ uri: item.avatar }} style={styles.mentorAvatar} />
+                ) : (
+                    <View style={[styles.mentorAvatar, styles.initialsContainer]}>
+                        <Text style={styles.initialsText}>{item.initials}</Text>
+                    </View>
+                )}
                 <Text style={styles.mentorName}>{item.name}</Text>
                 <Text style={styles.mentorSpecialty}>{item.specialty}</Text>
 
@@ -89,17 +151,28 @@ export default function AllMentorsScreen() {
                 />
             </View>
 
-            {/* Mentors Grid */}
-            <FlatList
-                data={filteredMentors}
-                renderItem={renderMentorCard}
-                keyExtractor={item => item.id}
-                numColumns={2}
-                contentContainerStyle={styles.gridContainer}
-                columnWrapperStyle={styles.row}
-                showsVerticalScrollIndicator={false}
-                extraData={followed}
-            />
+            {isLoading ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 }}>
+                    <ActivityIndicator size="large" color="#8A2BE2" />
+                    <Text style={{ marginTop: 10, color: '#666' }}>Loading mentors...</Text>
+                </View>
+            ) : instructors.length > 0 ? (
+                <FlatList
+                    data={instructors}
+                    renderItem={renderMentorCard}
+                    keyExtractor={item => item.id}
+                    numColumns={2}
+                    contentContainerStyle={styles.gridContainer}
+                    columnWrapperStyle={styles.row}
+                    showsVerticalScrollIndicator={false}
+                    extraData={followed}
+                />
+            ) : (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 }}>
+                    <Ionicons name="people-outline" size={64} color="#ccc" />
+                    <Text style={{ marginTop: 10, color: '#999', fontSize: 16 }}>No mentors found</Text>
+                </View>
+            )}
         </SafeAreaView>
     );
 }
@@ -228,5 +301,15 @@ const styles = StyleSheet.create({
     },
     followingButtonText: {
         color: '#8A2BE2',
+    },
+    initialsContainer: {
+        backgroundColor: '#E6E6FA',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    initialsText: {
+        color: '#8A2BE2',
+        fontSize: 24,
+        fontWeight: 'bold',
     },
 });

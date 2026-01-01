@@ -46,6 +46,7 @@ interface Review {
     user: {
         name: string;
         avatar: string;
+        initials: string;
     };
 }
 
@@ -60,6 +61,7 @@ interface MappedCourse {
     sections: Section[];
     instructor: string;
     instructorAvatar?: string;
+    instructorInitials?: string;
     rating: number;
     reviews: Review[];
     reviewCount: number;
@@ -248,18 +250,26 @@ export default function CourseDetailsScreen() {
                         });
                     }
 
-                    mappedReviews = reviewsRaw!.map((r: any) => ({
-                        id: r.id,
-                        rating: r.rating,
-                        content: r.content,
-                        created_at: r.created_at,
-                        user: {
-                            name: profileMap[r.student_id]
-                                ? `${profileMap[r.student_id].first_name || ''} ${profileMap[r.student_id].last_name || ''}`.trim()
-                                : 'Anonymous Student',
-                            avatar: profileMap[r.student_id]?.avatar_url
-                        }
-                    }));
+                    mappedReviews = reviewsRaw!.map((r: any) => {
+                        const prof = profileMap[r.student_id];
+                        const first = prof?.first_name || '';
+                        const last = prof?.last_name || '';
+                        const initials = (first?.[0] || '') + (last?.[0] || '');
+
+                        return {
+                            id: r.id,
+                            rating: r.rating,
+                            content: r.content,
+                            created_at: r.created_at,
+                            user: {
+                                name: prof
+                                    ? `${first} ${last}`.trim()
+                                    : 'Anonymous Student',
+                                avatar: prof?.avatar_url,
+                                initials: initials.toUpperCase() || 'AS'
+                            }
+                        };
+                    });
                 }
 
                 setCourse({
@@ -273,6 +283,7 @@ export default function CourseDetailsScreen() {
                     sections: transformedSections,
                     instructor: data.instructor?.first_name ? `${data.instructor.first_name} ${data.instructor.last_name || ''}`.trim() : 'Unknown Instructor',
                     instructorAvatar: data.instructor?.avatar_url,
+                    instructorInitials: ((data.instructor?.first_name?.[0] || '') + (data.instructor?.last_name?.[0] || '')).toUpperCase() || 'IN',
                     rating: calculatedAvgRating,
                     reviews: mappedReviews,
                     reviewCount: reviewsCount,
@@ -444,7 +455,13 @@ const AboutTab = ({ course }: { course: MappedCourse }) => (
     <View>
         <Text style={styles.sectionTitle}>Mentor</Text>
         <View style={styles.mentorCard}>
-            <Image source={{ uri: course.instructorAvatar || 'https://via.placeholder.com/50' }} style={styles.mentorImg} />
+            {course.instructorAvatar ? (
+                <Image source={{ uri: course.instructorAvatar }} style={styles.mentorImg} />
+            ) : (
+                <View style={[styles.mentorImg, styles.initialsContainerSmall]}>
+                    <Text style={styles.initialsTextSmall}>{course.instructorInitials}</Text>
+                </View>
+            )}
             <View>
                 <Text style={styles.mentorName}>{course.instructor}</Text>
                 <Text style={styles.mentorRole}>Senior Instructor</Text>
@@ -574,10 +591,16 @@ const ReviewsTab = ({ course }: { course: MappedCourse }) => {
             <Text style={styles.tabSectionTitle}>Student Reviews</Text>
             {course.reviews.length > 0 ? course.reviews.map((r, i) => (
                 <View key={i} style={styles.reviewCard}>
-                    <Image
-                        source={{ uri: r.user.avatar || 'https://via.placeholder.com/40' }}
-                        style={styles.reviewerImg}
-                    />
+                    {r.user.avatar ? (
+                        <Image
+                            source={{ uri: r.user.avatar }}
+                            style={styles.reviewerImg}
+                        />
+                    ) : (
+                        <View style={[styles.reviewerImg, styles.initialsContainerSmall]}>
+                            <Text style={styles.initialsTextSmall}>{r.user.initials}</Text>
+                        </View>
+                    )}
                     <View style={{ flex: 1 }}>
                         <View style={styles.reviewHeader}>
                             <Text style={styles.reviewerName}>{r.user.name}</Text>
@@ -653,4 +676,14 @@ const styles = StyleSheet.create({
     progressPercent: { fontSize: 14, color: '#333', fontWeight: 'bold' },
     progressBackground: { height: 6, backgroundColor: '#f0f0f0', borderRadius: 3, overflow: 'hidden' },
     progressFill: { height: '100%', backgroundColor: '#4CAF50', borderRadius: 3 },
+    initialsContainerSmall: {
+        backgroundColor: '#E6E6FA',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    initialsTextSmall: {
+        color: '#8A2BE2',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
 });

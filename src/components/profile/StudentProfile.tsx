@@ -1,11 +1,10 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { INITIAL_COURSES } from '@/src/data/courses';
-import { MENTORS } from '@/src/data/mentorsStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -83,6 +82,8 @@ const StudentProfile = () => {
   const [selectedCourseTab, setSelectedCourseTab] = useState('Technical Courses');
   const [upcomingCount, setUpcomingCount] = useState(0);
   const [activeSession, setActiveSession] = useState<any>(null);
+  const [topInstructors, setTopInstructors] = useState<any[]>([]);
+  const [isLoadingInstructors, setIsLoadingInstructors] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -133,16 +134,39 @@ const StudentProfile = () => {
         } else {
           setActiveSession(null);
         }
+        // 3. Fetch Top 10 Instructors
+        const { data: instructorsData, error: instructorsError } = await (supabase as any)
+          .from('profiles')
+          .select('id, first_name, last_name, avatar_url')
+          .eq('role', 'instructor')
+          .limit(10);
+
+        if (!instructorsError && instructorsData) {
+          const mapped = instructorsData.map((p: any) => {
+            const first = p.first_name || '';
+            const last = p.last_name || '';
+            const initials = (first?.[0] || '') + (last?.[0] || '');
+
+            return {
+              id: p.id,
+              name: `${first} ${last}`.trim() || 'Instructor',
+              avatar: p.avatar_url,
+              initials: initials.toUpperCase() || 'IN'
+            };
+          });
+          setTopInstructors(mapped);
+        }
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
+      } finally {
+        setIsLoadingInstructors(false);
       }
     };
 
     fetchDashboardData();
   }, []);
 
-  // Get top 5 mentors for display
-  const topMentors = MENTORS.slice(0, 5);
+  // No longer using static MENTORS
 
   // Filter courses based on selected tab
   const popularCourses = INITIAL_COURSES.filter(
@@ -256,12 +280,24 @@ const StudentProfile = () => {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.mentorsScrollContainer}
           >
-            {topMentors.map(mentor => (
-              <TouchableOpacity key={mentor.id} style={styles.mentorCard}>
-                <Image source={{ uri: mentor.avatar }} style={styles.mentorAvatar} />
-                <Text style={styles.mentorName}>{mentor.name}</Text>
-              </TouchableOpacity>
-            ))}
+            {isLoadingInstructors ? (
+              <ActivityIndicator color="#8A2BE2" style={{ marginLeft: 20 }} />
+            ) : topInstructors.length > 0 ? (
+              topInstructors.map(mentor => (
+                <TouchableOpacity key={mentor.id} style={styles.mentorCard}>
+                  {mentor.avatar ? (
+                    <Image source={{ uri: mentor.avatar }} style={styles.mentorAvatar} />
+                  ) : (
+                    <View style={[styles.mentorAvatar, styles.initialsContainer]}>
+                      <Text style={styles.initialsText}>{mentor.initials}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.mentorName} numberOfLines={1}>{mentor.name}</Text>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <Text style={[styles.seeAllText, { marginLeft: 20, color: '#666' }]}>No mentors found</Text>
+            )}
           </ScrollView>
         </View>
 
@@ -664,6 +700,16 @@ const styles = StyleSheet.create({
     color: '#333',
     textAlign: 'center',
     fontWeight: '500',
+  },
+  initialsContainer: {
+    backgroundColor: '#E6E6FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  initialsText: {
+    color: '#8A2BE2',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   // Courses Section
   coursesSection: {
