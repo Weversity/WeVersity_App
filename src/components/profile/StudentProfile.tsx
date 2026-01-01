@@ -84,6 +84,8 @@ const StudentProfile = () => {
   const [activeSession, setActiveSession] = useState<any>(null);
   const [topInstructors, setTopInstructors] = useState<any[]>([]);
   const [isLoadingInstructors, setIsLoadingInstructors] = useState(true);
+  const [recentCourses, setRecentCourses] = useState<any[]>([]);
+  const [isLoadingRecent, setIsLoadingRecent] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -156,10 +158,73 @@ const StudentProfile = () => {
           });
           setTopInstructors(mapped);
         }
+
+        // 4. Fetch Recent Courses (Enrollments)
+        if (user?.id) {
+          const { data: enrollData, error: enrollError } = await (supabase as any)
+            .from('enrollments')
+            .select(`
+              completed_lessons,
+              course:courses(
+                id,
+                title,
+                image_url,
+                course_content,
+                instructor:profiles(first_name, last_name)
+              )
+            `)
+            .eq('student_id', user.id)
+            .limit(3);
+
+          if (!enrollError && enrollData) {
+            const mapped = enrollData.map((e: any) => {
+              const c = e.course;
+              const instructorName = c.instructor
+                ? `${c.instructor.first_name || ''} ${c.instructor.last_name || ''}`.trim()
+                : 'Unknown Instructor';
+
+              // Calculate progress
+              let lessonCount = 0;
+              if (c.course_content) {
+                try {
+                  const content = typeof c.course_content === 'string' ? JSON.parse(c.course_content) : c.course_content;
+                  let rawSections = [];
+                  if (Array.isArray(content)) {
+                    rawSections = content;
+                  } else if (content && typeof content === 'object') {
+                    rawSections = content.sections || content.data || Object.values(content).filter(v => Array.isArray(v));
+                  }
+
+                  if (Array.isArray(rawSections)) {
+                    rawSections.forEach((section: any) => {
+                      const lessons = section.lessons || section.data || section.items || (Array.isArray(section) ? section : []);
+                      lessonCount += Array.isArray(lessons) ? lessons.length : 0;
+                    });
+                  }
+                } catch (e) { console.error('Error parsing course content', e); }
+              }
+
+              const completedCount = Array.isArray(e.completed_lessons)
+                ? e.completed_lessons.length
+                : (typeof e.completed_lessons === 'number' ? e.completed_lessons : 0);
+              const progressVal = lessonCount > 0 ? (completedCount / lessonCount) : 0;
+
+              return {
+                id: c.id,
+                title: c.title,
+                instructor: instructorName,
+                image: c.image_url || 'https://via.placeholder.com/150',
+                progress: progressVal
+              };
+            });
+            setRecentCourses(mapped);
+          }
+        }
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
         setIsLoadingInstructors(false);
+        setIsLoadingRecent(false);
       }
     };
 
@@ -308,22 +373,35 @@ const StudentProfile = () => {
             <Text style={styles.seeAllText}>See All</Text>
           </TouchableOpacity>
         </View>
-        {INITIAL_COURSES.slice(0, 3).map(item => (
-          <View key={item.id} style={styles.learningCard}>
-            <Image source={{ uri: item.image }} style={styles.courseCardImage} />
-            <View style={styles.learningContent}>
-              <View style={styles.learningHeader}>
-                <Text style={styles.learningTitle}>{item.title}</Text>
-                <Ionicons name="play" size={16} color="#aaa" />
+        {isLoadingRecent ? (
+          <ActivityIndicator color="#8A2BE2" style={{ marginVertical: 20 }} />
+        ) : recentCourses.length > 0 ? (
+          recentCourses.map(item => (
+            <TouchableOpacity key={item.id} style={styles.learningCard} onPress={() => router.push(`/learning/${item.id}` as any)}>
+              <Image source={{ uri: item.image }} style={styles.courseCardImage} />
+              <View style={styles.learningContent}>
+                <View style={styles.learningHeader}>
+                  <Text style={styles.learningTitle}>{item.title}</Text>
+                </View>
+                <Text style={styles.instructorName}>{item.instructor}</Text>
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBar, { width: `${(item.progress || 0) * 100}%`, backgroundColor: '#8A2BE2' }]} />
+                </View>
+                <Text style={styles.learningTime}>{Math.round((item.progress || 0) * 100)}% complete</Text>
               </View>
-              <Text style={styles.instructorName}>{item.instructor}</Text>
-              <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBar, { width: `${(typeof item.progress === 'number' ? item.progress : 0) * 100}%`, backgroundColor: '#4CD964' }]} />
-              </View>
-              <Text style={styles.learningTime}>{item.progress} complete</Text>
-            </View>
+              <Ionicons name="play" size={18} color="#aaa" />
+            </TouchableOpacity>
+          ))
+        ) : (
+          <View style={styles.emptyRecentCard}>
+            <Ionicons name="school-outline" size={48} color="#ccc" />
+            <Text style={styles.emptyRecentTitle}>Your learning journey starts here!</Text>
+            <Text style={styles.emptyRecentSubtitle}>Explore our courses and enroll today.</Text>
+            <TouchableOpacity style={styles.exploreButton} onPress={() => router.push('/myCourses')}>
+              <Text style={styles.exploreButtonText}>Explore Courses</Text>
+            </TouchableOpacity>
           </View>
-        ))}
+        )}
 
         {/* Today's Schedule */}
         <View style={styles.scheduleContainer}>
@@ -557,7 +635,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    padding: 12,
+    padding: 12, // More balanced padding
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
@@ -584,6 +662,7 @@ const styles = StyleSheet.create({
   learningContent: {
     flex: 1,
     marginLeft: 15,
+    marginRight: 15, // Ensure space from play button
   },
   learningHeader: {
     flexDirection: 'row',
@@ -601,7 +680,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
     borderRadius: 2,
     marginBottom: 6,
-    width: '80%', // Not full width to leave space
+    width: '100%', // Use full width of content column
   },
   progressBar: {
     height: '100%',
@@ -710,6 +789,41 @@ const styles = StyleSheet.create({
     color: '#8A2BE2',
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  emptyRecentCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+    marginBottom: 20,
+  },
+  emptyRecentTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 15,
+    textAlign: 'center',
+  },
+  emptyRecentSubtitle: {
+    fontSize: 13,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 5,
+    marginBottom: 20,
+  },
+  exploreButton: {
+    backgroundColor: '#8A2BE2',
+    paddingVertical: 10,
+    paddingHorizontal: 25,
+    borderRadius: 25,
+  },
+  exploreButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   // Courses Section
   coursesSection: {
