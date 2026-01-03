@@ -1,8 +1,8 @@
 import { supabase } from '@/src/auth/supabase';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-av';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -112,6 +112,11 @@ const processCourseContent = (content: any): Section[] => {
 // --- UI Components ---
 
 const ContentRenderer = ({ lesson }: { lesson: Lesson | null }) => {
+    const videoSource = (lesson?.type === 'video') ? (lesson.video_url || lesson.video_link || lesson.content || '') : '';
+    const player = useVideoPlayer(videoSource, player => {
+        if (videoSource) player.play();
+    });
+
     if (!lesson) {
         return (
             <View style={[styles.contentContainer, styles.center]}>
@@ -123,14 +128,12 @@ const ContentRenderer = ({ lesson }: { lesson: Lesson | null }) => {
 
     switch (lesson.type) {
         case 'video':
-            const videoSource = lesson.video_url || lesson.video_link || lesson.content;
             return (
                 <View style={styles.contentContainer}>
-                    <Video
+                    <VideoView
                         style={styles.videoPlayer}
-                        source={{ uri: videoSource || '' }}
-                        useNativeControls
-                        resizeMode={ResizeMode.CONTAIN}
+                        player={player}
+                        contentFit="contain"
                     />
                     <Text style={styles.heading}>{lesson.title}</Text>
                     {lesson.content && !lesson.video_url && !lesson.video_link && !lesson.content.startsWith('http') && (

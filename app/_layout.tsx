@@ -18,18 +18,34 @@ export default function RootLayout() {
 
   useEffect(() => {
     const testConnection = async () => {
-      console.log('🚀 Final Authenticated Test Start...');
-      // We try a simple select to verify the key's validity against the Project API
-      const { data, error } = await supabase.from('profiles').select('id').limit(1);
+      try {
+        console.log('🚀 Final Authenticated Test Start...');
+        // We try a simple select to verify the key's validity against the Project API
+        // NOTE: We don't catch AuthApiError here because it's handled by Supabase-js refresh logic,
+        // but we wrap the whole call to ensure no uncaught rejections.
+        const { data, error } = await supabase.from('profiles').select('id').limit(1);
 
-      if (error) {
-        console.error('❌ Connection Result: Failed');
-        console.error('Error Message:', error.message);
-        console.error('Error Code:', error.code);
-        console.error('Probable Cause: Check if the ANON_KEY in your .env matches the one in your Supabase Dashboard.');
-      } else {
-        console.log('✅ Connection Result: Success!');
-        console.log('Verified database connectivity.');
+        if (error) {
+          // If it's a session error, it's not a "connection failed" in terms of API keys
+          if (error.message?.includes('Refresh Token') || error.message?.includes('session')) {
+            console.log('ℹ️ Connection verified, but session is invalid/expired (User likely logged out).');
+            return;
+          }
+          console.error('❌ Connection Result: Failed');
+          console.error('Error Message:', error.message);
+          console.error('Error Code:', error.code);
+          console.error('Probable Cause: Check if the ANON_KEY in your .env matches the one in your Supabase Dashboard.');
+        } else {
+          console.log('✅ Connection Result: Success!');
+          console.log('Verified database connectivity.');
+        }
+      } catch (err: any) {
+        // Handle unexpected uncaught errors (like the ones in the user logs)
+        if (err?.message?.includes('Refresh Token') || err?.message?.includes('session')) {
+          console.log('ℹ️ Connection verified, but session is invalid/expired (User likely logged out).');
+        } else {
+          console.error('❌ Unexpected Connection Test Error:', err?.message || err);
+        }
       }
     };
 
@@ -52,7 +68,7 @@ export default function RootLayout() {
             <Stack.Screen name="allMentors" options={{ headerShown: false }} />
             <Stack.Screen name="allReviews" options={{ headerShown: false }} />
             <Stack.Screen name="support" options={{ headerShown: false }} />
-            <Stack.Screen name="createCourse" options={{ headerShown: false }} />
+
             <Stack.Screen name="allWatchedCourses" options={{ headerShown: false }} />
 
             <Stack.Screen

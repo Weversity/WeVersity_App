@@ -43,7 +43,9 @@ export const useAuth = () => {
         const initAuth = async () => {
             try {
                 // Check active session on mount
-                const { data: { session } } = await supabase.auth.getSession();
+                const result = await supabase.auth.getSession();
+                const session = result?.data?.session;
+
                 if (mounted) {
                     setUser(session?.user ?? null);
                     if (session) {
@@ -51,7 +53,12 @@ export const useAuth = () => {
                     }
                 }
             } catch (err) {
-                console.error("Auth init error:", err);
+                // Specifically ignore common session refresh errors during init
+                if (err.message?.includes('Refresh Token') || err.message?.includes('session')) {
+                    console.warn('[useAuth] Session init failed (invalid token), starting clean.');
+                } else {
+                    console.error("Auth init error:", err);
+                }
             } finally {
                 if (mounted) setLoading(false);
             }

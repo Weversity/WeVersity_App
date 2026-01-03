@@ -1,7 +1,7 @@
 import { supabase } from '@/src/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-av';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -267,19 +267,21 @@ const LiveClassScreen = () => {
   const instructor = session.course?.instructor || {};
   const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() || 'Instructor';
 
+  const player = useVideoPlayer(session?.meeting_url || '', player => {
+    player.loop = true;
+    player.play();
+  });
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* Background Video */}
-      {session.meeting_url ? (
-        <Video
-          source={{ uri: session.meeting_url }}
+      {session?.meeting_url ? (
+        <VideoView
+          player={player}
           style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay
-          isLooping
-          isMuted={false}
+          contentFit="cover"
         />
       ) : (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1a1a1a', justifyContent: 'center', alignItems: 'center' }]}>

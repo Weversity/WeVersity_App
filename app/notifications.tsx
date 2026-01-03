@@ -3,30 +3,60 @@ import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { SectionList, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, SectionList, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Mapping of notification types to icons
-const iconMap: { [key: string]: keyof typeof Ionicons.glyphMap } = {
-  comment: 'chatbubble-ellipses-outline',
-  course_approval: 'checkmark-circle-outline',
-  message: 'mail-outline',
-  payment: 'wallet-outline',
-  enrollment: 'person-add-outline',
-  default: 'notifications-outline',
+// Mapping of notification types to badge icons
+const badgeIconMap: { [key: string]: keyof typeof Ionicons.glyphMap } = {
+  enrollment: 'school',
+  announcement: 'megaphone',
+  comment: 'chatbubble',
+  course_approval: 'checkmark-circle',
+  message: 'mail',
+  payment: 'wallet',
+  default: 'notifications',
 };
 
-// Define Notification Type based on Website Database Structure
+// Enhanced Notification Type with actor and course data
 interface Notification {
   id: string;
   recipient_id: string;
-  content: string | { message?: string; title?: string; body?: string }; // Handle text or JSON
+  content: string | { message?: string; title?: string; body?: string };
   type: string;
   actor_id?: string;
   course_id?: string;
   is_read: boolean;
   created_at: string;
+  actor?: {
+    avatar_url?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+  course?: {
+    title?: string;
+  };
 }
+
+// Get relative time string (e.g., "2 days ago", "1 hour ago")
+const getRelativeTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffDays > 0) {
+    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  } else if (diffHours > 0) {
+    return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  } else if (diffMins > 0) {
+    return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+  } else {
+    return 'Just now';
+  }
+};
 
 const groupNotificationsByDate = (notifications: Notification[]) => {
   const groups: { [key: string]: Notification[] } = {};
@@ -71,12 +101,16 @@ const NotificationScreen = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Fetch initial notifications using recipient_id
+    // Fetch initial notifications with actor and course data
     const fetchNotifications = async () => {
       try {
         const { data, error } = await supabase
           .from('notifications')
-          .select('*')
+          .select(`
+            *,
+            actor:profiles!actor_id(avatar_url, first_name, last_name),
+            course:courses(title)
+          `)
           .eq('recipient_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -91,7 +125,7 @@ const NotificationScreen = () => {
 
     fetchNotifications();
 
-    // Subscribe to real-time changes filtering by recipient_id
+    // Subscribe to real-time changes
     const subscription = supabase
       .channel('public:notifications')
       .on('postgres_changes', {
@@ -99,8 +133,35 @@ const NotificationScreen = () => {
         schema: 'public',
         table: 'notifications',
         filter: `recipient_id=eq.${user.id}`
-      }, payload => {
-        setNotifications(prev => [payload.new as Notification, ...prev]);
+      }, async (payload) => {
+        // Fetch actor and course data for new notification
+        const newNotification = payload.new as Notification;
+
+        if (newNotification.actor_id) {
+          const { data: actorData } = await supabase
+            .from('profiles')
+            .select('avatar_url, first_name, last_name')
+            .eq('id', newNotification.actor_id)
+            .single();
+
+          if (actorData) {
+            newNotification.actor = actorData;
+          }
+        }
+
+        if (newNotification.course_id) {
+          const { data: courseData } = await supabase
+            .from('courses')
+            .select('title')
+            .eq('id', newNotification.course_id)
+            .single();
+
+          if (courseData) {
+            newNotification.course = courseData;
+          }
+        }
+
+        setNotifications(prev => [newNotification, ...prev]);
       })
       .subscribe();
 
@@ -118,7 +179,6 @@ const NotificationScreen = () => {
 
       if (error) throw error;
 
-      // Update local state
       setNotifications(prev =>
         prev.map(n => (n.id === id ? { ...n, is_read: true } : n))
       );
@@ -127,41 +187,107 @@ const NotificationScreen = () => {
     }
   };
 
-  const getNotificationText = (content: any): string => {
-    if (typeof content === 'string') {
-      // Try parsing JSON if it looks like one, otherwise return string
-      try {
-        const parsed = JSON.parse(content);
-        return parsed.message || parsed.title || parsed.body || content;
-      } catch {
-        return content;
-      }
+  // Format notification text based on website style
+  const getNotificationText = (notification: Notification): string => {
+    const actorName = notification.actor
+      ? `${notification.actor.first_name} ${notification.actor.last_name}`
+      : 'Someone';
+
+    const courseTitle = notification.course?.title || 'a course';
+
+    // Format based on notification type
+    switch (notification.type) {
+      case 'enrollment':
+        return `${actorName} has enrolled in your course: "${courseTitle}"`;
+      case 'announcement':
+        return `${actorName} posted an announcement in "${courseTitle}"`;
+      case 'comment':
+        return `${actorName} commented on "${courseTitle}"`;
+      case 'course_approval':
+        return `Your course "${courseTitle}" has been approved`;
+      default:
+        // Fallback to parsing content
+        if (typeof notification.content === 'string') {
+          try {
+            const parsed = JSON.parse(notification.content);
+            return parsed.message || parsed.title || parsed.body || notification.content;
+          } catch {
+            return notification.content;
+          }
+        }
+        if (typeof notification.content === 'object' && notification.content !== null) {
+          return notification.content.message || notification.content.title || notification.content.body || 'New Notification';
+        }
+        return 'New Notification';
     }
-    if (typeof content === 'object' && content !== null) {
-      return content.message || content.title || content.body || 'New Notification';
-    }
-    return 'New Notification';
+  };
+
+  const getInitials = (firstName?: string, lastName?: string): string => {
+    const first = firstName?.charAt(0)?.toUpperCase() || '';
+    const last = lastName?.charAt(0)?.toUpperCase() || '';
+    return first + last || 'U';
+  };
+
+  const getAvatarColor = (name: string): string => {
+    const colors = [
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
+      '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
+      '#F8B739', '#52B788', '#E63946', '#457B9D'
+    ];
+    const index = name.charCodeAt(0) % colors.length;
+    return colors[index];
   };
 
   const groupedNotifications = groupNotificationsByDate(notifications);
 
-  const renderItem = ({ item }: { item: Notification }) => (
-    <TouchableOpacity
-      style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
-      onPress={() => markAsRead(item.id)}
-    >
-      <View style={styles.iconContainer}>
-        <Ionicons name={iconMap[item.type] || iconMap.default} size={24} color="#8A2BE2" />
-      </View>
-      <View style={styles.notificationTextContainer}>
-        <Text style={styles.notificationTitle} numberOfLines={2}>
-          {getNotificationText(item.content)}
-        </Text>
-        <Text style={styles.notificationTime}>{new Date(item.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
-      </View>
-      {!item.is_read && <View style={styles.unreadDot} />}
-    </TouchableOpacity>
-  );
+  const renderItem = ({ item }: { item: Notification }) => {
+    const actorName = item.actor
+      ? `${item.actor.first_name || ''} ${item.actor.last_name || ''}`.trim()
+      : 'Unknown';
+    const initials = getInitials(item.actor?.first_name, item.actor?.last_name);
+    const avatarColor = getAvatarColor(actorName);
+
+    return (
+      <TouchableOpacity
+        style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
+        onPress={() => markAsRead(item.id)}
+      >
+        {/* Circular Avatar with Badge */}
+        <View style={styles.avatarContainer}>
+          {item.actor?.avatar_url ? (
+            <Image
+              source={{ uri: item.actor.avatar_url }}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={[styles.avatar, styles.initialsAvatar, { backgroundColor: avatarColor }]}>
+              <Text style={styles.initialsText}>{initials}</Text>
+            </View>
+          )}
+          <View style={styles.badgeContainer}>
+            <Ionicons
+              name={badgeIconMap[item.type] || badgeIconMap.default}
+              size={10}
+              color="#FFFFFF"
+            />
+          </View>
+        </View>
+
+        {/* Notification Content */}
+        <View style={styles.notificationTextContainer}>
+          <Text style={styles.notificationTitle} numberOfLines={2}>
+            {getNotificationText(item)}
+          </Text>
+          <Text style={styles.notificationTime}>
+            {getRelativeTime(item.created_at)}
+          </Text>
+        </View>
+
+        {/* Unread Indicator */}
+        {!item.is_read && <View style={styles.unreadDot} />}
+      </TouchableOpacity>
+    );
+  };
 
   const renderSectionHeader = ({ section: { title } }: { section: { title: string } }) => (
     <Text style={styles.sectionHeader}>{title}</Text>
@@ -195,61 +321,97 @@ const NotificationScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F4F2F8',
+    backgroundColor: '#F5F5F5',
   },
   contentArea: {
     flex: 1,
   },
   listContainer: {
-    paddingVertical: 20,
-    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     flexGrow: 1,
   },
   sectionHeader: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    backgroundColor: '#F4F2F8',
-    paddingVertical: 10,
-    marginTop: 10,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    marginTop: 8,
   },
   notificationItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    alignItems: 'flex-start',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   unreadItem: {
-    backgroundColor: '#F4F0FF',
+    backgroundColor: '#F9F7FF',
   },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  avatarContainer: {
+    position: 'relative',
+    width: 48,
+    height: 48,
+    marginRight: 12,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#E8D8FF',
+  },
+  initialsAvatar: {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  initialsText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  badgeContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
   notificationTextContainer: {
     flex: 1,
-    marginLeft: 15,
+    justifyContent: 'center',
   },
   notificationTitle: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#1A1A1A',
+    lineHeight: 20,
+    marginBottom: 4,
   },
   notificationTime: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 4,
+    fontSize: 13,
+    color: '#888888',
   },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: '#8A2BE2',
-    marginLeft: 10,
+    marginLeft: 8,
+    marginTop: 6,
   },
   emptyContainer: {
     flex: 1,

@@ -1,4 +1,5 @@
 import { useAuth } from '@/src/context/AuthContext';
+import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -7,15 +8,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import React, { useEffect, useState } from 'react';
-import { Alert, Dimensions, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
 // Data based on the provided image inspiration
 const stats = [
-  { id: '1', title: 'Total Students', value: '12,453', growth: '+14.5% vs Last Month', color: '#E0D4FC', icon: 'people', iconColor: '#8A2BE2' },
-  { id: '2', title: 'Total Revenue', value: '$8,245', growth: '+12.5% vs Last Month', color: '#E0D4FC', icon: 'cash', iconColor: '#8A2BE2' },
-  { id: '3', title: 'Course Rating', value: '4.8', growth: '+2.4% vs Last Month', color: '#E0D4FC', icon: 'star', iconColor: '#8A2BE2' },
+  { id: '1', title: 'Total Students', color: '#F3E5F5', icon: 'people', iconColor: '#8A2BE2' },
+  { id: '3', title: 'Course Rating', color: '#FFF9C4', icon: 'star', iconColor: '#FBC02D' },
 ];
 
 interface Short {
@@ -41,13 +41,12 @@ const getTimeAgo = (dateString: string) => {
   return `${diffInDays} days ago`;
 };
 
-const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onCreateCourse }: { visible: boolean; onClose: () => void; logout: () => void; onGoLive: () => void; onUploadShort: () => void; onCreateCourse: () => void }) => {
+const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort }: { visible: boolean; onClose: () => void; logout: () => void; onGoLive: () => void; onUploadShort: () => void }) => {
   if (!visible) return null;
 
   const menuItems = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '2', title: 'Go Live', icon: 'radio-outline', onPress: () => { onClose(); onGoLive(); } },
-    { id: '3', title: 'Create Course', icon: 'add-circle-outline', onPress: () => { onClose(); onCreateCourse(); } },
     { id: '4', title: 'Upload Shorts', icon: 'phone-portrait-outline', onPress: () => { onClose(); onUploadShort(); } },
     { id: '5', title: 'Logout', icon: 'log-out-outline', onPress: logout },
   ];
@@ -58,7 +57,7 @@ const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onCreateC
         <TouchableOpacity style={styles.modalBackdrop} onPress={onClose} activeOpacity={1} />
         <View style={styles.menuContainer}>
           <View style={styles.menuHeader}>
-            <Text style={styles.menuTitle}>We Versity</Text>
+            <Text style={styles.menuTitle}>WeVersity</Text>
           </View>
           <View style={styles.menuItems}>
             <Text style={styles.menuSubtitle}>MENU</Text>
@@ -104,6 +103,13 @@ const ShortViewerModal = ({ short, visible, onClose }: { short: Short; visible: 
   );
 };
 
+interface InstructorStats {
+  totalStudents: number;
+  totalRevenue: number;
+  courseRating: number;
+  totalReviews: number;
+}
+
 const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const { user, profile } = useAuth();
   const [menuVisible, setMenuVisible] = useState(false);
@@ -118,6 +124,19 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const [viewAllShortsVisible, setViewAllShortsVisible] = useState(false);
   const [selectedShort, setSelectedShort] = useState<Short | null>(null);
 
+  // Courses State
+  const [uploadedCourses, setUploadedCourses] = useState<any[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
+
+  // Stats State
+  const [statsData, setStatsData] = useState({
+    totalStudents: 0,
+    courseRating: 0,
+    totalReviews: 0
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
   const firstName = user?.user_metadata?.first_name;
   const lastName = user?.user_metadata?.last_name;
   const emailUsername = profile?.email?.split('@')[0] || user?.email?.split('@')[0];
@@ -131,7 +150,66 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
   useEffect(() => {
     loadShorts();
-  }, []);
+    if (user?.id) {
+      fetchCourses();
+      fetchStats();
+    }
+  }, [user?.id]);
+
+  const fetchStats = async () => {
+    try {
+      if (!user?.id) {
+        setLoadingStats(false);
+        return;
+      }
+
+      setLoadingStats(true);
+      console.log('[InstructorProfile] fetchStats started for User ID:', user.id);
+
+      const data = await courseService.fetchInstructorStats(user.id);
+
+      // Guard: If component unmounted or user logged out during fetch
+      if (!user?.id) return;
+
+      if (data && typeof data.totalStudents !== 'undefined') {
+        setStatsData({
+          totalStudents: data.totalStudents || 0,
+          courseRating: data.courseRating || 0,
+          totalReviews: data.totalReviews || 0
+        });
+      }
+    } catch (error: any) {
+      // Ignore auth errors during logout transition
+      if (error?.name === 'AuthSessionMissingError' || error?.message?.includes('session')) return;
+      console.error('[InstructorProfile] ERROR in fetchStats:', error?.message || error);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  const fetchCourses = async () => {
+    try {
+      if (!user?.id) return;
+      setLoadingCourses(true);
+      const data = await courseService.fetchInstructorCourses(user?.id);
+      if (!user?.id) return;
+      setUploadedCourses(data);
+    } catch (error: any) {
+      if (error?.name === 'AuthSessionMissingError' || error?.message?.includes('session')) return;
+      console.error('Error fetching instructor courses:', error);
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchStats(),
+      fetchCourses()
+    ]);
+    setRefreshing(false);
+  };
 
   const loadShorts = async () => {
     try {
@@ -249,27 +327,61 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#8A2BE2']}
+            tintColor="#8A2BE2"
+          />
+        }
+      >
         <Text style={styles.welcomeTitle}>Welcome back, {instructorName}!</Text>
         <Text style={styles.welcomeSubtitle}>Here is what's happening with your courses today.</Text>
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
-          {stats.map((stat) => (
-            <View key={stat.id} style={styles.statCard}>
-              <View style={styles.statInfo}>
-                <Text style={styles.statTitle}>{stat.title}</Text>
-                <Text style={styles.statValue}>{stat.value}</Text>
-                <View style={styles.growthContainer}>
-                  <Ionicons name="trending-up" size={16} color="#4CAF50" />
-                  <Text style={styles.growthText}>{stat.growth}</Text>
+          {stats.map((stat) => {
+            let displayValue = '---';
+            if (!loadingStats) {
+              if (stat.title === 'Total Students') {
+                displayValue = statsData.totalStudents.toLocaleString();
+              } else if (stat.title === 'Course Rating') {
+                // Format as 5.0 (3) (1 decimal + brackets)
+                const rating = statsData.courseRating.toFixed(1);
+                const reviews = statsData.totalReviews || 0;
+                displayValue = `${rating} (${reviews})`;
+              }
+            }
+
+            return (
+              <View key={stat.id} style={styles.statCard}>
+                <View style={styles.statInfo}>
+                  <Text style={styles.statTitle}>{stat.title}</Text>
+
+                  {loadingStats ? (
+                    <View style={{ height: 44, justifyContent: 'center', alignItems: 'flex-start' }}>
+                      <ActivityIndicator size="small" color={stat.iconColor} />
+                    </View>
+                  ) : (
+                    <Text style={[
+                      styles.statValue,
+                      stat.title === 'Course Rating' && { color: '#FBC02D' }
+                    ]}>
+                      {displayValue}
+                    </Text>
+                  )}
+                </View>
+
+                <View style={[styles.statIconContainer, { backgroundColor: stat.color }]}>
+                  <Ionicons name={stat.icon as any} size={26} color={stat.iconColor} />
                 </View>
               </View>
-              <View style={[styles.statIconContainer, { backgroundColor: stat.color }]}>
-                <Ionicons name={stat.icon as any} size={24} color={stat.iconColor} />
-              </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* Quick Actions */}
@@ -283,15 +395,6 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/createCourse')}>
-          <View style={styles.actionIconCircle}>
-            <Ionicons name="add" size={30} color="#8A2BE2" />
-          </View>
-          <View>
-            <Text style={styles.actionTitle}>New Course</Text>
-            <Text style={styles.actionSubtitle}>Create a curriculum</Text>
-          </View>
-        </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionButton} onPress={uploadShort}>
           <View style={styles.actionIconCircle}>
@@ -339,39 +442,43 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Mock Data for uploaded courses - limiting to 2 for preview */}
-          {[
-            {
-              id: '1',
-              title: 'Advanced React Patterns',
-              category: 'Development',
-              status: 'PUBLISHED',
-              image: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?q=80&w=2070&auto=format&fit=crop',
-            },
-            {
-              id: '2',
-              title: 'Next.js 14 Fundamentals',
-              category: 'Development',
-              status: 'DRAFT',
-              image: 'https://images.unsplash.com/photo-1618477247222-acbdb0e159b3?q=80&w=2664&auto=format&fit=crop',
-            }
-          ].map((course) => (
-            <View key={course.id} style={styles.uploadedCourseCard}>
-              <Image source={{ uri: course.image }} style={styles.uploadedCourseImage} />
-              <View style={styles.uploadedCourseContent}>
-                <Text style={styles.uploadedCourseTitle} numberOfLines={1}>{course.title}</Text>
-                <Text style={styles.uploadedCourseCategory}>{course.category}</Text>
-                <View style={[styles.statusBadge, course.status === 'PUBLISHED' ? styles.statusPublished : styles.statusDraft]}>
-                  <Text style={[styles.statusText, course.status === 'PUBLISHED' ? styles.statusTextPublished : styles.statusTextDraft]}>
-                    {course.status}
-                  </Text>
+          {loadingCourses ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#8A2BE2" />
+              <Text style={{ marginTop: 10, color: '#888', fontSize: 12 }}>Loading courses...</Text>
+            </View>
+          ) : (
+            uploadedCourses.slice(0, 2).map((course) => (
+              <View key={course.id} style={styles.uploadedCourseCard}>
+                <View style={styles.imageContainer}>
+                  <Image
+                    source={{ uri: course.image_url || 'https://via.placeholder.com/150' }}
+                    style={styles.uploadedCourseImage}
+                  />
+                </View>
+
+                <View style={styles.uploadedCourseContent}>
+                  <Text style={styles.uploadedCourseTitle} numberOfLines={1}>{course.title}</Text>
+                  <View style={{ height: 4 }} />
+                  <Text style={styles.uploadedCourseCategory}>{course.categories || 'Uncategorized'}</Text>
+
+                  <View style={styles.badgeRow}>
+                    <View style={[styles.statusBadgePill, course.is_published ? styles.statusPublishedPill : styles.statusDraftPill]}>
+                      <Text style={[styles.statusTextPill, course.is_published ? styles.statusTextPublished : styles.statusTextDraft]}>
+                        {course.is_published ? 'PUBLISHED' : 'DRAFT'}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.priceBadgePillRow, (course.price === 0 || !course.price) ? styles.badgeFree : styles.badgePaid]}>
+                      <Text style={styles.priceBadgeText}>
+                        {(course.price === 0 || !course.price) ? 'FREE' : 'PAID'}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               </View>
-              <TouchableOpacity style={styles.editCourseButton}>
-                <Ionicons name="pencil-outline" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-          ))}
+            ))
+          )}
         </View>
 
       </ScrollView>
@@ -382,7 +489,6 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         logout={logout}
         onGoLive={handleGoLive}
         onUploadShort={uploadShort}
-        onCreateCourse={() => router.push('/createCourse')}
       />
 
       {/* Camera Modal */}
@@ -518,12 +624,14 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     marginBottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   statCard: {
+    width: '48%',
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    padding: 15,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -556,8 +664,12 @@ const styles = StyleSheet.create({
   },
   growthText: {
     fontSize: 12,
-    color: '#4CAF50',
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  growthPeriod: {
+    fontSize: 11,
+    color: '#888',
+    marginLeft: 2,
   },
   statIconContainer: {
     width: 50,
@@ -793,65 +905,91 @@ const styles = StyleSheet.create({
   // Uploaded Courses Styles
   uploadedCourseCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    padding: 10,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 24,
+    padding: 15,
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#f0f0f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderColor: 'rgba(224, 212, 252, 0.4)',
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
+    alignItems: 'center',
+  },
+  imageContainer: {
+    position: 'relative',
   },
   uploadedCourseImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 10,
+    width: 100,
+    height: 100,
+    borderRadius: 20,
     backgroundColor: '#f0f0f0',
+  },
+  priceBadgePillRow: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  badgeFree: {
+    backgroundColor: '#2196F3', // Blue for FREE
+  },
+  badgePaid: {
+    backgroundColor: '#FFD700', // Gold for PAID
+  },
+  priceBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#fff',
   },
   uploadedCourseContent: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 20,
     justifyContent: 'center',
   },
   uploadedCourseTitle: {
-    fontSize: 14,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 2,
+    color: '#1A1A1A',
+    lineHeight: 24,
   },
   uploadedCourseCategory: {
-    fontSize: 10,
-    color: '#888',
-    marginBottom: 6,
+    fontSize: 13,
+    color: '#8A2BE2',
+    fontWeight: '600',
+    marginBottom: 10,
   },
-  statusBadge: {
+  statusBadgePill: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 25,
   },
-  statusPublished: {
+  statusPublishedPill: {
     backgroundColor: '#E8F5E9',
   },
-  statusDraft: {
-    backgroundColor: '#F5F5F5',
+  statusDraftPill: {
+    backgroundColor: '#FFF3E0', // Orange-ish for Draft
   },
-  statusText: {
-    fontSize: 8,
+  statusTextPill: {
+    fontSize: 11,
     fontWeight: 'bold',
   },
   statusTextPublished: {
     color: '#4CAF50',
   },
   statusTextDraft: {
-    color: '#757575',
-  },
-  editCourseButton: {
-    padding: 8,
+    color: '#FF9800',
   },
 });
 

@@ -1,72 +1,72 @@
+import { useAuth } from '@/src/context/AuthContext';
+import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { FlatList, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface UploadedCourse {
     id: string;
     title: string;
-    category: string;
-    status: 'PUBLISHED' | 'DRAFT';
-    image: string;
+    categories: string;
+    is_published: boolean;
+    image_url: string;
+    price: number | null;
 }
-
-// Mock Data
-const MOCK_UPLOADED_COURSES: UploadedCourse[] = [
-    {
-        id: '1',
-        title: 'Advanced React Patterns',
-        category: 'Development',
-        status: 'PUBLISHED',
-        image: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?q=80&w=2070&auto=format&fit=crop',
-    },
-    {
-        id: '2',
-        title: 'Next.js 14 Fundamentals',
-        category: 'Development',
-        status: 'DRAFT',
-        image: 'https://images.unsplash.com/photo-1618477247222-acbdb0e159b3?q=80&w=2664&auto=format&fit=crop',
-    },
-    {
-        id: '3',
-        title: 'Mastering Figma Variables',
-        category: 'Design',
-        status: 'PUBLISHED',
-        image: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1974&auto=format&fit=crop',
-    },
-    {
-        id: '4',
-        title: 'Modern UI Design Principles',
-        category: 'Design',
-        status: 'DRAFT',
-        image: 'https://images.unsplash.com/photo-1586717791821-3f44a5638d48?q=80&w=2670&auto=format&fit=crop',
-    },
-];
 
 export default function MyUploadedCoursesScreen() {
     const router = useRouter();
-    const [courses, setCourses] = useState<UploadedCourse[]>(MOCK_UPLOADED_COURSES);
+    const { user } = useAuth();
+    const [courses, setCourses] = useState<UploadedCourse[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const handleEditCourse = (id: string) => {
-        // Navigate to edit course page (placeholder)
-        console.log('Edit course:', id);
+    useEffect(() => {
+        if (user?.id) {
+            fetchCourses();
+        }
+    }, [user?.id]);
+
+    const fetchCourses = async () => {
+        try {
+            setLoading(true);
+            const data = await courseService.fetchInstructorCourses(user.id);
+            setCourses(data);
+        } catch (error: any) {
+            if (error?.name === 'AuthSessionMissingError' || error?.message?.includes('session')) return;
+            console.error('Error fetching uploaded courses:', error);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const renderCourseItem = ({ item }: { item: UploadedCourse }) => (
         <View style={styles.courseCard}>
-            <Image source={{ uri: item.image }} style={styles.courseImage} />
+            <View style={styles.imageWrapper}>
+                <Image
+                    source={{ uri: item.image_url || 'https://via.placeholder.com/150' }}
+                    style={styles.courseImage}
+                />
+            </View>
+
             <View style={styles.courseContent}>
                 <Text style={styles.courseTitle} numberOfLines={2}>{item.title}</Text>
-                <Text style={styles.courseCategory}>{item.category}</Text>
-                <View style={[styles.statusBadge, item.status === 'PUBLISHED' ? styles.statusPublished : styles.statusDraft]}>
-                    <Text style={[styles.statusText, item.status === 'PUBLISHED' ? styles.statusTextPublished : styles.statusTextDraft]}>
-                        {item.status}
-                    </Text>
+                <View style={{ height: 4 }} />
+                <Text style={styles.courseCategory}>{item.categories || 'Uncategorized'}</Text>
+
+                <View style={styles.badgeRow}>
+                    <View style={[styles.statusBadgePill, item.is_published ? styles.statusPublishedPill : styles.statusDraftPill]}>
+                        <Text style={[styles.statusTextPill, item.is_published ? styles.statusTextPublished : styles.statusTextDraft]}>
+                            {item.is_published ? 'PUBLISHED' : 'DRAFT'}
+                        </Text>
+                    </View>
+
+                    <View style={[styles.priceBadgePillRow, (item.price === 0 || !item.price) ? styles.badgeFree : styles.badgePaid]}>
+                        <Text style={styles.priceBadgeText}>
+                            {(item.price === 0 || !item.price) ? 'FREE' : 'PAID'}
+                        </Text>
+                    </View>
                 </View>
             </View>
-            <TouchableOpacity style={styles.editButton} onPress={() => handleEditCourse(item.id)}>
-                <Ionicons name="pencil-outline" size={20} color="#666" />
-            </TouchableOpacity>
         </View>
     );
 
@@ -74,7 +74,6 @@ export default function MyUploadedCoursesScreen() {
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
 
-            {/* Custom Header Matching Upcoming Screen */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -83,18 +82,20 @@ export default function MyUploadedCoursesScreen() {
                 <View style={{ width: 24 }} />
             </View>
 
-            <FlatList
-                data={courses}
-                keyExtractor={(item) => item.id}
-                renderItem={renderCourseItem}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={false}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyText}>No courses uploaded yet.</Text>
-                    </View>
-                }
-            />
+            {loading ? (
+                <View style={styles.centered}>
+                    <ActivityIndicator size="large" color="#8A2BE2" />
+                    <Text style={styles.loadingText}>Fetching your courses...</Text>
+                </View>
+            ) : (
+                <FlatList
+                    data={courses}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderCourseItem}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                />
+            )}
         </View>
     );
 }
@@ -102,19 +103,32 @@ export default function MyUploadedCoursesScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#fff',
+        backgroundColor: '#F8F9FE',
+    },
+    centered: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingText: {
+        marginTop: 10,
+        color: '#666',
+        fontSize: 14,
+        fontWeight: '500',
     },
     header: {
         paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-        paddingBottom: 20, /* Adjusted padding */
+        paddingBottom: 25,
         paddingHorizontal: 20,
         backgroundColor: '#8A2BE2',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+        borderBottomLeftRadius: 30,
+        borderBottomRightRadius: 30,
     },
     headerText: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: 'bold',
         color: '#fff',
     },
@@ -123,75 +137,94 @@ const styles = StyleSheet.create({
     },
     listContent: {
         padding: 20,
+        paddingTop: 30,
     },
     courseCard: {
         flexDirection: 'row',
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 12,
-        marginBottom: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderRadius: 24,
+        padding: 15,
+        marginBottom: 20,
         borderWidth: 1,
-        borderColor: '#f0f0f0',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 2,
+        borderColor: 'rgba(224, 212, 252, 0.4)',
+        shadowColor: '#8A2BE2',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 5,
         alignItems: 'center',
     },
+    imageWrapper: {
+        position: 'relative',
+    },
     courseImage: {
-        width: 80,
-        height: 80,
-        borderRadius: 12,
+        width: 100,
+        height: 100,
+        borderRadius: 20,
         backgroundColor: '#f0f0f0',
+    },
+    badgeFree: {
+        backgroundColor: '#2196F3',
+    },
+    badgePaid: {
+        backgroundColor: '#FFD700',
+    },
+    priceBadgeText: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#fff',
+    },
+    priceBadgePillRow: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    badgeRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        alignItems: 'center',
+        marginTop: 4,
     },
     courseContent: {
         flex: 1,
-        marginLeft: 15,
+        marginLeft: 20,
         justifyContent: 'center',
     },
     courseTitle: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 4,
+        color: '#1A1A1A',
+        lineHeight: 24,
     },
     courseCategory: {
-        fontSize: 12,
-        color: '#888',
-        marginBottom: 8,
+        fontSize: 13,
+        color: '#8A2BE2',
+        fontWeight: '600',
+        marginBottom: 10,
     },
-    statusBadge: {
+    statusBadgePill: {
         alignSelf: 'flex-start',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 25,
     },
-    statusPublished: {
+    statusPublishedPill: {
         backgroundColor: '#E8F5E9',
     },
-    statusDraft: {
-        backgroundColor: '#F5F5F5',
+    statusDraftPill: {
+        backgroundColor: '#FFF3E0',
     },
-    statusText: {
-        fontSize: 10,
+    statusTextPill: {
+        fontSize: 11,
         fontWeight: 'bold',
     },
     statusTextPublished: {
         color: '#4CAF50',
     },
     statusTextDraft: {
-        color: '#757575',
-    },
-    editButton: {
-        padding: 10,
-    },
-    emptyContainer: {
-        alignItems: 'center',
-        marginTop: 50,
-    },
-    emptyText: {
-        fontSize: 16,
-        color: '#999',
+        color: '#FF9800',
     },
 });

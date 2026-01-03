@@ -145,7 +145,11 @@ const StudentProfile = () => {
       try {
         const { supabase } = await import('@/src/auth/supabase');
 
-        // A. Fetch Upcoming Classes Logic (unchanged)
+        // PRE-FETCH CHECK
+        const { data: { session } } = await (supabase as any).auth.getSession();
+        if (!session) return;
+
+        // A. Fetch Upcoming Classes Logic
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tonight = new Date();
@@ -157,7 +161,11 @@ const StudentProfile = () => {
           .gte('scheduled_at', today.toISOString())
           .lte('scheduled_at', tonight.toISOString());
 
+        if (upcomingError && upcomingError.message?.includes('Auth session missing')) return;
         if (!upcomingError) setUpcomingCount(upcomingData?.length || 0);
+
+        // Guard
+        if (!user?.id) return;
 
         // B. Fetch REAL Active Live Sessions (List)
         const fetchLiveSessions = async () => {
@@ -178,6 +186,7 @@ const StudentProfile = () => {
             .in('status', ['active', 'live'])
             .order('started_at', { ascending: false });
 
+          if (liveError && liveError.message?.includes('Auth session missing')) return;
           if (!liveError && liveData && liveData.length > 0) {
             // Fetch real enrollment counts for each session
             const sessionsWithCounts = await Promise.all(liveData.map(async (session: any) => {
@@ -191,16 +200,18 @@ const StudentProfile = () => {
               }
 
               return {
-                id: session.id, // Important for joining
+                id: session.id,
                 title: session.course?.title || session.title || 'Live Session',
                 instructor: session.course?.instructor
                   ? `${session.course.instructor.first_name || ''} ${session.course.instructor.last_name || ''}`.trim()
                   : 'Unknown Instructor',
-                viewers: viewerCount, // Real enrollment count
-                startedAt: session.started_at, // For timer
+                viewers: viewerCount,
+                startedAt: session.started_at,
                 image: session.course?.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
               };
             }));
+
+            if (!user?.id) return; // Guard before state update
             setActiveSessions(sessionsWithCounts);
           } else {
             setActiveSessions([]);
@@ -208,15 +219,16 @@ const StudentProfile = () => {
         };
 
         await fetchLiveSessions();
+        if (!user?.id) return;
 
-
-        // C. Fetch Top 10 Instructors (unchanged)
+        // C. Fetch Top 10 Instructors
         const { data: instructorsData, error: instructorsError } = await (supabase as any)
           .from('profiles')
           .select('id, first_name, last_name, avatar_url')
           .eq('role', 'instructor')
           .limit(10);
 
+        if (instructorsError && instructorsError.message?.includes('Auth session missing')) return;
         if (!instructorsError && instructorsData) {
           const mapped = instructorsData.map((p: any) => {
             const first = p.first_name || '';
@@ -233,7 +245,7 @@ const StudentProfile = () => {
           setTopInstructors(mapped);
         }
 
-        // D. Fetch Recent Courses (unchanged)
+        // D. Fetch Recent Courses
         if (user?.id) {
           const { data: enrollData, error: enrollError } = await (supabase as any)
             .from('enrollments')
@@ -250,6 +262,7 @@ const StudentProfile = () => {
             .eq('student_id', user.id)
             .limit(3);
 
+          if (enrollError && enrollError.message?.includes('Auth session missing')) return;
           if (!enrollError && enrollData) {
             const mapped = enrollData.map((e: any) => {
               const c = e.course;
@@ -257,7 +270,6 @@ const StudentProfile = () => {
                 ? `${c.instructor.first_name || ''} ${c.instructor.last_name || ''}`.trim()
                 : 'Unknown Instructor';
 
-              // Calculate progress logic (unchanged)
               let lessonCount = 0;
               if (c.course_content) {
                 try {
@@ -275,7 +287,7 @@ const StudentProfile = () => {
                       lessonCount += Array.isArray(lessons) ? lessons.length : 0;
                     });
                   }
-                } catch (e) { console.error('Error parsing course content', e); }
+                } catch (e) { }
               }
 
               const completedCount = Array.isArray(e.completed_lessons)
@@ -302,13 +314,13 @@ const StudentProfile = () => {
             'postgres_changes',
             { event: '*', schema: 'public', table: 'live_sessions' },
             (payload: any) => {
-              console.log('Profile Live Session Update:', payload);
-              fetchLiveSessions(); // Re-fetch on any change
+              if (user?.id) fetchLiveSessions();
             }
           )
           .subscribe();
 
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.name === 'AuthSessionMissingError' || err?.message?.includes('session')) return;
         console.error('Error fetching dashboard data:', err);
       } finally {
         setIsLoadingInstructors(false);
@@ -321,7 +333,7 @@ const StudentProfile = () => {
     return () => {
       if (subscription) subscription.unsubscribe();
     };
-  }, []); // Run once on mount
+  }, [user?.id]); // Depend on user.id to refetch/abort correctly
 
   // No longer using static MENTORS
 

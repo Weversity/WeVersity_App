@@ -96,5 +96,257 @@ export const courseService = {
                 }
             }
         }
+    },
+
+    // Fetch courses by instructor ID
+    async fetchInstructorCourses(instructorId) {
+        try {
+            if (!instructorId) return [];
+
+            // Session check to prevent AuthSessionMissingError during logout
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return [];
+
+            const { data, error } = await supabase
+                .from('courses')
+                .select(`
+                    id,
+                    title,
+                    image_url,
+                    categories,
+                    is_published,
+                    status,
+                    price
+                `)
+                .eq('instructor_id', instructorId)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                if (error.name === 'AuthSessionMissingError' || error.message?.includes('session')) return [];
+                console.error('Error in fetchInstructorCourses:', error.message);
+                throw error;
+            }
+
+            return (data || []).map(course => ({
+                ...course,
+                // Handle both status string and is_published boolean
+                status: course.status || (course.is_published ? 'PUBLISHED' : 'DRAFT')
+            }));
+        } catch (error) {
+            if (error.name === 'AuthSessionMissingError' || error.message?.includes('session')) return [];
+            console.error('fetchInstructorCourses error:', error);
+            throw error;
+        }
+    },
+
+    // Fetch real-time statistics using Supabase Edge Function + Manual Fallback (Official Logic) - REVENUE REMOVED
+    async fetchInstructorStats(instructorId) {
+        console.log('\n========================================');
+        console.log('🔍 [STATS FETCH] Starting Official Hybrid Fetch');
+        console.log('📊 Instructor ID:', instructorId);
+        console.log('========================================\n');
+
+        try {
+            // STEP 0: Get Session for Auth Token
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+            if (sessionError || !session) {
+                console.error('❌ [AUTH ERROR] No active session found');
+                throw new Error('No active session found');
+            }
+
+            const accessToken = session.access_token;
+            console.log('🔑 [AUTH] Access Token retrieved successfully');
+
+            let totalStudents = 0;
+            // Revenue Removed
+            let avgRating = 0;
+            let totalReviews = 0;
+            let edgeFunctionSuccess = false;
+
+            // STEP 1: Try Invoke Edge Function
+            try {
+                console.log('🚀 Invoking Edge Function: get-instructor-analytics...');
+                const { data: analyticsData, error: analyticsError } = await supabase.functions.invoke('get-instructor-analytics', {
+                    body: { instructor_id: instructorId },
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (analyticsError) {
+                    // Suppress verbose error logging since fallback is active
+                    console.warn('⚠️ Edge Function request failed. Switching to Manual Fallback.');
+                    throw analyticsError;
+                }
+
+                console.log('✅ [EDGE FUNCTION SUCCESS] Response:', JSON.stringify(analyticsData));
+
+                totalStudents = analyticsData?.totalStudents || analyticsData?.total_students || 0;
+                // Revenue Removed
+                avgRating = parseFloat(analyticsData?.courseRating || analyticsData?.average_rating || 0);
+                totalReviews = parseInt(analyticsData?.totalReviews || analyticsData?.total_reviews || 0);
+
+                if (totalStudents > 0 || avgRating > 0) {
+                    edgeFunctionSuccess = true;
+                } else {
+                    console.warn('⚠️ [EDGE FUNCTION] Returned 0 stats. Triggering manual fallback...');
+                }
+
+            } catch (edgeError) {
+                console.log('🔄 Triggering Official Manual Fallback Logic...');
+            }
+
+            // STEP 2: Manual Fallback (Official Logic)
+            if (!edgeFunctionSuccess) {
+                console.log('\n🧮 [FALLBACK START] Executing Official Fallback Logic...');
+
+                // 2.1 Fetch courses with cached stats columns
+                // Removed price from selection
+                const { data: courses, error: coursesError } = await supabase
+                    .from('courses')
+                    .select('id, title, rating, reviews')
+                    .eq('instructor_id', instructorId);
+
+                if (coursesError) {
+                    console.error('❌ [FALLBACK ERROR] Could not fetch courses:', coursesError.message);
+                }
+
+                console.log(`📚 [FALLBACK] Courses found: ${courses ? courses.length : 0}`);
+
+                if (courses && courses.length > 0) {
+                    const courseIds = courses.map(c => c.id);
+
+                    // --- STUDENTS CALCULATION ---
+                    const { data: enrollments, error: enrollError } = await supabase
+                        .from('enrollments')
+                        .select('student_id, course_id')
+                        .in('course_id', courseIds);
+
+                    if (enrollments) {
+                        // Total Students (Unique student_id)
+                        const uniqueStudents = new Set(enrollments.map(e => e.student_id).filter(Boolean));
+                        totalStudents = uniqueStudents.size;
+                        console.log(`✅ [FALLBACK] Unique Students: ${totalStudents}`);
+                    }
+
+                    // --- RATING & REVIEWS CALCULATION (Using Cached Columns) ---
+                    // Rating: (Sum of all courses.rating) / (Total number of courses with ratings)
+                    // Reviews: Sum of courses.reviews column
+
+                    let ratingSum = 0;
+                    let coursesWithRatings = 0;
+                    let reviewsSum = 0;
+
+                    courses.forEach(c => {
+                        const r = parseFloat(c.rating) || 0;
+                        const rev = parseInt(c.reviews) || 0;
+
+                        if (r > 0) {
+                            ratingSum += r;
+                            coursesWithRatings++;
+                        }
+                        reviewsSum += rev;
+                    });
+
+                    avgRating = coursesWithRatings > 0 ? (ratingSum / coursesWithRatings) : 0;
+                    totalReviews = reviewsSum;
+
+                    console.log(`✅ [FALLBACK] Calculated Rating: ${avgRating.toFixed(1)} (${totalReviews} reviews)`);
+                }
+            }
+
+            // STEP 3: Combine Final Results
+            const stats = {
+                totalStudents: totalStudents,
+                // Revenue Removed
+                courseRating: parseFloat(Number(avgRating || 0).toFixed(1)),
+                totalReviews: totalReviews
+            };
+
+            console.log('\n========================================');
+            console.log('✅ FINAL STATS (Result):');
+            console.log(JSON.stringify(stats, null, 2));
+            console.log('========================================\n');
+
+            return stats;
+
+        } catch (error) {
+            console.error('\n❌❌❌ CRITICAL ERROR in fetchInstructorStats ❌❌❌');
+            console.error('Error:', error.message);
+            return { totalStudents: 0, courseRating: 0, totalReviews: 0 };
+        }
+    },
+
+
+    // Upload course thumbnail to Supabase Storage
+    async uploadCourseImage(uri) {
+        try {
+            if (!uri) return null;
+
+            // 1. Get filename and extension
+            const fileExt = uri.split('.').pop();
+            const fileName = `${Date.now()}.${fileExt}`;
+            const filePath = `thumbnails/${fileName}`;
+
+
+            // 2. Convert URI to Blob for React Native
+            const response = await fetch(uri);
+            const blob = await response.blob();
+
+            // 3. Upload to 'course-images' bucket
+            const { data, error } = await supabase.storage
+                .from('course-images')
+                .upload(filePath, blob, {
+                    contentType: `image/${fileExt}`,
+                    upsert: true
+                });
+
+            if (error) throw error;
+
+            // 4. Get Public URL
+            const { data: { publicUrl } } = supabase.storage
+                .from('course-images')
+                .getPublicUrl(filePath);
+
+            return publicUrl;
+        } catch (error) {
+            console.error('Error in uploadCourseImage:', error.message);
+            throw error;
+        }
+    },
+
+    // Create a new course record in Supabase
+    async createCourse(courseData) {
+        try {
+            const { data, error } = await supabase
+                .from('courses')
+                .insert([
+                    {
+                        title: courseData.title,
+                        description: courseData.description,
+                        price: courseData.price,
+                        categories: courseData.categories,
+                        image_url: courseData.image_url,
+                        instructor_id: courseData.instructor_id,
+                        is_published: true, // Defaulting to published
+                        what_will_i_learn: courseData.whatWillILearn,
+                        target_audience: courseData.targetAudience,
+                        total_duration: courseData.totalDuration,
+                        materials_included: courseData.materialsIncluded,
+                        requirements: courseData.requirements,
+                        course_content: courseData.course_content, // JSON string or object
+                    }
+                ])
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error in createCourse:', error.message);
+            throw error;
+        }
     }
 };

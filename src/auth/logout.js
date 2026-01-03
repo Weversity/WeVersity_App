@@ -2,6 +2,9 @@
 import { supabase } from './supabase';
 
 export const logout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    try {
+        await supabase.auth.signOut();
+    } catch (error) {
+        console.warn('[auth/logout] Handled error during signOut:', error.message);
+    }
 };

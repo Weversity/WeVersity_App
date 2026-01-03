@@ -434,11 +434,17 @@ export default function ProfileSettingsScreen() {
     setLogoutDialogVisible(true);
   };
 
-  const handleConfirmLogout = () => {
+  const handleConfirmLogout = async () => {
     setLogoutDialogVisible(false);
-    // Perform actual logout
-    logout();
-    router.replace('/'); // Redirect to login/home after logout
+    try {
+      // Perform actual logout
+      await logout();
+      router.replace('/'); // Redirect to login/home after logout
+    } catch (error) {
+      console.error('[ProfileSettings] Logout Error:', error);
+      // Even if it fails, try to redirect
+      router.replace('/');
+    }
   };
 
   const handleDeleteAccount = () => {
