@@ -136,6 +136,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   });
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   const firstName = user?.user_metadata?.first_name;
   const lastName = user?.user_metadata?.last_name;
@@ -153,8 +154,59 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     if (user?.id) {
       fetchCourses();
       fetchStats();
+      checkUnreadNotifications();
+
+      // Subscribe to notifications
+      let channel: any;
+      const setupSubscription = async () => {
+        const { supabase: sb } = await import('@/src/auth/supabase');
+        channel = sb
+          .channel('public:notifications:instructor')
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'notifications',
+              filter: `recipient_id=eq.${user?.id}`
+            },
+            () => {
+              setHasUnreadNotifications(true);
+            }
+          )
+          .subscribe();
+      };
+
+      setupSubscription();
+
+      return () => {
+        if (channel) {
+          const cleanup = async () => {
+            const { supabase: sb } = await import('@/src/auth/supabase');
+            sb.removeChannel(channel);
+          };
+          cleanup();
+        }
+      };
     }
   }, [user?.id]);
+
+  const checkUnreadNotifications = async () => {
+    try {
+      const { supabase: sb } = await import('@/src/auth/supabase');
+      const { count, error } = await sb
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('recipient_id', user?.id)
+        .eq('is_read', false);
+
+      if (!error && count !== null) {
+        setHasUnreadNotifications(count > 0);
+      }
+    } catch (error) {
+      console.error('Error checking unread notifications:', error);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -317,8 +369,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             </View>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.iconButton} onPress={() => router.push('/notifications')}>
-              <Ionicons name="notifications-outline" size={24} color="#fff" />
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => {
+                setHasUnreadNotifications(false);
+                router.push('/notifications');
+              }}
+            >
+              <View>
+                <Ionicons name="notifications-outline" size={24} color="#fff" />
+                {hasUnreadNotifications && <View style={styles.notificationBadge} />}
+              </View>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
               <Ionicons name="menu" size={28} color="#fff" />
@@ -603,6 +664,17 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#8A2BE2',
     borderWidth: 2,
     borderColor: '#fff',
   },

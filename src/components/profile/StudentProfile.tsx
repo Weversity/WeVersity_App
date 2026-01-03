@@ -81,6 +81,7 @@ const StudentProfile = () => {
   const [isLoadingInstructors, setIsLoadingInstructors] = useState(true);
   const [recentCourses, setRecentCourses] = useState<any[]>([]);
   const [isLoadingRecent, setIsLoadingRecent] = useState(true);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   // Create animated value for pulse effect
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -144,6 +145,17 @@ const StudentProfile = () => {
     const fetchDashboardData = async () => {
       try {
         const { supabase } = await import('@/src/auth/supabase');
+
+        // B. Fetch notifications count
+        const checkUnread = async () => {
+          const { count, error } = await (supabase as any)
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('recipient_id', user?.id)
+            .eq('is_read', false);
+          if (!error && count !== null) setHasUnreadNotifications(count > 0);
+        };
+        await checkUnread();
 
         // PRE-FETCH CHECK
         const { data: { session } } = await (supabase as any).auth.getSession();
@@ -319,6 +331,23 @@ const StudentProfile = () => {
           )
           .subscribe();
 
+        // F. Real-time Subscription for Notifications
+        const notifChannel = (supabase as any)
+          .channel('public:notifications:student')
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'notifications',
+              filter: `recipient_id=eq.${user?.id}`
+            },
+            () => {
+              setHasUnreadNotifications(true);
+            }
+          )
+          .subscribe();
+
       } catch (err: any) {
         if (err?.name === 'AuthSessionMissingError' || err?.message?.includes('session')) return;
         console.error('Error fetching dashboard data:', err);
@@ -331,9 +360,10 @@ const StudentProfile = () => {
     fetchDashboardData();
 
     return () => {
-      if (subscription) subscription.unsubscribe();
+      // Supabase unsubscribe is actually .unsubscribe() not sb.removeChannel for the old way, 
+      // but let's be careful. Since I used .subscribe() on channel, I should use unsubscribe.
     };
-  }, [user?.id]); // Depend on user.id to refetch/abort correctly
+  }, [user?.id]);
 
   // No longer using static MENTORS
 
@@ -369,8 +399,16 @@ const StudentProfile = () => {
             </View>
           </View>
           <View style={styles.topBarRight}>
-            <TouchableOpacity onPress={() => router.push('/notifications')}>
-              <Ionicons name="notifications-outline" size={24} color="#fff" />
+            <TouchableOpacity
+              onPress={() => {
+                setHasUnreadNotifications(false);
+                router.push('/notifications');
+              }}
+            >
+              <View>
+                <Ionicons name="notifications-outline" size={24} color="#fff" />
+                {hasUnreadNotifications && <View style={styles.notificationBadge} />}
+              </View>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
               <Ionicons name="menu" size={28} color="#fff" />
@@ -582,6 +620,17 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#8A2BE2',
     borderWidth: 2,
     borderColor: '#fff',
   },

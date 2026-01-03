@@ -14,6 +14,8 @@ const badgeIconMap: { [key: string]: keyof typeof Ionicons.glyphMap } = {
   course_approval: 'checkmark-circle',
   message: 'mail',
   payment: 'wallet',
+  quiz_completion: 'trophy-outline',
+  course_rating: 'star-outline',
   default: 'notifications',
 };
 
@@ -205,18 +207,45 @@ const NotificationScreen = () => {
         return `${actorName} commented on "${courseTitle}"`;
       case 'course_approval':
         return `Your course "${courseTitle}" has been approved`;
+      case 'quiz_completion': {
+        try {
+          const data = typeof notification.content === 'string' ? JSON.parse(notification.content) : notification.content;
+          const quizTitle = data.quiz_title || 'a quiz';
+          const score = data.score !== undefined ? `${data.score}%` : 'N/A';
+          return `${actorName} has completed the quiz: "${quizTitle}" with score ${score}`;
+        } catch {
+          return `${actorName} completed a quiz in "${courseTitle}"`;
+        }
+      }
+      case 'course_rating': {
+        try {
+          const data = typeof notification.content === 'string' ? JSON.parse(notification.content) : notification.content;
+          const rating = data.rating || 'N/A';
+          return `${actorName} gave a ${rating} star review to "${courseTitle}"`;
+        } catch {
+          return `${actorName} rated "${courseTitle}"`;
+        }
+      }
       default:
         // Fallback to parsing content
         if (typeof notification.content === 'string') {
           try {
             const parsed = JSON.parse(notification.content);
+            // Secondary check if it's a quiz/rating but type wasn't set correctly
+            if (parsed.quiz_title) {
+              return `${actorName} has completed the quiz: "${parsed.quiz_title}" ${parsed.score ? `with score ${parsed.score}%` : ''}`;
+            }
+            if (parsed.rating) {
+              return `${actorName} gave a ${parsed.rating} star review to "${courseTitle}"`;
+            }
             return parsed.message || parsed.title || parsed.body || notification.content;
           } catch {
             return notification.content;
           }
         }
         if (typeof notification.content === 'object' && notification.content !== null) {
-          return notification.content.message || notification.content.title || notification.content.body || 'New Notification';
+          const content = notification.content as any;
+          return content.message || content.title || content.body || 'New Notification';
         }
         return 'New Notification';
     }
