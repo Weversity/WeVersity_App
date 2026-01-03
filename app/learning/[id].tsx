@@ -111,7 +111,42 @@ const processCourseContent = (content: any): Section[] => {
 
 // --- UI Components ---
 
-const ContentRenderer = ({ lesson }: { lesson: Lesson | null }) => {
+const ContentRenderer = ({
+    lesson,
+    onStartQuiz,
+    isQuizStarted,
+    currentQuestionIndex,
+    selectedAnswers,
+    onOptionSelect,
+    onSubmitQuestion,
+    onBackQuestion,
+    onSkipQuiz,
+    quizResult,
+    onFinishQuiz,
+    onRetakeQuiz
+}: {
+    lesson: Lesson | null;
+    onStartQuiz: () => void;
+    isQuizStarted: boolean;
+    currentQuestionIndex: number;
+    selectedAnswers: Record<number, number>;
+    onOptionSelect: (index: number) => void;
+    onSubmitQuestion: () => void;
+    onBackQuestion: () => void;
+    onSkipQuiz: () => void;
+    quizResult: {
+        score: number;
+        total: number;
+        percentage: number;
+        correctAnswers: number;
+        incorrectAnswers: number;
+        earnedMarks: string;
+        passingMarks: string;
+        timestamp: string;
+    } | null;
+    onFinishQuiz: () => void;
+    onRetakeQuiz: () => void;
+}) => {
     const videoSource = (lesson?.type === 'video') ? (lesson.video_url || lesson.video_link || lesson.content || '') : '';
     const player = useVideoPlayer(videoSource, player => {
         if (videoSource) player.play();
@@ -142,15 +177,166 @@ const ContentRenderer = ({ lesson }: { lesson: Lesson | null }) => {
                 </View>
             );
         case 'quiz':
+            if (quizResult) {
+                return (
+                    <View style={styles.quizResultContainer}>
+                        <Text style={styles.quizTag}>QUIZ</Text>
+                        <Text style={styles.quizMainTitle}>{lesson.title}</Text>
+                        <View style={styles.divider} />
+
+                        {/* Summary Header */}
+                        <View style={styles.resultSummaryHeader}>
+                            <View style={styles.summaryItem}>
+                                <Text style={styles.summaryLabel}>Questions</Text>
+                                <Text style={styles.summaryValue}>{quizResult.total}</Text>
+                            </View>
+                            <View style={styles.summaryItem}>
+                                <Text style={styles.summaryLabel}>Quiz Time</Text>
+                                <Text style={styles.summaryValue}>Not timed</Text>
+                            </View>
+                            <View style={styles.summaryItem}>
+                                <Text style={styles.summaryLabel}>Total Marks</Text>
+                                <Text style={styles.summaryValue}>{quizResult.total}.00</Text>
+                            </View>
+                            <View style={styles.summaryItem}>
+                                <Text style={styles.summaryLabel}>Passing Marks</Text>
+                                <Text style={styles.summaryValue}>{quizResult.passingMarks}</Text>
+                            </View>
+                        </View>
+
+                        <Text style={styles.historyTitle}>Attempt History</Text>
+
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.historyScroll}>
+                            <View style={styles.historyTable}>
+                                {/* Table Header */}
+                                <View style={styles.tableRowHeader}>
+                                    <Text style={[styles.tableCellHeader, { width: 140 }]}>DATE</Text>
+                                    <Text style={[styles.tableCellHeader, { width: 80 }]}>QUESTION</Text>
+                                    <Text style={[styles.tableCellHeader, { width: 100 }]}>TOTAL MARKS</Text>
+                                    <Text style={[styles.tableCellHeader, { width: 120 }]}>CORRECT ANSWER</Text>
+                                    <Text style={[styles.tableCellHeader, { width: 130 }]}>INCORRECT ANSWER</Text>
+                                    <Text style={[styles.tableCellHeader, { width: 120 }]}>EARNED MARKS</Text>
+                                    <Text style={[styles.tableCellHeader, { width: 80 }]}>RESULT</Text>
+                                </View>
+
+                                {/* Table Body - Single current attempt */}
+                                <View style={styles.tableRow}>
+                                    <Text style={[styles.tableCell, { width: 140 }]}>{quizResult.timestamp}</Text>
+                                    <Text style={[styles.tableCell, { width: 80 }]}>{quizResult.total}</Text>
+                                    <Text style={[styles.tableCell, { width: 100 }]}>{quizResult.total}.00</Text>
+                                    <Text style={[styles.tableCell, { width: 120, color: '#4CAF50', fontWeight: 'bold' }]}>{quizResult.correctAnswers}</Text>
+                                    <Text style={[styles.tableCell, { width: 130, color: '#f44336', fontWeight: 'bold' }]}>{quizResult.incorrectAnswers}</Text>
+                                    <Text style={[styles.tableCell, { width: 120 }]}>{quizResult.earnedMarks} ({quizResult.percentage}%)</Text>
+                                    <View style={[styles.tableCell, { width: 80 }]}>
+                                        <View style={[styles.resultTag, { backgroundColor: quizResult.percentage >= 80 ? '#e8f5e9' : '#ffebee' }]}>
+                                            <Text style={[styles.resultTagText, { color: quizResult.percentage >= 80 ? '#2e7d32' : '#c62828' }]}>
+                                                {quizResult.percentage >= 80 ? 'Pass' : 'Fail'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            </View>
+                        </ScrollView>
+
+                        <View style={styles.resultActions}>
+                            <TouchableOpacity style={styles.retakeBtn} onPress={onRetakeQuiz}>
+                                <Text style={styles.retakeBtnText}>Retake Quiz</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.continueBtn} onPress={onFinishQuiz}>
+                                <Text style={styles.continueBtnText}>Continue to Next Lesson</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                );
+            }
+
+            if (!isQuizStarted) {
+                return (
+                    <View style={styles.quizStartContainer}>
+                        <Text style={styles.quizTag}>QUIZ</Text>
+                        <Text style={styles.quizMainTitle}>{lesson.title}</Text>
+                        <View style={styles.divider} />
+
+                        <View style={styles.quizMetaRow}>
+                            <Text style={styles.quizMetaLabel}>Questions:</Text>
+                            <Text style={styles.quizMetaValue}>{lesson.questions?.length || 0} of {lesson.questions?.length || 0}</Text>
+                        </View>
+                        <View style={styles.quizMetaRow}>
+                            <Text style={styles.quizMetaLabel}>Quiz Time:</Text>
+                            <Text style={styles.quizMetaValue}>Not timed</Text>
+                        </View>
+                        <View style={styles.quizMetaRow}>
+                            <Text style={styles.quizMetaLabel}>Total Attempted:</Text>
+                            <Text style={styles.quizMetaValue}>0/{lesson.questions?.length || 0}</Text>
+                        </View>
+                        <View style={styles.quizMetaRow}>
+                            <Text style={styles.quizMetaLabel}>Passing Grade:</Text>
+                            <Text style={styles.quizMetaValue}>80%</Text>
+                        </View>
+
+                        <View style={styles.quizStartActions}>
+                            <TouchableOpacity style={styles.startQuizBtn} onPress={onStartQuiz}>
+                                <Text style={styles.startQuizBtnText}>Start Quiz</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.skipQuizBtn} onPress={onSkipQuiz}>
+                                <Text style={styles.skipQuizBtnText}>Skip Quiz</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                );
+            }
+
+            const currentQuestion = lesson.questions?.[currentQuestionIndex];
+            const selectedOption = selectedAnswers[currentQuestionIndex];
+
             return (
-                <View style={styles.contentContainer}>
-                    <Text style={styles.heading}>{lesson.title}</Text>
-                    <View style={styles.quizCard}>
-                        <Ionicons name="help-circle-outline" size={48} color="#8A2BE2" />
-                        <Text style={styles.quizText}>Total Questions: {lesson.questions?.length || 0}</Text>
-                        <Text style={styles.quizSubText}>Test your knowledge on this topic.</Text>
-                        <TouchableOpacity style={styles.quizButton}>
-                            <Text style={styles.quizButtonText}>Start Quiz</Text>
+                <View style={styles.quizActiveContainer}>
+                    <View style={styles.quizActiveHeader}>
+                        <Text style={styles.questionCounter}>Question: <Text style={{ fontWeight: 'bold' }}>{currentQuestionIndex + 1}/{lesson.questions?.length}</Text></Text>
+                    </View>
+
+                    <View style={styles.activeQuestionCard}>
+                        <Text style={styles.activeQuestionText}>
+                            {currentQuestionIndex + 1}. {currentQuestion?.question_text || currentQuestion?.question || ''}
+                        </Text>
+
+                        <View style={styles.optionsList}>
+                            {(currentQuestion?.options || []).map((option: any, idx: number) => {
+                                const isSelected = selectedOption === idx;
+                                const optionText = typeof option === 'object' ? option.text : option;
+                                return (
+                                    <TouchableOpacity
+                                        key={idx}
+                                        style={[styles.webOptionBtn, isSelected && styles.webOptionBtnSelected]}
+                                        onPress={() => onOptionSelect(idx)}
+                                    >
+                                        <View style={[styles.webRadio, isSelected && styles.webRadioSelected]}>
+                                            {isSelected && <View style={styles.webRadioInner} />}
+                                        </View>
+                                        <Text style={[styles.webOptionText, isSelected && styles.webOptionTextSelected]}>{optionText}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    </View>
+
+                    <View style={styles.quizFooter}>
+                        <TouchableOpacity
+                            style={[styles.quizBackBtn, currentQuestionIndex === 0 && { opacity: 0.5 }]}
+                            onPress={onBackQuestion}
+                            disabled={currentQuestionIndex === 0}
+                        >
+                            <Text style={styles.quizBackBtnText}>← Back</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.quizSubmitBtn, selectedOption === undefined && { opacity: 0.5 }]}
+                            onPress={onSubmitQuestion}
+                            disabled={selectedOption === undefined}
+                        >
+                            <Text style={styles.quizSubmitBtnText}>
+                                {currentQuestionIndex === (lesson.questions?.length || 0) - 1 ? 'Finish Quiz' : 'Submit & Next →'}
+                            </Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -219,6 +405,21 @@ export default function LearningPlayerScreen() {
     const [sections, setSections] = useState<Section[]>([]);
     const [activeLessonPath, setActiveLessonPath] = useState<{ s: number; l: number; sl?: number } | null>(null);
     const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
+
+    // Quiz States
+    const [isQuizStarted, setIsQuizStarted] = useState(false);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+    const [quizResult, setQuizResult] = useState<{
+        score: number;
+        total: number;
+        percentage: number;
+        correctAnswers: number;
+        incorrectAnswers: number;
+        earnedMarks: string;
+        passingMarks: string;
+        timestamp: string;
+    } | null>(null);
 
     const getPathKey = (s: number, l: number, sl?: number) => {
         const section = sections[s];
@@ -356,6 +557,11 @@ export default function LearningPlayerScreen() {
 
     const handleLessonSelect = (path: { s: number; l: number; sl?: number }) => {
         setActiveLessonPath(path);
+        // Reset quiz when lesson changes
+        setIsQuizStarted(false);
+        setCurrentQuestionIndex(0);
+        setSelectedAnswers({});
+        setQuizResult(null);
         toggleSidebar(false);
     };
 
@@ -370,6 +576,75 @@ export default function LearningPlayerScreen() {
     };
 
     const currentLesson = getCurrentLesson();
+
+    const handleStartQuiz = () => {
+        setIsQuizStarted(true);
+        setCurrentQuestionIndex(0);
+        setSelectedAnswers({});
+        setQuizResult(null);
+    };
+
+    const handleOptionSelect = (index: number) => {
+        setSelectedAnswers(prev => ({ ...prev, [currentQuestionIndex]: index }));
+    };
+
+    const handleBackQuestion = () => {
+        if (currentQuestionIndex > 0) setCurrentQuestionIndex(prev => prev - 1);
+    };
+
+    const handleSubmitQuestion = () => {
+        const lesson = getCurrentLesson();
+        if (!lesson?.questions) return;
+
+        if (currentQuestionIndex < lesson.questions.length - 1) {
+            setCurrentQuestionIndex(prev => prev + 1);
+        } else {
+            // Calculate Score
+            let score = 0;
+            lesson.questions.forEach((q: any, idx: number) => {
+                const selected = selectedAnswers[idx];
+                const options = q.options || [];
+                const option = options[selected];
+
+                // Flexible matching for correct answer
+                const isCorrect = q.isCorrect ||
+                    (typeof option === 'object' && (option.isCorrect || String(option.id) === String(q.correct_answer))) ||
+                    String(option) === String(q.correct_answer);
+
+                if (isCorrect) score++;
+            });
+
+            const percentage = Math.round((score / lesson.questions.length) * 100);
+            const now = new Date();
+            const timestamp = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}, ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+
+            setQuizResult({
+                score,
+                total: lesson.questions.length,
+                percentage,
+                correctAnswers: score,
+                incorrectAnswers: lesson.questions.length - score,
+                earnedMarks: `${score}.00`,
+                passingMarks: `${Math.ceil(lesson.questions.length * 0.8)}.00`,
+                timestamp
+            });
+        }
+    };
+
+    const handleRetakeQuiz = () => {
+        setIsQuizStarted(true);
+        setCurrentQuestionIndex(0);
+        setSelectedAnswers({});
+        setQuizResult(null);
+    };
+
+    const handleSkipQuiz = () => {
+        handleCompleteAndNext();
+    };
+
+    const handleFinishQuizResult = () => {
+        handleCompleteAndNext();
+    };
 
 
 
@@ -569,9 +844,22 @@ export default function LearningPlayerScreen() {
                 <View style={styles.lessonHeader}>
                     <Text style={styles.lessonTitle}>{currentLesson?.title || 'Select a Lesson'}</Text>
                 </View>
-                <ContentRenderer lesson={currentLesson} />
+                <ContentRenderer
+                    lesson={currentLesson}
+                    onStartQuiz={handleStartQuiz}
+                    isQuizStarted={isQuizStarted}
+                    currentQuestionIndex={currentQuestionIndex}
+                    selectedAnswers={selectedAnswers}
+                    onOptionSelect={handleOptionSelect}
+                    onSubmitQuestion={handleSubmitQuestion}
+                    onBackQuestion={handleBackQuestion}
+                    onSkipQuiz={handleSkipQuiz}
+                    quizResult={quizResult}
+                    onFinishQuiz={handleFinishQuizResult}
+                    onRetakeQuiz={handleRetakeQuiz}
+                />
 
-                {currentLesson && (
+                {currentLesson && currentLesson.type !== 'quiz' && (
                     <View style={styles.actionArea}>
                         <TouchableOpacity style={styles.nextButton} onPress={handleCompleteAndNext}>
                             <Text style={styles.nextButtonText}>Mark as Complete & Next</Text>
@@ -633,6 +921,7 @@ const styles = StyleSheet.create({
     videoPlayer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000', borderRadius: 8, marginBottom: 15 },
     contentImage: { width: '100%', height: 200, borderRadius: 8, marginBottom: 15 },
     quizCard: { backgroundColor: '#F4F0FF', borderRadius: 15, padding: 25, alignItems: 'center', marginTop: 10 },
+    resultCard: { backgroundColor: '#F4F0FF', borderRadius: 15, padding: 25, alignItems: 'center', marginTop: 10 },
     quizText: { fontSize: 18, fontWeight: 'bold', color: '#333', marginTop: 15 },
     quizSubText: { fontSize: 14, color: '#666', marginTop: 5, marginBottom: 20, textAlign: 'center' },
     quizButton: { backgroundColor: '#8A2BE2', paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25 },
@@ -654,4 +943,65 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
     },
     toastText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
+
+    // --- Website Style Quiz Styles ---
+    quizStartContainer: { padding: 30, backgroundColor: '#fff', borderRadius: 15, margin: 10, elevation: 2 },
+    quizTag: { color: '#8A2BE2', fontWeight: 'bold', fontSize: 13, marginBottom: 8 },
+    quizMainTitle: { fontSize: 28, fontWeight: 'bold', color: '#111', marginBottom: 20 },
+    divider: { height: 1, backgroundColor: '#eee', marginBottom: 25 },
+    quizMetaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+    quizMetaLabel: { fontSize: 16, color: '#555' },
+    quizMetaValue: { fontSize: 16, fontWeight: 'bold', color: '#111' },
+    quizStartActions: { flexDirection: 'row', alignItems: 'center', marginTop: 30 },
+    startQuizBtn: { backgroundColor: '#8A2BE2', paddingVertical: 14, paddingHorizontal: 35, borderRadius: 25, marginRight: 20 },
+    startQuizBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+    skipQuizBtn: { paddingVertical: 10 },
+    skipQuizBtnText: { color: '#666', fontSize: 16, fontWeight: '500' },
+
+    quizActiveContainer: { flex: 1 },
+    quizActiveHeader: { backgroundColor: '#8A2BE2', paddingVertical: 15, paddingHorizontal: 20 },
+    questionCounter: { color: '#fff', fontSize: 16 },
+    activeQuestionCard: { padding: 25 },
+    activeQuestionText: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 30, lineHeight: 28 },
+    optionsList: { gap: 12 },
+    webOptionBtn: { flexDirection: 'row', alignItems: 'center', padding: 18, borderRadius: 12, borderWidth: 1, borderColor: '#eee', backgroundColor: '#fff' },
+    webOptionBtnSelected: { borderColor: '#8A2BE2', backgroundColor: '#F8F5FF' },
+    webRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#ccc', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+    webRadioSelected: { borderColor: '#8A2BE2' },
+    webRadioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#8A2BE2' },
+    webOptionText: { fontSize: 16, color: '#444', flex: 1 },
+    webOptionTextSelected: { color: '#111', fontWeight: '600' },
+
+    quizFooter: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, borderTopWidth: 1, borderTopColor: '#f0f0f0', marginTop: 20 },
+    quizBackBtn: { backgroundColor: '#f5f5f5', paddingVertical: 12, paddingHorizontal: 25, borderRadius: 25 },
+    quizBackBtnText: { color: '#777', fontWeight: 'bold' },
+    quizSubmitBtn: { backgroundColor: '#8A2BE2', paddingVertical: 12, paddingHorizontal: 30, borderRadius: 25 },
+    quizSubmitBtnText: { color: '#fff', fontWeight: 'bold' },
+
+    finishQuizBtn: { backgroundColor: '#8A2BE2', paddingVertical: 15, paddingHorizontal: 35, borderRadius: 30, marginTop: 20 },
+    finishQuizBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+    resultTitle: { fontSize: 24, fontWeight: 'bold', marginTop: 15 },
+    resultScore: { fontSize: 40, fontWeight: 'bold', color: '#8A2BE2', marginVertical: 10 },
+    resultText: { fontSize: 18, color: '#666', marginBottom: 20 },
+
+    // --- Expanded Result View Styles ---
+    quizResultContainer: { padding: 20, backgroundColor: '#fff', flex: 1 },
+    resultSummaryHeader: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#eee', marginBottom: 25 },
+    summaryItem: { alignItems: 'center', flex: 1 },
+    summaryLabel: { fontSize: 12, color: '#888', textTransform: 'uppercase', marginBottom: 5 },
+    summaryValue: { fontSize: 18, fontWeight: 'bold', color: '#111' },
+    historyTitle: { fontSize: 20, fontWeight: 'bold', color: '#111', marginBottom: 15 },
+    historyScroll: { marginHorizontal: -20, paddingHorizontal: 20 },
+    historyTable: { borderTopWidth: 1, borderTopColor: '#f0f0f0', minWidth: 800 },
+    tableRowHeader: { flexDirection: 'row', backgroundColor: '#f9f9f9', paddingVertical: 12 },
+    tableCellHeader: { fontSize: 11, fontWeight: 'bold', color: '#777', paddingHorizontal: 10 },
+    tableRow: { flexDirection: 'row', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+    tableCell: { fontSize: 13, color: '#444', paddingHorizontal: 10 },
+    resultTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start' },
+    resultTagText: { fontSize: 11, fontWeight: '600' },
+    resultActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 30, gap: 15 },
+    retakeBtn: { flex: 1, backgroundColor: '#f0f0f0', paddingVertical: 14, borderRadius: 25, alignItems: 'center' },
+    retakeBtnText: { color: '#333', fontWeight: 'bold', fontSize: 15 },
+    continueBtn: { flex: 2, backgroundColor: '#8A2BE2', paddingVertical: 14, borderRadius: 25, alignItems: 'center' },
+    continueBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
 });
