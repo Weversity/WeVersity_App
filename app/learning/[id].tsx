@@ -1,6 +1,7 @@
 import { supabase } from '@/src/auth/supabase';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import React, { useEffect, useRef, useState } from 'react';
@@ -396,12 +397,21 @@ const LessonItem = ({ lesson, path, onSelect, isActive, level = 0, isCompleted =
 // --- Main Screen ---
 
 export default function LearningPlayerScreen() {
-    const { id } = useLocalSearchParams();
+    const params = useLocalSearchParams();
+    const { id, title, thumbnail, instructor } = params;
     const router = useRouter();
 
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [course, setCourse] = useState<any>(null);
+    // Use params for initial state to avoid flicker
+    const [course, setCourse] = useState<any>(() => {
+        if (!id || !title) return null;
+        return {
+            id,
+            title,
+            image_url: thumbnail,
+            instructor: { first_name: instructor, last_name: '' }
+        };
+    });
+
     const [sections, setSections] = useState<Section[]>([]);
     const [activeLessonPath, setActiveLessonPath] = useState<{ s: number; l: number; sl?: number } | null>(null);
     const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
@@ -465,12 +475,40 @@ export default function LearningPlayerScreen() {
     const slideAnimation = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
     const toastOpacity = useRef(new Animated.Value(0)).current;
 
+    const { data: fullCourseData, isLoading: isQueryLoading, refetch } = useQuery({
+        queryKey: ['course', id],
+        queryFn: () => courseService.fetchCourseById(Number(id)),
+        enabled: !!id,
+    });
+
     useEffect(() => {
-        if (id) {
-            fetchCourseData();
-            fetchUserProgress();
+        if (!fullCourseData) return;
+
+        const data = fullCourseData;
+        setCourse(data);
+
+        let parsedContent = null;
+        if (data?.course_content) {
+            try {
+                parsedContent = typeof data.course_content === 'string'
+                    ? JSON.parse(data.course_content)
+                    : data.course_content;
+            } catch (e) {
+                console.error("Failed to parse course_content JSON:", e);
+            }
+            if (!parsedContent) {
+                setSections([]);
+                return;
+            }
         }
-    }, [id]);
+
+        const transformed = processCourseContent(parsedContent);
+        setSections(transformed);
+
+        if (!activeLessonPath && transformed.length > 0 && transformed[0].data.length > 0) {
+            setActiveLessonPath({ s: 0, l: 0 });
+        }
+    }, [fullCourseData]);
 
     const fetchUserProgress = async () => {
         try {
@@ -494,49 +532,11 @@ export default function LearningPlayerScreen() {
         }
     };
 
-    const fetchCourseData = async (retryCount = 0) => {
-        if (retryCount === 0) setLoading(true);
-        setError(null);
-
-        try {
-            const data: any = await courseService.fetchCourseById(Number(id));
-            setCourse(data);
-
-            let parsedContent = null;
-            if (data?.course_content) {
-                try {
-                    parsedContent = typeof data.course_content === 'string'
-                        ? JSON.parse(data.course_content)
-                        : data.course_content;
-                } catch (e) {
-                    console.error("Failed to parse course_content JSON:", e);
-                    setError("Failed to load course content. The data format is incorrect.");
-                    setSections([]);
-                    setLoading(false);
-                    return;
-                }
-            }
-
-            const transformed = processCourseContent(parsedContent);
-            setSections(transformed);
-
-            if (!activeLessonPath && transformed.length > 0 && transformed[0].data.length > 0) {
-                setActiveLessonPath({ s: 0, l: 0 });
-            }
-
-        } catch (err: any) {
-            console.error(`Error fetching course data (Attempt ${retryCount + 1}):`, err);
-
-            if ((err.message?.includes('PGRST002') || err.message?.includes('Network')) && retryCount < 2) {
-                setTimeout(() => fetchCourseData(retryCount + 1), 1500);
-                return;
-            }
-
-            setError(`Failed to load course. ${err.message || 'Please try again later.'}`);
-        } finally {
-            if (retryCount === 0 || error) setLoading(false);
+    useEffect(() => {
+        if (id) {
+            fetchUserProgress();
         }
-    };
+    }, [id]);
 
     const toggleSidebar = (show: boolean) => {
         if (show) setSidebarVisible(true);
@@ -662,15 +662,6 @@ export default function LearningPlayerScreen() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                console.log("[DEBUG] Saving progress for user:", user.id, "Lesson Key:", currentKey);
-
-                const completionData = {
-                    course_id: id,
-                    lesson_id: currentKey,
-                    is_completed: true,
-                    updated_at: new Date().toISOString()
-                };
-
                 const updatedList = Array.from(nextCompleted);
                 const { error: updateErr } = await supabase.from('enrollments')
                     .update({ completed_lessons: updatedList })
@@ -678,8 +669,6 @@ export default function LearningPlayerScreen() {
                     .eq('course_id', id);
 
                 if (!updateErr) {
-                    console.log("[DEBUG] Progress synced with Supabase");
-                    // Show success toast
                     setShowSuccessToast(true);
                     Animated.sequence([
                         Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
@@ -689,7 +678,7 @@ export default function LearningPlayerScreen() {
                 }
             }
         } catch (err) {
-            console.error("[DEBUG] Error saving progress catch block:", err);
+            // Error handled silently
         }
 
         // Find Next Lesson Logic
@@ -775,16 +764,16 @@ export default function LearningPlayerScreen() {
         });
     };
 
-    if (loading) {
+    if (isQueryLoading && !fullCourseData) {
         return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color="#8A2BE2" /></View>;
     }
 
-    if (error) {
+    if (!fullCourseData && !isQueryLoading) {
         return (
             <View style={[styles.container, styles.center]}>
                 <Ionicons name="alert-circle-outline" size={48} color="red" />
-                <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={() => fetchCourseData(0)}>
+                <Text style={styles.errorText}>Course content could not be loaded.</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
                     <Text style={styles.retryButtonText}>Retry</Text>
                 </TouchableOpacity>
             </View>

@@ -7,16 +7,19 @@ if (!supabaseUrl) {
 }
 
 export const courseService = {
-    // Fetch all published courses
-    async fetchPublishedCourses() {
+    // Fetch all published courses (Paginated)
+    async fetchPublishedCourses(page = 0, pageSize = 10) {
         try {
-            // 1. Fetch courses
+            const from = page * pageSize;
+            const to = from + pageSize - 1;
+
+            // 1. Fetch courses with limited columns for performance
             const { data: courses, error } = await supabase
                 .from('courses')
-                .select('id, title, image_url, price, categories, instructor:profiles(first_name)')
+                .select('id, title, image_url, price, categories, instructor:profiles(first_name, last_name)')
                 .eq('is_published', true)
                 .order('created_at', { ascending: false })
-                .limit(10);
+                .range(from, to);
 
             if (error) {
                 console.error('Error in fetchPublishedCourses:', error.message);
@@ -141,32 +144,18 @@ export const courseService = {
 
     // Fetch real-time statistics using Supabase Edge Function + Manual Fallback (Official Logic) - REVENUE REMOVED
     async fetchInstructorStats(instructorId) {
-        console.log('\n========================================');
-        console.log('🔍 [STATS FETCH] Starting Official Hybrid Fetch');
-        console.log('📊 Instructor ID:', instructorId);
-        console.log('========================================\n');
-
         try {
-            // STEP 0: Get Session for Auth Token
-            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-            if (sessionError || !session) {
-                console.error('❌ [AUTH ERROR] No active session found');
-                throw new Error('No active session found');
-            }
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return { totalStudents: 0, courseRating: 0, totalReviews: 0 };
 
             const accessToken = session.access_token;
-            console.log('🔑 [AUTH] Access Token retrieved successfully');
-
             let totalStudents = 0;
-            // Revenue Removed
             let avgRating = 0;
             let totalReviews = 0;
             let edgeFunctionSuccess = false;
 
             // STEP 1: Try Invoke Edge Function
             try {
-                console.log('🚀 Invoking Edge Function: get-instructor-analytics...');
                 const { data: analyticsData, error: analyticsError } = await supabase.functions.invoke('get-instructor-analytics', {
                     body: { instructor_id: instructorId },
                     headers: {
@@ -175,65 +164,35 @@ export const courseService = {
                     }
                 });
 
-                if (analyticsError) {
-                    // Suppress verbose error logging since fallback is active
-                    console.warn('⚠️ Edge Function request failed. Switching to Manual Fallback.');
-                    throw analyticsError;
+                if (!analyticsError && analyticsData) {
+                    totalStudents = analyticsData.totalStudents || analyticsData.total_students || 0;
+                    avgRating = parseFloat(analyticsData.courseRating || analyticsData.average_rating || 0);
+                    totalReviews = parseInt(analyticsData.totalReviews || analyticsData.total_reviews || 0);
+                    if (totalStudents > 0 || avgRating > 0) edgeFunctionSuccess = true;
                 }
-
-                console.log('✅ [EDGE FUNCTION SUCCESS] Response:', JSON.stringify(analyticsData));
-
-                totalStudents = analyticsData?.totalStudents || analyticsData?.total_students || 0;
-                // Revenue Removed
-                avgRating = parseFloat(analyticsData?.courseRating || analyticsData?.average_rating || 0);
-                totalReviews = parseInt(analyticsData?.totalReviews || analyticsData?.total_reviews || 0);
-
-                if (totalStudents > 0 || avgRating > 0) {
-                    edgeFunctionSuccess = true;
-                } else {
-                    console.warn('⚠️ [EDGE FUNCTION] Returned 0 stats. Triggering manual fallback...');
-                }
-
             } catch (edgeError) {
-                console.log('🔄 Triggering Official Manual Fallback Logic...');
+                // Silent fallback
             }
 
-            // STEP 2: Manual Fallback (Official Logic)
+            // STEP 2: Manual Fallback
             if (!edgeFunctionSuccess) {
-                console.log('\n🧮 [FALLBACK START] Executing Official Fallback Logic...');
-
-                // 2.1 Fetch courses with cached stats columns
-                // Removed price from selection
-                const { data: courses, error: coursesError } = await supabase
+                const { data: courses } = await supabase
                     .from('courses')
-                    .select('id, title, rating, reviews')
+                    .select('id, rating, reviews')
                     .eq('instructor_id', instructorId);
-
-                if (coursesError) {
-                    console.error('❌ [FALLBACK ERROR] Could not fetch courses:', coursesError.message);
-                }
-
-                console.log(`📚 [FALLBACK] Courses found: ${courses ? courses.length : 0}`);
 
                 if (courses && courses.length > 0) {
                     const courseIds = courses.map(c => c.id);
 
-                    // --- STUDENTS CALCULATION ---
-                    const { data: enrollments, error: enrollError } = await supabase
+                    const { data: enrollments } = await supabase
                         .from('enrollments')
-                        .select('student_id, course_id')
+                        .select('student_id')
                         .in('course_id', courseIds);
 
                     if (enrollments) {
-                        // Total Students (Unique student_id)
                         const uniqueStudents = new Set(enrollments.map(e => e.student_id).filter(Boolean));
                         totalStudents = uniqueStudents.size;
-                        console.log(`✅ [FALLBACK] Unique Students: ${totalStudents}`);
                     }
-
-                    // --- RATING & REVIEWS CALCULATION (Using Cached Columns) ---
-                    // Rating: (Sum of all courses.rating) / (Total number of courses with ratings)
-                    // Reviews: Sum of courses.reviews column
 
                     let ratingSum = 0;
                     let coursesWithRatings = 0;
@@ -242,7 +201,6 @@ export const courseService = {
                     courses.forEach(c => {
                         const r = parseFloat(c.rating) || 0;
                         const rev = parseInt(c.reviews) || 0;
-
                         if (r > 0) {
                             ratingSum += r;
                             coursesWithRatings++;
@@ -252,29 +210,17 @@ export const courseService = {
 
                     avgRating = coursesWithRatings > 0 ? (ratingSum / coursesWithRatings) : 0;
                     totalReviews = reviewsSum;
-
-                    console.log(`✅ [FALLBACK] Calculated Rating: ${avgRating.toFixed(1)} (${totalReviews} reviews)`);
                 }
             }
 
-            // STEP 3: Combine Final Results
-            const stats = {
-                totalStudents: totalStudents,
-                // Revenue Removed
+            return {
+                totalStudents,
                 courseRating: parseFloat(Number(avgRating || 0).toFixed(1)),
-                totalReviews: totalReviews
+                totalReviews
             };
 
-            console.log('\n========================================');
-            console.log('✅ FINAL STATS (Result):');
-            console.log(JSON.stringify(stats, null, 2));
-            console.log('========================================\n');
-
-            return stats;
-
         } catch (error) {
-            console.error('\n❌❌❌ CRITICAL ERROR in fetchInstructorStats ❌❌❌');
-            console.error('Error:', error.message);
+            console.error('fetchInstructorStats error:', error.message);
             return { totalStudents: 0, courseRating: 0, totalReviews: 0 };
         }
     },

@@ -1,6 +1,7 @@
 import { supabase } from '@/src/auth/supabase';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -151,11 +152,34 @@ const CourseDetailsStackOptions = ({ title }: { title: string | undefined }) => 
 });
 
 export default function CourseDetailsScreen() {
-    const { id } = useLocalSearchParams();
+    const params = useLocalSearchParams();
+    const { id, title, thumbnail, instructor, categories, price, rating, reviewCount } = params;
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'About' | 'Lessons' | 'Reviews'>('About');
-    const [course, setCourse] = useState<MappedCourse | null>(null);
-    const [loading, setLoading] = useState(true);
+
+    // Use params as initial course state for instant rendering
+    const [course, setCourse] = useState<MappedCourse | null>(() => {
+        if (!id || !title) return null;
+        return {
+            id: id,
+            title: title as string,
+            categories: (categories as string) || 'General',
+            is_free: price === '0' || price === 'Free',
+            image: (thumbnail as string) || 'https://via.placeholder.com/400x250',
+            price: (price as string) || 'Free',
+            description: '',
+            sections: [],
+            instructor: (instructor as string) || 'Instructor',
+            rating: Number(rating) || 0,
+            reviews: [],
+            reviewCount: Number(reviewCount) || 0,
+            students: 0,
+            lessonCount: 0,
+            duration: '...'
+        };
+    });
+
+    const [loading, setLoading] = useState(!course); // Only show initial loading if no metadata
     const [error, setError] = useState<string | null>(null);
 
     // Enrollment and Progress States
@@ -163,16 +187,18 @@ export default function CourseDetailsScreen() {
     const [progress, setProgress] = useState(0);
     const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!id) return;
-            setLoading(true);
-            setError(null);
-            try {
-                // 1. Fetch Course Data
-                const data: any = await courseService.fetchCourseById(Number(id));
-                if (!data) throw new Error('Course not found');
+    const { data: fullCourseData, isLoading: isQueryLoading, error: queryError } = useQuery({
+        queryKey: ['course', id],
+        queryFn: () => courseService.fetchCourseById(Number(id)),
+        enabled: !!id,
+    });
 
+    useEffect(() => {
+        const processData = async () => {
+            if (!fullCourseData) return;
+
+            try {
+                const data = fullCourseData;
                 const transformedSections = processCourseContent(data.course_content);
                 let lessonCount = 0;
                 let totalMin = 0;
@@ -207,7 +233,7 @@ export default function CourseDetailsScreen() {
 
                 const finalStudentCount = realStudentCount || 0;
 
-                // 3. Format Duration with fallback logic
+                // 3. Format Duration
                 let durationStr = 'Flexible Duration';
                 if (totalMin > 0) {
                     const h = Math.floor(totalMin / 60);
@@ -220,22 +246,21 @@ export default function CourseDetailsScreen() {
                     durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''} (Est.)`.trim() : `${m}m (Est.)`;
                 }
 
-                // 4. Fetch Reviews from 'reviews' table
-                const { data: reviewsRaw, error: reviewsError } = await supabase
+                // 4. Fetch Reviews
+                const { data: reviewsRaw } = await supabase
                     .from('reviews')
                     .select('id, rating, content, created_at, student_id')
                     .eq('course_id', id)
                     .order('created_at', { ascending: false });
 
                 const reviewsCount = reviewsRaw?.length || 0;
-                let calculatedAvgRating = 0.0;
+                let calculatedAvgRating = Number(rating) || 0;
                 let mappedReviews: Review[] = [];
 
                 if (reviewsCount > 0) {
                     const sum = reviewsRaw!.reduce((acc, r) => acc + (r.rating || 0), 0);
                     calculatedAvgRating = sum / reviewsCount;
 
-                    // 5. Fetch Profiles manually for the reviewers
                     const studentIds = Array.from(new Set(reviewsRaw!.map(r => r.student_id).filter(Boolean)));
                     let profileMap: Record<string, any> = {};
 
@@ -262,9 +287,7 @@ export default function CourseDetailsScreen() {
                             content: r.content,
                             created_at: r.created_at,
                             user: {
-                                name: prof
-                                    ? `${first} ${last}`.trim()
-                                    : 'Anonymous Student',
+                                name: prof ? `${first} ${last}`.trim() : 'Anonymous Student',
                                 avatar: prof?.avatar_url,
                                 initials: initials.toUpperCase() || 'AS'
                             }
@@ -277,11 +300,11 @@ export default function CourseDetailsScreen() {
                     title: data.title,
                     categories: data.categories || 'General',
                     is_free: true,
-                    image: data.image_url || 'https://via.placeholder.com/400x250',
+                    image: data.image_url || (thumbnail as string) || 'https://via.placeholder.com/400x250',
                     price: 'Free',
                     description: data.description || '',
                     sections: transformedSections,
-                    instructor: data.instructor?.first_name ? `${data.instructor.first_name} ${data.instructor.last_name || ''}`.trim() : 'Unknown Instructor',
+                    instructor: data.instructor?.first_name ? `${data.instructor.first_name} ${data.instructor.last_name || ''}`.trim() : (instructor as string) || 'Instructor',
                     instructorAvatar: data.instructor?.avatar_url,
                     instructorInitials: ((data.instructor?.first_name?.[0] || '') + (data.instructor?.last_name?.[0] || '')).toUpperCase() || 'IN',
                     rating: calculatedAvgRating,
@@ -293,43 +316,48 @@ export default function CourseDetailsScreen() {
                     tools: data.tools || []
                 });
 
-                // 5. Fetch Enrollment and Progress for current user
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
-                    const { data: enrollData } = await supabase
-                        .from('enrollments')
-                        .select('student_id, course_id, completed_lessons')
-                        .eq('student_id', user.id)
-                        .eq('course_id', id)
-                        .maybeSingle();
-
-                    if (enrollData) {
-                        setIsEnrolled(true);
-                        let completedIds: string[] = [];
-                        if (enrollData.completed_lessons && Array.isArray(enrollData.completed_lessons)) {
-                            completedIds = enrollData.completed_lessons.map(String);
-                        }
-
-                        if (completedIds.length > 0) {
-                            setCompletedLessonIds(completedIds);
-                            if (lessonCount > 0) {
-                                setProgress(Math.round((completedIds.length / lessonCount) * 100));
-                            }
-                        }
-                    } else {
-                        setIsEnrolled(false);
-                    }
-                }
-
             } catch (err: any) {
-                console.error("Fetch error:", err);
-                setError(err.message || 'Failed to load course');
+                setError(err.message || 'Failed to process course data');
             } finally {
                 setLoading(false);
             }
         };
-        fetchData();
+
+        processData();
+    }, [fullCourseData]);
+
+    useEffect(() => {
+        const fetchEnrollment = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user && id) {
+                const { data: enrollData } = await supabase
+                    .from('enrollments')
+                    .select('student_id, course_id, completed_lessons')
+                    .eq('student_id', user.id)
+                    .eq('course_id', id)
+                    .maybeSingle();
+
+                if (enrollData) {
+                    setIsEnrolled(true);
+                    let completedIds: string[] = [];
+                    if (enrollData.completed_lessons && Array.isArray(enrollData.completed_lessons)) {
+                        completedIds = enrollData.completed_lessons.map(String);
+                    }
+                    setCompletedLessonIds(completedIds);
+
+                    // Progress calculation needs lessonCount which is set in the other effect
+                    // We'll calculate it once course state updates
+                }
+            }
+        };
+        fetchEnrollment();
     }, [id]);
+
+    useEffect(() => {
+        if (course && course.lessonCount > 0 && completedLessonIds.length > 0) {
+            setProgress(Math.round((completedLessonIds.length / course.lessonCount) * 100));
+        }
+    }, [course, completedLessonIds]);
 
     const handleEnroll = async () => {
         if (!course?.id) return;

@@ -1,7 +1,10 @@
+import { CourseCardSkeleton } from '@/src/components/CourseCardSkeleton';
 import SearchEmptyState from '@/src/components/SearchEmptyState';
 import { bookmarksStore } from '@/src/data/courses';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { Image } from 'expo-image';
 import { useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -9,7 +12,6 @@ import {
   Animated,
   Dimensions,
   FlatList,
-  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -26,22 +28,25 @@ const { width } = Dimensions.get('window');
 
 // Step 2: Key Name Matching Check
 const CourseCard = ({ course, onBookmarkToggle, isBookmarked, onPress }: { course: any; onBookmarkToggle: (id: string) => void; isBookmarked: boolean; onPress: () => void }) => {
-  // Log the props received by the card to check for key mismatches
-  // console.log('CourseCard received props:', course);
-
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={onPress}
+      activeOpacity={0.9}
+    >
       <View style={styles.cardLeft}>
         <Image
           source={{ uri: course.thumbnail || course.image_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop' }}
           style={styles.courseImage}
+          transition={200}
+          contentFit="cover"
         />
       </View>
       <View style={styles.cardMiddle}>
         <View style={styles.categoryTag}>
           <Text style={styles.categoryText}>{course.categories || 'General'}</Text>
         </View>
-        <Text style={styles.courseTitle} numberOfLines={2}>{course.title || course.course_name || 'Untitled Course'}</Text>
+        <Text style={styles.courseTitle} numberOfLines={2}>{course.title || 'Untitled Course'}</Text>
         <View style={styles.priceRow}>
           <Text style={styles.freeText}>Free</Text>
           <View style={styles.ratingBadge}>
@@ -69,52 +74,102 @@ export default function MyCoursesScreen() {
   const navigation = useNavigation();
 
   // State
-  const [courses, setCourses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('All');
-  const [filterVisible, setFilterVisible] = useState(false);
-  const [searchVisible, setSearchVisible] = useState(false);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [visibleCount, setVisibleCount] = useState(5);
-  const filterAnimation = useRef(new Animated.Value(0)).current;
-
-  // Filter Modal State
   const [selectedFilterCategory, setSelectedFilterCategory] = useState('All');
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'All' | 'Skills Courses' | 'Technical Courses'>('All');
+  const [refreshing, setRefreshing] = useState(false);
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [error, setError] = useState<string | null>(null); // Keeping error state for explicit error handling if needed
 
-  // Step 5: Immediate State Update & Deep Logging
-  const loadCourses = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await courseService.fetchPublishedCourses();
-      // Calculate is_free based on price if missing
-      const processedData = (data || []).map(c => ({
-        ...c,
-        is_free: c.price === 0 // Derive is_free from price
-      }));
-      setCourses(processedData);
-    } catch (err: any) {
-      console.error('[loadCourses] An error occurred:', err);
-      setError(err.message || 'An unexpected error occurred. Please try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []); // Removed dependencies to allow manual control
+  const filterAnimation = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    loadCourses();
-  }, []);
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    refetch,
+  } = useInfiniteQuery({
+    queryKey: ['courses', activeTab],
+    queryFn: async ({ pageParam = 0 }) => {
+      try {
+        const data = await courseService.fetchPublishedCourses(pageParam, 10);
+        return (data || []).map(c => ({
+          ...c,
+          is_free: c.price === 0
+        }));
+      } catch (err: any) {
+        setError(err.message || 'An unexpected error occurred. Please try again.');
+        throw err;
+      }
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      return lastPage.length === 10 ? allPages.length : undefined;
+    },
+    initialPageParam: 0,
+    enabled: !searchQuery && selectedFilterCategory === 'All' && selectedRating === null,
+  });
 
-  const onRefresh = useCallback(() => {
+  const courses = useMemo(() => {
+    if (!data?.pages) return [];
+
+    // Filter duplicates by ID to ensure unique keys
+    const seen = new Set();
+    const allCourses = data.pages.flat();
+    return allCourses.filter(course => {
+      if (!course.id || seen.has(course.id)) return false;
+      seen.add(course.id);
+      return true;
+    });
+  }, [data]);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
+
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    viewableItems.forEach(({ item }: any) => {
+      if (item.id) {
+        queryClient.prefetchQuery({
+          queryKey: ['course', item.id],
+          queryFn: () => courseService.fetchCourseById(item.id),
+          staleTime: 1000 * 60 * 10, // 10 minutes
+        });
+      }
+    });
+  }).current;
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    loadCourses();
-  }, [loadCourses]);
+    setError(null);
+    await refetch();
+    setRefreshing(false);
+  }, [refetch]);
 
-  // ... (rest of the component is largely the same)
+  const handleCoursePress = (course: any) => {
+    const instructor = Array.isArray(course.instructor) ? course.instructor[0] : course.instructor;
+    const instructorName = instructor ? `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() : 'Instructor';
+    const title = course.title || course.course_name || '';
+    const categories = course.categories || '';
+
+    router.push({
+      pathname: `/courseDetails/${course.id}`,
+      params: {
+        id: course.id,
+        title: title,
+        thumbnail: course.thumbnail || course.image_url,
+        instructor: instructorName,
+        categories: categories,
+        price: course.price,
+        rating: course.avg_rating,
+        reviewCount: course.reviewCount
+      }
+    } as any);
+  };
 
   // Force update for Bookmark Store sync
   const [, setTick] = useState(0);
@@ -138,30 +193,34 @@ export default function MyCoursesScreen() {
     if (activeTab === 'Skills Courses') {
       const skillsKeywords = ['Marketing', 'Content', 'Design', 'Writing', 'Management', 'Sales'];
       currentCourses = currentCourses.filter(c => {
-        const title = (c.title || c.course_name || '').toLowerCase();
-        const category = (c.categories || '').toLowerCase();
-        const matchesCategory = category.includes('skills');
+        const title = (c.title || '').toLowerCase();
+        const categories = (c.categories || '').toLowerCase();
+        const matchesCategory = categories.includes('skills');
         const matchesTitle = skillsKeywords.some(kw => title.includes(kw.toLowerCase()));
         return matchesCategory || matchesTitle;
       });
     } else if (activeTab === 'Technical Courses') {
       const techKeywords = ['Web', 'App', 'HTML', 'WordPress', 'CSS', 'JS', 'Coding', 'Graphic Design', 'Shopify', 'SEO', 'eCommerce'];
       currentCourses = currentCourses.filter(c => {
-        const title = (c.title || c.course_name || '').toLowerCase();
+        const title = (c.title || '').toLowerCase();
         return techKeywords.some(kw => title.includes(kw.toLowerCase()));
       });
     }
 
     if (searchQuery) {
       const lower = searchQuery.toLowerCase();
-      currentCourses = currentCourses.filter(c =>
-        c.title?.toLowerCase().includes(lower) ||
-        (c.instructor?.first_name || '').toLowerCase().includes(lower)
-      );
+      currentCourses = currentCourses.filter(c => {
+        const instructor = Array.isArray(c.instructor) ? c.instructor[0] : c.instructor;
+        return (c.title || '').toLowerCase().includes(lower) ||
+          (instructor?.first_name || '').toLowerCase().includes(lower);
+      });
     }
 
     if (selectedFilterCategory !== 'All') {
-      currentCourses = currentCourses.filter(c => (c.categories || c.category) === selectedFilterCategory);
+      currentCourses = currentCourses.filter(c => {
+        const cat = c.categories || '';
+        return cat.includes(selectedFilterCategory);
+      });
     }
 
     if (selectedRating !== null) {
@@ -188,11 +247,13 @@ export default function MyCoursesScreen() {
 
   // Content rendering logic
   const renderContent = () => {
-    if (loading && !refreshing) {
+    if (isLoading && !refreshing && courses.length === 0) { // Check courses.length to avoid showing skeleton on subsequent loads
       return (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#8A2BE2" />
-        </View>
+        <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+          {[1, 2, 3, 4, 5, 6].map((key) => (
+            <CourseCardSkeleton key={key} />
+          ))}
+        </ScrollView>
       );
     }
 
@@ -201,14 +262,13 @@ export default function MyCoursesScreen() {
         <View style={styles.centerContainer}>
           <Text style={styles.errorText}>Failed to load courses.</Text>
           <Text style={styles.errorSubText}>{error}</Text>
-          <TouchableOpacity style={styles.tryAgainButton} onPress={loadCourses}>
+          <TouchableOpacity style={styles.tryAgainButton} onPress={() => refetch()}>
             <Text style={styles.tryAgainButtonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
       );
     }
 
-    // Step 4: FlatList Troubleshooting
     // Define ListEmptyComponent as a separate function or component
     const renderEmptyState = () => {
       if (searchQuery.length > 0) {
@@ -223,45 +283,43 @@ export default function MyCoursesScreen() {
       }
     };
 
-    const renderFooter = () => {
-      const hasMore = filteredCourses.length > visibleCount;
-      const showLoadMore = hasMore && visibleCount < 10;
-
-      if (!showLoadMore) return <View style={{ height: 20 }} />;
-
-      return (
-        <TouchableOpacity
-          style={styles.loadMoreBtn}
-          onPress={() => setVisibleCount(10)}
-        >
-          <Text style={styles.loadMoreBtnText}>Load More Courses</Text>
-        </TouchableOpacity>
-      );
-    };
-
     return (
       <View style={{ flex: 1, minHeight: 500 }}>
         <FlatList
-          data={filteredCourses.slice(0, visibleCount)}
+          data={filteredCourses}
           renderItem={({ item }: { item: any }) => (
             <CourseCard
               course={item}
               onBookmarkToggle={toggleBookmark}
               isBookmarked={bookmarksStore.has(item.id)}
-              onPress={() => {
-                console.log('Navigating with ID:', item.id);
-                router.push({ pathname: '/courseDetails/[id]', params: { id: item.id } });
-              }}
+              onPress={() => handleCoursePress(item)}
             />
           )}
-          keyExtractor={(item: any) => item.id.toString()}
+          keyExtractor={(item: any) => `course-${item.id}`}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
           }
           ListEmptyComponent={renderEmptyState()}
-          ListFooterComponent={renderFooter()}
+          ListFooterComponent={() => (
+            isFetchingNextPage ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator size="small" color="#8A2BE2" />
+                <Text style={styles.footerLoaderText}>Loading more courses...</Text>
+              </View>
+            ) : null
+          )}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage && !searchQuery && selectedFilterCategory === 'All' && selectedRating === null) {
+              fetchNextPage();
+            }
+          }}
+          onEndReachedThreshold={0.5}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          initialNumToRender={10}
         />
       </View>
     );
@@ -294,7 +352,11 @@ export default function MyCoursesScreen() {
             <TouchableOpacity
               key={tab}
               style={[styles.tabButton, activeTab === tab && styles.activeTabButton]}
-              onPress={() => setActiveTab(tab)}
+              onPress={() => {
+                const tabValue = tab as 'All' | 'Skills Courses' | 'Technical Courses';
+                setActiveTab(tabValue);
+                // setFilterVisible(false); // Removed to keep filter visible if necessary
+              }}
             >
               <Text style={[styles.tabButtonText, activeTab === tab && styles.activeTabButtonText]}>{tab}</Text>
             </TouchableOpacity>
@@ -663,6 +725,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  footerLoader: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    gap: 10,
+  },
+  footerLoaderText: {
+    color: '#8A2BE2',
+    fontSize: 14,
+    fontWeight: '500',
   },
   loadMoreBtn: {
     borderWidth: 1,
