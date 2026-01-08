@@ -1,6 +1,7 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -135,6 +136,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Group Info State
   const [groupInfo, setGroupInfo] = useState<ChatGroup>({ id: '', name: 'Loading...', image: null });
@@ -183,7 +185,23 @@ export default function ChatScreen() {
     if (!id) return;
 
     const subscription = chatService.subscribeToConversation(id as string, 'group', (newMessage: Message) => {
-      setMessages(prevMessages => [...prevMessages, newMessage]);
+      setMessages(prevMessages => {
+        // 1. If ID already exists, ignore
+        if (prevMessages.some(msg => msg.id === newMessage.id)) {
+          return prevMessages;
+        }
+
+        // 2. If it's a message from the current user, it might be the "real" version of a temp message
+        // However, since we don't have a reliable way to link them here without matching content,
+        // we'll rely on handleSend's replacement logic. 
+        // A simple check: if we have temp messages and this looks like one of them (same content),
+        // we could replace it, but let's stick to the user's requested filter logic for stability.
+
+        const combined = [...prevMessages, newMessage];
+        return combined.filter((msg, index, self) =>
+          index === self.findIndex((m) => m.id === msg.id)
+        );
+      });
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
 
@@ -195,7 +213,7 @@ export default function ChatScreen() {
   const handleSend = async () => {
     if (inputText.trim().length > 0 && user && id) {
       const messageContent = inputText.trim();
-      const tempId = `temp-${Date.now()}`;
+      const tempId = `temp-${user.id}-${Date.now()}`;
       setInputText('');
 
       const tempMessage: Message = {
@@ -211,12 +229,59 @@ export default function ChatScreen() {
       try {
         const realMessage = await chatService.sendConversationMessage(id as string, user.id, messageContent);
         if (realMessage) {
-          setMessages(prev => prev.map(msg => msg.id === tempId ? realMessage : msg));
+          setMessages(prev => {
+            // Check if this real message already arrived via subscription
+            const alreadyExists = prev.some(msg => msg.id === realMessage.id);
+            if (alreadyExists) {
+              // If it exists, just remove the temp message
+              return prev.filter(msg => msg.id !== tempId);
+            }
+            // Otherwise replace temp with real
+            return prev.map(msg => msg.id === tempId ? realMessage : msg);
+          });
         }
       } catch (error) {
         console.error('Error sending message:', error);
         setMessages(prevMessages => prevMessages.filter(msg => msg.id !== tempId));
       }
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'We need camera roll permissions to upload images.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setIsUploading(true);
+
+        try {
+          const publicUrl = await chatService.uploadAttachment(asset.uri);
+
+          if (publicUrl && id && user) {
+            await chatService.sendConversationMessage(id as string, user.id, publicUrl);
+          }
+        } catch (uploadError) {
+          console.error('Upload failed:', uploadError);
+          Alert.alert('Upload Error', 'Failed to upload file. Please check your internet.');
+        } finally {
+          setIsUploading(false);
+        }
+      }
+    } catch (error) {
+      console.error('Pick image error:', error);
+      Alert.alert('Error', 'Something went wrong while picking the image.');
     }
   };
 
@@ -250,7 +315,8 @@ export default function ChatScreen() {
     const isMyMessage = user && item.sender_id === user.id;
 
     // Check if content is an image URL (simple check)
-    const isImage = item.content && (item.content.match(/\.(jpeg|jpg|gif|png|webp)$/i) || item.content.startsWith('http'));
+    const isImage = item.content && (item.content.match(/\.(jpeg|jpg|gif|png|webp)$/i) || item.content.includes('supabase.co/storage/v1/object/public/chat-attachments'));
+    const isVideo = item.content && (item.content.match(/\.(mp4|mov|m4v)$/i) || (item.content.includes('chat-attachments') && item.content.includes('video')));
 
     return (
       <View style={[styles.messageBubble, isMyMessage ? styles.myMessage : styles.theirMessage]}>
@@ -260,6 +326,11 @@ export default function ChatScreen() {
             style={{ width: 200, height: 200, borderRadius: 10 }}
             resizeMode="cover"
           />
+        ) : isVideo ? (
+          <View style={{ width: 200, height: 120, borderRadius: 10, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
+            <Ionicons name="play-circle" size={50} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video Attachment</Text>
+          </View>
         ) : (
           <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.theirMessageText]}>
             {item.content}
@@ -325,14 +396,22 @@ export default function ChatScreen() {
             ref={flatListRef}
             data={messages}
             renderItem={renderMessage}
-            keyExtractor={(item, index) => item.id || `msg-${index}`}
+            keyExtractor={(item, index) => item.id ? item.id.toString() : `index-${index}-${Date.now()}`}
             contentContainerStyle={styles.listContent}
           />
         )}
 
         <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="add" size={28} color="#555" />
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={pickImage}
+            disabled={isUploading}
+          >
+            {isUploading ? (
+              <ActivityIndicator size="small" color="#8A2BE2" />
+            ) : (
+              <Ionicons name="add" size={28} color="#555" />
+            )}
           </TouchableOpacity>
           <TextInput
             style={styles.textInput}
@@ -341,9 +420,14 @@ export default function ChatScreen() {
             placeholder="Type a message..."
             placeholderTextColor="#999"
             multiline
+            editable={!isUploading}
           />
-          <TouchableOpacity style={styles.iconButton} onPress={handleSend}>
-            <Ionicons name="send" size={24} color="#8A2BE2" />
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={handleSend}
+            disabled={isUploading || inputText.trim().length === 0}
+          >
+            <Ionicons name="send" size={24} color={isUploading || inputText.trim().length === 0 ? "#CCC" : "#8A2BE2"} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

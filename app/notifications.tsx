@@ -3,7 +3,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Image, SectionList, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, SectionList, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Mapping of notification types to badge icons
@@ -27,7 +27,6 @@ interface Notification {
   type: string;
   actor_id?: string;
   course_id?: string;
-  is_read: boolean;
   created_at: string;
   actor?: {
     avatar_url?: string;
@@ -96,9 +95,30 @@ const groupNotificationsByDate = (notifications: Notification[]) => {
 
 const NotificationScreen = () => {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, setUnreadCount } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Reset unread count when screen is opened
+  useEffect(() => {
+    const markAsRead = async () => {
+      if (!user) return;
+      // Optimistic UI update
+      setUnreadCount(0);
+
+      try {
+        await supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('recipient_id', user.id)
+          .eq('is_read', false);
+      } catch (err) {
+        console.error('Error marking notifications as read:', err);
+      }
+    };
+
+    markAsRead();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -172,22 +192,6 @@ const NotificationScreen = () => {
     };
   }, [user]);
 
-  const markAsRead = async (id: string) => {
-    try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      setNotifications(prev =>
-        prev.map(n => (n.id === id ? { ...n, is_read: true } : n))
-      );
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
-  };
 
   // Format notification text based on website style
   const getNotificationText = (notification: Notification): string => {
@@ -276,10 +280,60 @@ const NotificationScreen = () => {
     const initials = getInitials(item.actor?.first_name, item.actor?.last_name);
     const avatarColor = getAvatarColor(actorName);
 
+    const renderQuizContent = () => {
+      let data: any = {};
+      try {
+        data = typeof item.content === 'string' ? JSON.parse(item.content) : item.content;
+      } catch (e) {
+        console.warn('Notification parse error:', e);
+      }
+
+      // Extract Data with Fallbacks
+      // 'passed' might be boolean or missing. If missing, assume passed if score >= 50 or derive from status
+      const passed = data.passed !== undefined ? data.passed : (data.score >= 50);
+      const statusText = data.status || (passed ? 'Passed' : 'Failed');
+
+      const quizTitle = data.quiz_title || 'Quiz';
+      const courseTitle = item.course?.title || data.course_title || 'Course';
+
+      // Robust extraction for Correct/Incorrect
+      // Check variety of common keys: correct_count, correct_answers, total_correct
+      const correctRaw = data.correct_count ?? data.correct_answers ?? data.total_correct ?? data.correct;
+      const incorrectRaw = data.incorrect_count ?? data.wrong_answers ?? data.incorrect ?? data.total_incorrect;
+      const totalRaw = data.total_questions ?? data.total_count ?? data.total ?? data.quiz_total ?? data.questions_count;
+
+      const score = Number(data.score ?? 0);
+      const correct = Number(correctRaw ?? 0);
+      let incorrect = Number(incorrectRaw ?? 0);
+
+      // Manual fallback if incorrect is 0 but we have total and correct
+      if (incorrect === 0 && totalRaw) {
+        const total = Number(totalRaw);
+        incorrect = Math.max(0, total - correct);
+      }
+
+      // Debug log if values seem missing
+      if (correct === 0 && incorrect === 0) {
+        console.log('DEBUG: Notification Content for Quiz (Stats 0):', item.content);
+      }
+
+      return (
+        <View>
+          <Text style={styles.notificationTitle}>
+            {actorName} has <Text style={styles.boldText}>{statusText}</Text> the quiz "<Text style={styles.boldText}>{quizTitle}</Text>" in your course: "<Text style={styles.boldText}>{courseTitle}</Text>"
+          </Text>
+          <View style={styles.statsRow}>
+            <Text style={styles.statText}>Score: <Text style={styles.boldText}>{score}%</Text></Text>
+            <Text style={[styles.statText, { color: '#4CAF50' }]}>Correct: {correct}</Text>
+            <Text style={[styles.statText, { color: '#E74C3C' }]}>Incorrect: {incorrect}</Text>
+          </View>
+        </View>
+      );
+    };
+
     return (
-      <TouchableOpacity
-        style={[styles.notificationItem, !item.is_read && styles.unreadItem]}
-        onPress={() => markAsRead(item.id)}
+      <View
+        style={styles.notificationItem}
       >
         {/* Circular Avatar with Badge */}
         <View style={styles.avatarContainer}>
@@ -304,17 +358,16 @@ const NotificationScreen = () => {
 
         {/* Notification Content */}
         <View style={styles.notificationTextContainer}>
-          <Text style={styles.notificationTitle} numberOfLines={2}>
-            {getNotificationText(item)}
-          </Text>
+          {item.type === 'quiz_completion' ? renderQuizContent() : (
+            <Text style={styles.notificationTitle} numberOfLines={2}>
+              {getNotificationText(item)}
+            </Text>
+          )}
           <Text style={styles.notificationTime}>
             {getRelativeTime(item.created_at)}
           </Text>
         </View>
-
-        {/* Unread Indicator */}
-        {!item.is_read && <View style={styles.unreadDot} />}
-      </TouchableOpacity>
+      </View>
     );
   };
 
@@ -383,9 +436,6 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
-  unreadItem: {
-    backgroundColor: '#F9F7FF',
-  },
   avatarContainer: {
     position: 'relative',
     width: 48,
@@ -434,14 +484,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#888888',
   },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#8A2BE2',
-    marginLeft: 8,
-    marginTop: 6,
-  },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -452,6 +494,20 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: '#999',
     fontSize: 16,
+  },
+  boldText: {
+    fontWeight: '700',
+    color: '#000',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+    gap: 12,
+  },
+  statText: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
   }
 });
 

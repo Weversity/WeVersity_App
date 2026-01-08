@@ -65,7 +65,6 @@ export const courseService = {
                         id,
                         title,
                         description,
-                        course_content,
                         image_url,
                         instructor:profiles(first_name, last_name, avatar_url)
                     `)
@@ -75,14 +74,14 @@ export const courseService = {
                 if (error) {
                     // Handle PGRST002: Could not query the database for the schema cache
                     if (error.code === 'PGRST002') {
-                        console.error(`Error in fetchCourseById (Attempt ${i + 1}/${retries}): Database schema cache error (PGRST002). This often requires a PostgREST schema reload.`);
+                        console.error(`Error in fetchCourseById(Attempt ${i + 1}/${retries}): Database schema cache error(PGRST002). This often requires a PostgREST schema reload.`);
                         if (i === retries - 1) {
                             throw new Error('Database schema cache error. Please contact support or try reloading the schema.');
                         }
                     } else if (error.code === 'PGRST116') { // "Fetched result contains 0 rows"
                         throw new Error('Course not found');
                     } else {
-                        console.error(`Error in fetchCourseById (Attempt ${i + 1}/${retries}):`, error.message);
+                        console.error(`Error in fetchCourseById(Attempt ${i + 1}/${retries}): `, error.message);
                     }
 
                     if (i === retries - 1) throw error; // Throw last error
@@ -101,6 +100,34 @@ export const courseService = {
         }
     },
 
+    // Fetch ONLY course content (Heavy Load) with retry logic
+    async fetchCourseContent(id, retries = 3) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                const { data, error } = await supabase
+                    .from('courses')
+                    .select('course_content')
+                    .eq('id', id)
+                    .single();
+
+                if (error) {
+                    if (error.code === 'PGRST116') throw new Error('Course content not found');
+                    console.warn(`Attempt ${i + 1} failed to fetch content: `, error.message);
+                    if (i === retries - 1) throw error;
+                    await new Promise(res => setTimeout(res, 1000));
+                    continue;
+                }
+
+                return data?.course_content;
+            } catch (error) {
+                if (i === retries - 1) {
+                    console.error("Final attempt failed for fetchCourseContent:", error);
+                    throw error;
+                }
+            }
+        }
+    },
+
     // Fetch courses by instructor ID
     async fetchInstructorCourses(instructorId) {
         try {
@@ -113,13 +140,13 @@ export const courseService = {
             const { data, error } = await supabase
                 .from('courses')
                 .select(`
-                    id,
-                    title,
-                    image_url,
-                    categories,
-                    is_published,
-                    status,
-                    price
+        id,
+            title,
+            image_url,
+            categories,
+            is_published,
+            status,
+            price
                 `)
                 .eq('instructor_id', instructorId)
                 .order('created_at', { ascending: false });
@@ -159,7 +186,7 @@ export const courseService = {
                 const { data: analyticsData, error: analyticsError } = await supabase.functions.invoke('get-instructor-analytics', {
                     body: { instructor_id: instructorId },
                     headers: {
-                        Authorization: `Bearer ${accessToken}`,
+                        Authorization: `Bearer ${accessToken} `,
                         'Content-Type': 'application/json'
                     }
                 });
@@ -234,7 +261,7 @@ export const courseService = {
             // 1. Get filename and extension
             const fileExt = uri.split('.').pop();
             const fileName = `${Date.now()}.${fileExt}`;
-            const filePath = `thumbnails/${fileName}`;
+            const filePath = `thumbnails / ${fileName} `;
 
 
             // 2. Convert URI to Blob for React Native
@@ -245,7 +272,7 @@ export const courseService = {
             const { data, error } = await supabase.storage
                 .from('course-images')
                 .upload(filePath, blob, {
-                    contentType: `image/${fileExt}`,
+                    contentType: `image / ${fileExt} `,
                     upsert: true
                 });
 

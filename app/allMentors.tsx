@@ -30,11 +30,20 @@ export default function AllMentorsScreen() {
             const { supabase } = await import('@/src/auth/supabase');
             let supabaseQuery = (supabase as any)
                 .from('profiles')
-                .select('id, first_name, last_name, avatar_url') // Removed invalid columns
+                .select(`
+                    id, 
+                    first_name, 
+                    last_name, 
+                    avatar_url,
+                    courses (
+                        id,
+                        enrollments (count),
+                        reviews (rating)
+                    )
+                `)
                 .eq('role', 'instructor');
 
             if (query) {
-                // Use .or() for searching in both first_name and last_name
                 supabaseQuery = supabaseQuery.or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
             }
 
@@ -48,14 +57,40 @@ export default function AllMentorsScreen() {
                     const last = p.last_name || '';
                     const initials = (first?.[0] || '') + (last?.[0] || '');
 
+                    // Calculate Stats
+                    let totalStudents = 0;
+                    let totalRatingSum = 0;
+                    let totalRatingCount = 0;
+
+                    if (p.courses && Array.isArray(p.courses)) {
+                        p.courses.forEach((c: any) => {
+                            // Enrollments Count
+                            if (c.enrollments && c.enrollments[0]) {
+                                totalStudents += c.enrollments[0].count || 0;
+                            }
+
+                            // Ratings
+                            if (c.reviews && Array.isArray(c.reviews)) {
+                                c.reviews.forEach((r: any) => {
+                                    if (r.rating) {
+                                        totalRatingSum += r.rating;
+                                        totalRatingCount++;
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    const avgRating = totalRatingCount > 0 ? (totalRatingSum / totalRatingCount) : 0;
+
                     return {
                         id: p.id,
                         name: `${first} ${last}`.trim() || 'Instructor',
                         avatar: p.avatar_url,
                         initials: initials.toUpperCase() || 'IN',
-                        specialty: 'Professional Mentor', // Placeholder since specialty column is missing
-                        followers: 0, // Placeholder
-                        rating: 0.0 // Placeholder
+                        specialty: 'Professional Mentor',
+                        followers: totalStudents,
+                        rating: Number(avgRating.toFixed(1))
                     };
                 });
                 setInstructors(mapped);
@@ -114,12 +149,17 @@ export default function AllMentorsScreen() {
                 </View>
 
                 <TouchableOpacity
-                    style={[styles.followButton, isFollowed && styles.followingButton]}
-                    onPress={() => handleToggleFollow(item.id)}
+                    style={styles.followButton}
+                    onPress={() => router.push({
+                        pathname: `/instructorAnalytics/${item.id}`,
+                        params: {
+                            name: item.name,
+                            avatar: item.avatar || '',
+                            initials: item.initials
+                        }
+                    } as any)}
                 >
-                    <Text style={[styles.followButtonText, isFollowed && styles.followingButtonText]}>
-                        {isFollowed ? 'Following' : 'Follow'}
-                    </Text>
+                    <Text style={styles.followButtonText}>View Profile</Text>
                 </TouchableOpacity>
             </View>
         );

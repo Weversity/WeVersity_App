@@ -50,7 +50,7 @@ export default function BookmarkedCoursesScreen() {
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity
       style={styles.card}
-      onPress={() => router.push({ pathname: '/courseDetails/[id]', params: { id: item.id } })}
+      onPress={() => router.push(`/courseDetails/${item.id}`)}
       activeOpacity={0.9}
     >
       <View style={styles.cardLeft}>

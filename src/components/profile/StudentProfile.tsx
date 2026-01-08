@@ -1,10 +1,10 @@
 import { useAuth } from '@/src/context/AuthContext';
-import { INITIAL_COURSES } from '@/src/data/courses';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import NotificationIcon from '../notifications/NotificationIcon';
 
 const { width } = Dimensions.get('window');
 
@@ -17,14 +17,14 @@ const continueLearning = [
 
 
 const SideMenu = ({ visible, onClose, router }: { visible: boolean; onClose: () => void; router: any }) => {
-  const { logout } = useAuth(); // Get logout from useAuth
+  const { logout, user } = useAuth(); // Get logout and user from useAuth
   if (!visible) return null;
 
   const menuItemsStudent = [
     { id: '1', title: 'My Courses', icon: 'book-outline', onPress: () => { onClose(); router.push('/myCourses'); } },
     { id: '2', title: 'Upcoming', icon: 'calendar-outline', onPress: () => { onClose(); router.push('/upcoming'); } },
     { id: '3', title: 'Inbox', icon: 'mail-outline', onPress: () => { onClose(); router.push('/inbox'); } },
-    { id: '4', title: 'Followers', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
+    { id: '4', title: 'Mentors/Instructors', icon: 'school-outline', onPress: () => { onClose(); router.push(`/allMentors`); } },
     { id: '5', title: 'Support', icon: 'help-circle-outline', onPress: () => { onClose(); router.push('/support'); } },
   ];
 
@@ -81,7 +81,6 @@ const StudentProfile = () => {
   const [isLoadingInstructors, setIsLoadingInstructors] = useState(true);
   const [recentCourses, setRecentCourses] = useState<any[]>([]);
   const [isLoadingRecent, setIsLoadingRecent] = useState(true);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   // Create animated value for pulse effect
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -138,239 +137,192 @@ const StudentProfile = () => {
   };
 
 
-  // 3. Fetch Data & Subscribe
+
+  // 3. Fetch Data & Subscribe (Optimized with separate functions)
+  const isFetchingRef = useRef(false);
+  const debounceTimerRef = useRef<any>(null);
+
   useEffect(() => {
     let subscription: any;
 
-    const fetchDashboardData = async () => {
+    // Separate lightweight fetch functions
+    const fetchUpcomingCount = async (supabase: any) => {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const tonight = new Date(); tonight.setHours(23, 59, 59, 999);
+      const { data } = await supabase.from('live_sessions').select('id', { count: 'exact', head: true }).gte('scheduled_at', today.toISOString()).lte('scheduled_at', tonight.toISOString());
+      setUpcomingCount(data?.length || 0);
+    };
+
+    const fetchLiveSessions = async (supabase: any) => {
+      if (!user?.id) return;
+      // CRITICAL: Only fetch minimal data for live sessions
+      const { data } = await supabase.from('live_sessions').select('id, title, status, started_at, course_id').in('status', ['active', 'live']).order('started_at', { ascending: false }).limit(5);
+      if (data && data.length > 0) {
+        const processed = await Promise.all(data.map(async (s: any) => {
+          const { count } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('course_id', s.course_id);
+          return {
+            id: s.id,
+            title: s.title || 'Live Session',
+            instructor: 'Instructor', // Simplified - no join
+            viewers: count || 0,
+            startedAt: s.started_at,
+            image: 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
+          };
+        }));
+        setActiveSessions(processed);
+      } else {
+        setActiveSessions([]);
+      }
+    };
+
+    const fetchInstructors = async (supabase: any) => {
+      const { data } = await supabase.from('profiles').select('id, first_name, last_name, avatar_url').eq('role', 'instructor').limit(10);
+      if (data) {
+        setTopInstructors(data.map((p: any) => ({
+          id: p.id,
+          name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Instructor',
+          avatar: p.avatar_url,
+          initials: `${p.first_name?.[0] || 'I'}${p.last_name?.[0] || 'N'}`
+        })));
+      }
+      setIsLoadingInstructors(false);
+    };
+
+    const fetchEnrollments = async (supabase: any) => {
+      if (!user?.id) return;
+
+      console.log('DEBUG: ========== ENROLLMENT FETCH START ==========');
+
+      // Verify auth session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (!session) {
+        console.error('ERROR: No active session - user not authenticated');
+        setIsLoadingRecent(false);
+        return;
+      }
+
+      console.log('DEBUG: Using Direct Database Query for Enrollments');
+
+      // Direct Query with Strict Column Selection (Lightweight)
+      // Added total_lessons to select and ordering by created_at
+      const { data, error } = await supabase
+        .from('enrollments')
+        .select('completed_lessons, course:courses(id, title, image_url, total_lessons, instructor:profiles(first_name, last_name))')
+        .eq('student_id', user.id)
+        .order('id', { ascending: false })
+        .limit(3);
+
+      console.log('DEBUG: Direct Query Response:', data);
+
+      if (error) {
+        console.error('ERROR: Direct query failed:', error);
+        setIsLoadingRecent(false);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        console.warn('No enrollments found for user:', user.id);
+        setRecentCourses([]);
+        setIsLoadingRecent(false);
+        return;
+      }
+
+      const mapped = data.map((e: any, index: number) => {
+        try {
+          const c = e.course;
+          if (!c || !c.id) {
+            console.warn(`No valid course data for enrollment ${index + 1}`);
+            return null;
+          }
+
+          // Flexible instructor handling
+          const inst = Array.isArray(c.instructor) ? c.instructor[0] : c.instructor;
+          const instructorName = inst ? `${inst.first_name || ''} ${inst.last_name || ''}`.trim() : 'Instructor';
+
+          // Accurate Progress Logic
+          // Step A: Count completed lessons
+          const completedCount = Array.isArray(e.completed_lessons)
+            ? e.completed_lessons.length
+            : (typeof e.completed_lessons === 'number' ? e.completed_lessons : 0);
+
+          // Step B & C: Use total_lessons if available, else fallback to 12
+          const totalItems = c.total_lessons || 12;
+
+          const progress = totalItems > 0 ? Math.min(completedCount / totalItems, 1) : 0; // Cap at 100%
+
+          return {
+            id: c.id,
+            title: c.title,
+            instructor: instructorName,
+            image: c.image_url || 'https://via.placeholder.com/150',
+            progress: progress
+          };
+        } catch (err) {
+          console.error(`DEBUG: Error mapping enrollment ${index + 1}:`, err);
+          return null;
+        }
+      }).filter(Boolean);
+
+      console.log('DEBUG: Final mapped courses:', mapped);
+      setRecentCourses(mapped);
+      setIsLoadingRecent(false);
+      console.log('DEBUG: ========== ENROLLMENT FETCH END ==========');
+    };
+
+
+    const initializeDashboard = async () => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
+      console.log('DEBUG: Initializing dashboard. User ID:', user?.id);
+
       try {
         const { supabase } = await import('@/src/auth/supabase');
-
-        // B. Fetch notifications count
-        const checkUnread = async () => {
-          const { count, error } = await (supabase as any)
-            .from('notifications')
-            .select('*', { count: 'exact', head: true })
-            .eq('recipient_id', user?.id)
-            .eq('is_read', false);
-          if (!error && count !== null) setHasUnreadNotifications(count > 0);
-        };
-        await checkUnread();
-
-        // PRE-FETCH CHECK
         const { data: { session } } = await (supabase as any).auth.getSession();
-        if (!session) return;
-
-        // A. Fetch Upcoming Classes Logic
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tonight = new Date();
-        tonight.setHours(23, 59, 59, 999);
-
-        const { data: upcomingData, error: upcomingError } = await (supabase as any)
-          .from('live_sessions')
-          .select('id')
-          .gte('scheduled_at', today.toISOString())
-          .lte('scheduled_at', tonight.toISOString());
-
-        if (upcomingError && upcomingError.message?.includes('Auth session missing')) return;
-        if (!upcomingError) setUpcomingCount(upcomingData?.length || 0);
-
-        // Guard
-        if (!user?.id) return;
-
-        // B. Fetch REAL Active Live Sessions (List)
-        const fetchLiveSessions = async () => {
-          const { data: liveData, error: liveError } = await (supabase as any)
-            .from('live_sessions')
-            .select(`
-                id,
-                title,
-                status,
-                started_at,
-                course:courses(
-                    id,
-                    title,
-                    image_url,
-                    instructor:profiles(first_name, last_name)
-                )
-            `)
-            .in('status', ['active', 'live'])
-            .order('started_at', { ascending: false });
-
-          if (liveError && liveError.message?.includes('Auth session missing')) return;
-          if (!liveError && liveData && liveData.length > 0) {
-            // Fetch real enrollment counts for each session
-            const sessionsWithCounts = await Promise.all(liveData.map(async (session: any) => {
-              let viewerCount = 0;
-              if (session.course?.id) {
-                const { count, error } = await (supabase as any)
-                  .from('enrollments')
-                  .select('*', { count: 'exact', head: true })
-                  .eq('course_id', session.course.id);
-                if (!error) viewerCount = count || 0;
-              }
-
-              return {
-                id: session.id,
-                title: session.course?.title || session.title || 'Live Session',
-                instructor: session.course?.instructor
-                  ? `${session.course.instructor.first_name || ''} ${session.course.instructor.last_name || ''}`.trim()
-                  : 'Unknown Instructor',
-                viewers: viewerCount,
-                startedAt: session.started_at,
-                image: session.course?.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
-              };
-            }));
-
-            if (!user?.id) return; // Guard before state update
-            setActiveSessions(sessionsWithCounts);
-          } else {
-            setActiveSessions([]);
-          }
-        };
-
-        await fetchLiveSessions();
-        if (!user?.id) return;
-
-        // C. Fetch Top 10 Instructors
-        const { data: instructorsData, error: instructorsError } = await (supabase as any)
-          .from('profiles')
-          .select('id, first_name, last_name, avatar_url')
-          .eq('role', 'instructor')
-          .limit(10);
-
-        if (instructorsError && instructorsError.message?.includes('Auth session missing')) return;
-        if (!instructorsError && instructorsData) {
-          const mapped = instructorsData.map((p: any) => {
-            const first = p.first_name || '';
-            const last = p.last_name || '';
-            const initials = (first?.[0] || '') + (last?.[0] || '');
-
-            return {
-              id: p.id,
-              name: `${first} ${last}`.trim() || 'Instructor',
-              avatar: p.avatar_url,
-              initials: initials.toUpperCase() || 'IN'
-            };
-          });
-          setTopInstructors(mapped);
+        if (!session) {
+          console.log('DEBUG: No active session found.');
+          return;
         }
 
-        // D. Fetch Recent Courses
+        // Execute separate lightweight fetches
+        await fetchUpcomingCount(supabase);
         if (user?.id) {
-          const { data: enrollData, error: enrollError } = await (supabase as any)
-            .from('enrollments')
-            .select(`
-              completed_lessons,
-              course:courses(
-                id,
-                title,
-                image_url,
-                course_content,
-                instructor:profiles(first_name, last_name)
-              )
-            `)
-            .eq('student_id', user.id)
-            .limit(3);
-
-          if (enrollError && enrollError.message?.includes('Auth session missing')) return;
-          if (!enrollError && enrollData) {
-            const mapped = enrollData.map((e: any) => {
-              const c = e.course;
-              const instructorName = c.instructor
-                ? `${c.instructor.first_name || ''} ${c.instructor.last_name || ''}`.trim()
-                : 'Unknown Instructor';
-
-              let lessonCount = 0;
-              if (c.course_content) {
-                try {
-                  const content = typeof c.course_content === 'string' ? JSON.parse(c.course_content) : c.course_content;
-                  let rawSections = [];
-                  if (Array.isArray(content)) {
-                    rawSections = content;
-                  } else if (content && typeof content === 'object') {
-                    rawSections = content.sections || content.data || Object.values(content).filter(v => Array.isArray(v));
-                  }
-
-                  if (Array.isArray(rawSections)) {
-                    rawSections.forEach((section: any) => {
-                      const lessons = section.lessons || section.data || section.items || (Array.isArray(section) ? section : []);
-                      lessonCount += Array.isArray(lessons) ? lessons.length : 0;
-                    });
-                  }
-                } catch (e) { }
-              }
-
-              const completedCount = Array.isArray(e.completed_lessons)
-                ? e.completed_lessons.length
-                : (typeof e.completed_lessons === 'number' ? e.completed_lessons : 0);
-              const progressVal = lessonCount > 0 ? (completedCount / lessonCount) : 0;
-
-              return {
-                id: c.id,
-                title: c.title,
-                instructor: instructorName,
-                image: c.image_url || 'https://via.placeholder.com/150',
-                progress: progressVal
-              };
-            });
-            setRecentCourses(mapped);
-          }
+          await Promise.all([
+            fetchLiveSessions(supabase),
+            fetchInstructors(supabase),
+            fetchEnrollments(supabase)
+          ]);
         }
 
-        // E. Real-time Subscription for Live Sessions
+        // E. Debounced Real-time Subscription
         subscription = (supabase as any)
-          .channel('public:live_sessions:profile')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'live_sessions' },
-            (payload: any) => {
-              if (user?.id) fetchLiveSessions();
-            }
-          )
-          .subscribe();
-
-        // F. Real-time Subscription for Notifications
-        const notifChannel = (supabase as any)
-          .channel('public:notifications:student')
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'notifications',
-              filter: `recipient_id=eq.${user?.id}`
-            },
-            () => {
-              setHasUnreadNotifications(true);
-            }
-          )
+          .channel('live_sessions_minimal')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'live_sessions' }, () => {
+            // Debounce to prevent rapid refetches
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = setTimeout(() => {
+              if (user?.id && !isFetchingRef.current) fetchLiveSessions(supabase);
+            }, 2000);
+          })
           .subscribe();
 
       } catch (err: any) {
         if (err?.name === 'AuthSessionMissingError' || err?.message?.includes('session')) return;
-        console.error('Error fetching dashboard data:', err);
+        console.error('Error initializing dashboard:', err);
       } finally {
-        setIsLoadingInstructors(false);
-        setIsLoadingRecent(false);
+        isFetchingRef.current = false;
       }
     };
 
-    fetchDashboardData();
+    initializeDashboard();
 
     return () => {
-      // Supabase unsubscribe is actually .unsubscribe() not sb.removeChannel for the old way, 
-      // but let's be careful. Since I used .subscribe() on channel, I should use unsubscribe.
+      if (subscription) subscription.unsubscribe();
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      isFetchingRef.current = false;
     };
   }, [user?.id]);
 
-  // No longer using static MENTORS
 
-  // Filter courses based on selected tab
-  const popularCourses = INITIAL_COURSES.filter(
-    course => course.category === selectedCourseTab
-  ).slice(0, 2);
   return (
     <View style={styles.container}>
       {/* Custom Header */}
@@ -399,17 +351,7 @@ const StudentProfile = () => {
             </View>
           </View>
           <View style={styles.topBarRight}>
-            <TouchableOpacity
-              onPress={() => {
-                setHasUnreadNotifications(false);
-                router.push('/notifications');
-              }}
-            >
-              <View>
-                <Ionicons name="notifications-outline" size={24} color="#fff" />
-                {hasUnreadNotifications && <View style={styles.notificationBadge} />}
-              </View>
-            </TouchableOpacity>
+            <NotificationIcon />
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
               <Ionicons name="menu" size={28} color="#fff" />
             </TouchableOpacity>
@@ -541,8 +483,8 @@ const StudentProfile = () => {
         {isLoadingRecent ? (
           <ActivityIndicator color="#8A2BE2" style={{ marginVertical: 20 }} />
         ) : recentCourses.length > 0 ? (
-          recentCourses.map(item => (
-            <TouchableOpacity key={item.id} style={styles.learningCard} onPress={() => router.push(`/learning/${item.id}` as any)}>
+          recentCourses.map((item, index) => (
+            <TouchableOpacity key={`${item.id}-${index}`} style={styles.learningCard} onPress={() => router.push(`/learning/${item.id}` as any)}>
               <Image source={{ uri: item.image }} style={styles.courseCardImage} />
               <View style={styles.learningContent}>
                 <View style={styles.learningHeader}>
@@ -550,7 +492,7 @@ const StudentProfile = () => {
                 </View>
                 <Text style={styles.instructorName}>{item.instructor}</Text>
                 <View style={styles.progressBarContainer}>
-                  <View style={[styles.progressBar, { width: `${(item.progress || 0) * 100}%`, backgroundColor: '#8A2BE2' }]} />
+                  <View style={[styles.progressBar, { width: `${Math.max((item.progress || 0) * 100, 2)}%`, backgroundColor: '#8A2BE2' }]} />
                 </View>
                 <Text style={styles.learningTime}>{Math.round((item.progress || 0) * 100)}% complete</Text>
               </View>

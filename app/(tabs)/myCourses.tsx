@@ -157,7 +157,7 @@ export default function MyCoursesScreen() {
     const categories = course.categories || '';
 
     router.push({
-      pathname: `/courseDetails/${course.id}`,
+      pathname: '/courseDetails/[id]',
       params: {
         id: course.id,
         title: title,

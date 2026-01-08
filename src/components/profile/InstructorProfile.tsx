@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import NotificationIcon from '../notifications/NotificationIcon';
 
 const { width, height } = Dimensions.get('window');
 
@@ -136,7 +137,6 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   });
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   const firstName = user?.user_metadata?.first_name;
   const lastName = user?.user_metadata?.last_name;
@@ -154,59 +154,8 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     if (user?.id) {
       fetchCourses();
       fetchStats();
-      checkUnreadNotifications();
-
-      // Subscribe to notifications
-      let channel: any;
-      const setupSubscription = async () => {
-        const { supabase: sb } = await import('@/src/auth/supabase');
-        channel = sb
-          .channel('public:notifications:instructor')
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'notifications',
-              filter: `recipient_id=eq.${user?.id}`
-            },
-            () => {
-              setHasUnreadNotifications(true);
-            }
-          )
-          .subscribe();
-      };
-
-      setupSubscription();
-
-      return () => {
-        if (channel) {
-          const cleanup = async () => {
-            const { supabase: sb } = await import('@/src/auth/supabase');
-            sb.removeChannel(channel);
-          };
-          cleanup();
-        }
-      };
     }
   }, [user?.id]);
-
-  const checkUnreadNotifications = async () => {
-    try {
-      const { supabase: sb } = await import('@/src/auth/supabase');
-      const { count, error } = await sb
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('recipient_id', user?.id)
-        .eq('is_read', false);
-
-      if (!error && count !== null) {
-        setHasUnreadNotifications(count > 0);
-      }
-    } catch (error) {
-      console.error('Error checking unread notifications:', error);
-    }
-  };
 
   const fetchStats = async () => {
     try {
@@ -369,18 +318,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             </View>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => {
-                setHasUnreadNotifications(false);
-                router.push('/notifications');
-              }}
-            >
-              <View>
-                <Ionicons name="notifications-outline" size={24} color="#fff" />
-                {hasUnreadNotifications && <View style={styles.notificationBadge} />}
-              </View>
-            </TouchableOpacity>
+            <NotificationIcon />
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
               <Ionicons name="menu" size={28} color="#fff" />
             </TouchableOpacity>
@@ -498,15 +436,25 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         <View style={styles.recentSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Uploaded Courses</Text>
-            <TouchableOpacity onPress={() => router.push('/myUploadedCourses')}>
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
+            {uploadedCourses.length > 0 && (
+              <TouchableOpacity onPress={() => router.push('/myUploadedCourses')}>
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {loadingCourses ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <ActivityIndicator size="small" color="#8A2BE2" />
               <Text style={{ marginTop: 10, color: '#888', fontSize: 12 }}>Loading courses...</Text>
+            </View>
+          ) : uploadedCourses.length === 0 ? (
+            <View style={styles.emptyCoursesContainer}>
+              <Ionicons name="library-outline" size={50} color="#D1C4E9" />
+              <Text style={styles.emptyCoursesTitle}>No Courses Uploaded Yet</Text>
+              <Text style={styles.emptyCoursesSubtitle}>
+                Your teaching journey starts here. Once you upload a course, it will appear in this list.
+              </Text>
             </View>
           ) : (
             uploadedCourses.slice(0, 2).map((course) => (
@@ -1062,6 +1010,35 @@ const styles = StyleSheet.create({
   },
   statusTextDraft: {
     color: '#FF9800',
+  },
+  emptyCoursesContainer: {
+    height: 180,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(224, 212, 252, 0.4)',
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  emptyCoursesTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 10,
+  },
+  emptyCoursesSubtitle: {
+    fontSize: 13,
+    color: '#888',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    marginTop: 5,
   },
 });
 

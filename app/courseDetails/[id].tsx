@@ -70,11 +70,14 @@ interface MappedCourse {
     lessonCount: number;
     duration: string;
     tools?: any[];
+    course_content?: any;
+    what_will_i_learn?: string[] | string | null;
 }
 
 const getLessonType = (lesson: any): LessonType => {
     if (lesson.type) return lesson.type;
-    if (lesson.lessons && Array.isArray(lesson.lessons) && lesson.lessons.length > 0) return 'article';
+    const subItems = lesson.lessons || lesson.children || lesson.data || lesson.items;
+    if (subItems && Array.isArray(subItems) && subItems.length > 0) return 'article';
 
     const content = lesson.video_url || lesson.video_link || lesson.content;
     if (typeof content === 'string') {
@@ -137,8 +140,7 @@ const processCourseContent = (content: any): Section[] => {
 
 const stripHtmlTags = (htmlString: string) => {
     if (!htmlString) return '';
-    let cleanText = htmlString.replace(/WEVERSITY_BLOCKS_START[\s\S]*$/, '');
-    cleanText = cleanText.replace(/<!--[\s\S]*?-->/g, "");
+    let cleanText = htmlString.replace(/<!--[\s\S]*?-->/g, "");
     cleanText = cleanText.replace(/<[^>]*>?/gm, '');
     cleanText = cleanText.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
     return cleanText.trim();
@@ -175,7 +177,8 @@ export default function CourseDetailsScreen() {
             reviewCount: Number(reviewCount) || 0,
             students: 0,
             lessonCount: 0,
-            duration: '...'
+            duration: '...',
+            course_content: null,
         };
     });
 
@@ -187,144 +190,224 @@ export default function CourseDetailsScreen() {
     const [progress, setProgress] = useState(0);
     const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
 
+    // 1. Fetch Metadata (Fast)
     const { data: fullCourseData, isLoading: isQueryLoading, error: queryError } = useQuery({
         queryKey: ['course', id],
         queryFn: () => courseService.fetchCourseById(Number(id)),
         enabled: !!id,
     });
 
+    // 2. Fetch Content (Heavy - Separate Request) - MATCHING LEARNING SCREEN LOGIC
+    const { data: contentData, isLoading: isContentLoading, error: contentError } = useQuery({
+        queryKey: ['courseContent', id],
+        queryFn: () => courseService.fetchCourseContent(Number(id)),
+        enabled: !!id,
+    });
+
     useEffect(() => {
         const processData = async () => {
-            if (!fullCourseData) return;
+            // We need at least one source of data: either fresh full data, fresh content, or existing state
+            if (!fullCourseData && !contentData && !course) return;
 
             try {
-                const data = fullCourseData;
-                const transformedSections = processCourseContent(data.course_content);
-                let lessonCount = 0;
-                let totalMin = 0;
-
-                const traverseStats = (lessons: Lesson[]) => {
-                    lessons.forEach(l => {
-                        lessonCount++;
-                        if (l.duration) {
-                            const dStr = String(l.duration).toLowerCase();
-                            let mins = 0;
-                            const hMatch = dStr.match(/(\d+)\s*h/);
-                            const mMatch = dStr.match(/(\d+)\s*m/);
-                            const bareMatch = dStr.match(/^(\d+)(\s*mins?)?$/);
-
-                            if (hMatch) mins += parseInt(hMatch[1]) * 60;
-                            if (mMatch) mins += parseInt(mMatch[1]);
-                            if (bareMatch && !hMatch && !mMatch) mins += parseInt(bareMatch[1]);
-
-                            totalMin += mins;
-                        }
-                        if (l.lessons && Array.isArray(l.lessons)) traverseStats(l.lessons);
-                    });
-                };
-
-                transformedSections.forEach(s => traverseStats(s.data));
-
-                // 2. Fetch Real Student Count from enrollments table
-                const { count: realStudentCount } = await supabase
-                    .from('enrollments')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('course_id', id);
-
-                const finalStudentCount = realStudentCount || 0;
-
-                // 3. Format Duration
-                let durationStr = 'Flexible Duration';
-                if (totalMin > 0) {
-                    const h = Math.floor(totalMin / 60);
-                    const m = totalMin % 60;
-                    durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}`.trim() : `${m}m`;
-                } else if (lessonCount > 0) {
-                    const estMin = lessonCount * 5;
-                    const h = Math.floor(estMin / 60);
-                    const m = estMin % 60;
-                    durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''} (Est.)`.trim() : `${m}m (Est.)`;
+                // 1. DETERMINE CONTENT SOURCE
+                let contentToProcess = contentData;
+                if (!contentToProcess && fullCourseData) {
+                    contentToProcess = (fullCourseData as any).course_content;
                 }
 
-                // 4. Fetch Reviews
-                const { data: reviewsRaw } = await supabase
-                    .from('reviews')
-                    .select('id, rating, content, created_at, student_id')
-                    .eq('course_id', id)
-                    .order('created_at', { ascending: false });
+                if (typeof contentToProcess === 'string') {
+                    try {
+                        contentToProcess = JSON.parse(contentToProcess);
+                    } catch (e) {
+                        console.warn("Could not parse course_content string", e);
+                    }
+                }
 
-                const reviewsCount = reviewsRaw?.length || 0;
-                let calculatedAvgRating = Number(rating) || 0;
-                let mappedReviews: Review[] = [];
+                let transformedSections: Section[] = course?.sections || [];
+                let lessonCount = course?.lessonCount || 0;
+                let durationStr = course?.duration || '...';
 
-                if (reviewsCount > 0) {
-                    const sum = reviewsRaw!.reduce((acc, r) => acc + (r.rating || 0), 0);
-                    calculatedAvgRating = sum / reviewsCount;
-
-                    const studentIds = Array.from(new Set(reviewsRaw!.map(r => r.student_id).filter(Boolean)));
-                    let profileMap: Record<string, any> = {};
-
-                    if (studentIds.length > 0) {
-                        const { data: profilesData } = await supabase
-                            .from('profiles')
-                            .select('id, first_name, last_name, avatar_url')
-                            .in('id', studentIds);
-
-                        profilesData?.forEach(p => {
-                            profileMap[p.id] = p;
+                if (contentToProcess) {
+                    transformedSections = processCourseContent(contentToProcess);
+                    let totalL = 0;
+                    let totalMin = 0;
+                    const traverseStats = (lessons: Lesson[]) => {
+                        lessons.forEach(l => {
+                            totalL++;
+                            if (l.duration) {
+                                const dStr = String(l.duration).toLowerCase();
+                                let mins = 0;
+                                const hMatch = dStr.match(/(\d+)\s*h/);
+                                const mMatch = dStr.match(/(\d+)\s*m/);
+                                const bareMatch = dStr.match(/^(\d+)(\s*mins?)?$/);
+                                if (hMatch) mins += parseInt(hMatch[1]) * 60;
+                                if (mMatch) mins += parseInt(mMatch[1]);
+                                if (bareMatch && !hMatch && !mMatch) mins += parseInt(bareMatch[1]);
+                                totalMin += mins;
+                            }
+                            if (l.lessons && Array.isArray(l.lessons)) traverseStats(l.lessons);
                         });
+                    };
+                    transformedSections.forEach(s => traverseStats(s.data));
+                    lessonCount = totalL;
+
+                    if (totalMin > 0) {
+                        const h = Math.floor(totalMin / 60);
+                        const m = totalMin % 60;
+                        durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}`.trim() : `${m}m`;
+                    } else if (lessonCount > 0) {
+                        const estMin = lessonCount * 5;
+                        const h = Math.floor(estMin / 60);
+                        const m = estMin % 60;
+                        durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''} (Est.)`.trim() : `${m}m (Est.)`;
+                    }
+                }
+
+                // 2. DETERMINE METADATA SOURCE
+                let finalStudentCount = course?.students || 0;
+                let calculatedAvgRating = course?.rating || Number(rating) || 0;
+                let mappedReviews = course?.reviews || [];
+                let reviewsCount = course?.reviewCount || Number(reviewCount) || 0;
+
+                let instructorName = course?.instructor || (instructor as string) || 'Instructor';
+                let instructorAvatar = course?.instructorAvatar;
+                let instructorInitials = course?.instructorInitials || 'IN';
+                let currentDescription = course?.description || '';
+                let priceDisplay = course?.price || 'Free';
+                let tools = course?.tools || [];
+                let categoryDisplay = course?.categories || 'General';
+                let whatWillILearn: string[] | string | null = null;
+
+                if (fullCourseData) {
+                    const data = fullCourseData;
+                    currentDescription = data.description || '';
+                    priceDisplay = (data as any).price || 'Free';
+                    tools = (data as any).tools || [];
+                    categoryDisplay = (data as any).categories || 'General';
+                    whatWillILearn = (data as any).what_will_i_learn || null;
+
+                    if (data.instructor) {
+                        const inst = Array.isArray(data.instructor) ? data.instructor[0] : data.instructor;
+                        if (inst) {
+                            instructorName = `${inst.first_name || ''} ${inst.last_name || ''}`.trim();
+                            instructorAvatar = inst.avatar_url;
+                            instructorInitials = ((inst.first_name?.[0] || '') + (inst.last_name?.[0] || '')).toUpperCase() || 'IN';
+                        }
                     }
 
-                    mappedReviews = reviewsRaw!.map((r: any) => {
-                        const prof = profileMap[r.student_id];
-                        const first = prof?.first_name || '';
-                        const last = prof?.last_name || '';
-                        const initials = (first?.[0] || '') + (last?.[0] || '');
+                    try {
+                        const { count: realStudentCount } = await supabase
+                            .from('enrollments')
+                            .select('*', { count: 'exact', head: true })
+                            .eq('course_id', id);
+                        finalStudentCount = realStudentCount || 0;
+                    } catch (e) {
+                        console.warn("Non-critical: Error fetching student count", e);
+                    }
 
-                        return {
-                            id: r.id,
-                            rating: r.rating,
-                            content: r.content,
-                            created_at: r.created_at,
-                            user: {
-                                name: prof ? `${first} ${last}`.trim() : 'Anonymous Student',
-                                avatar: prof?.avatar_url,
-                                initials: initials.toUpperCase() || 'AS'
+                    try {
+                        const { data: reviewsRaw } = await supabase
+                            .from('reviews')
+                            .select('id, rating, content, created_at, student_id')
+                            .eq('course_id', id)
+                            .order('created_at', { ascending: false });
+
+                        reviewsCount = reviewsRaw?.length || 0;
+                        if (reviewsCount > 0) {
+                            const sum = reviewsRaw!.reduce((acc, r: any) => acc + (r.rating || 0), 0);
+                            calculatedAvgRating = sum / reviewsCount;
+
+                            const studentIds = Array.from(new Set(reviewsRaw!.map((r: any) => r.student_id).filter(Boolean)));
+                            let profileMap: Record<string, any> = {};
+
+                            if (studentIds.length > 0) {
+                                const { data: profilesData } = await supabase
+                                    .from('profiles')
+                                    .select('id, first_name, last_name, avatar_url')
+                                    .in('id', studentIds);
+
+                                profilesData?.forEach(p => {
+                                    profileMap[p.id] = p;
+                                });
                             }
-                        };
-                    });
+
+                            mappedReviews = reviewsRaw!.map((r: any) => {
+                                const prof = profileMap[r.student_id];
+                                const first = prof?.first_name || '';
+                                const last = prof?.last_name || '';
+                                const initials = (first?.[0] || '') + (last?.[0] || '');
+
+                                return {
+                                    id: r.id,
+                                    rating: r.rating,
+                                    content: r.content,
+                                    created_at: r.created_at,
+                                    user: {
+                                        name: prof ? `${first} ${last}`.trim() : 'Anonymous Student',
+                                        avatar: prof?.avatar_url,
+                                        initials: initials.toUpperCase() || 'AS'
+                                    }
+                                };
+                            });
+                        }
+                    } catch (e) {
+                        console.warn("Non-critical: Error fetching reviews", e);
+                    }
                 }
 
-                setCourse({
-                    id: data.id,
-                    title: data.title,
-                    categories: data.categories || 'General',
-                    is_free: true,
-                    image: data.image_url || (thumbnail as string) || 'https://via.placeholder.com/400x250',
-                    price: 'Free',
-                    description: data.description || '',
-                    sections: transformedSections,
-                    instructor: data.instructor?.first_name ? `${data.instructor.first_name} ${data.instructor.last_name || ''}`.trim() : (instructor as string) || 'Instructor',
-                    instructorAvatar: data.instructor?.avatar_url,
-                    instructorInitials: ((data.instructor?.first_name?.[0] || '') + (data.instructor?.last_name?.[0] || '')).toUpperCase() || 'IN',
-                    rating: calculatedAvgRating,
-                    reviews: mappedReviews,
-                    reviewCount: reviewsCount,
-                    students: finalStudentCount,
-                    lessonCount: lessonCount,
-                    duration: durationStr,
-                    tools: data.tools || []
-                });
+                setCourse(prev => {
+                    const base = prev || {
+                        id: id,
+                        title: title as string,
+                        categories: 'General',
+                        is_free: true,
+                        image: (thumbnail as string) || 'https://via.placeholder.com/400x250',
+                        price: 'Free',
+                        description: '',
+                        sections: [],
+                        instructor: 'Instructor',
+                        rating: 0,
+                        reviews: [],
+                        reviewCount: 0,
+                        students: 0,
+                        lessonCount: 0,
+                        duration: '...',
+                        course_content: null,
+                    };
 
+                    return {
+                        ...base,
+                        description: currentDescription,
+                        sections: transformedSections,
+                        instructor: instructorName,
+                        instructorAvatar,
+                        instructorInitials,
+                        rating: calculatedAvgRating,
+                        reviews: mappedReviews,
+                        reviewCount: reviewsCount,
+                        students: finalStudentCount,
+                        lessonCount,
+                        duration: durationStr,
+                        tools,
+                        categories: categoryDisplay,
+                        price: priceDisplay,
+                        course_content: contentToProcess,
+                        what_will_i_learn: whatWillILearn
+                    };
+                });
             } catch (err: any) {
-                setError(err.message || 'Failed to process course data');
+                console.error("Critical error in processData:", err);
+                if (!course) {
+                    setError(err.message || 'Failed to process course data');
+                }
             } finally {
                 setLoading(false);
             }
         };
 
         processData();
-    }, [fullCourseData]);
+    }, [fullCourseData, contentData]);
 
     useEffect(() => {
         const fetchEnrollment = async () => {
@@ -344,9 +427,6 @@ export default function CourseDetailsScreen() {
                         completedIds = enrollData.completed_lessons.map(String);
                     }
                     setCompletedLessonIds(completedIds);
-
-                    // Progress calculation needs lessonCount which is set in the other effect
-                    // We'll calculate it once course state updates
                 }
             }
         };
@@ -479,26 +559,70 @@ const StatItem = ({ icon, label }: { icon: any, label: string }) => (
     </View>
 );
 
-const AboutTab = ({ course }: { course: MappedCourse }) => (
-    <View>
-        <Text style={styles.sectionTitle}>Mentor</Text>
-        <View style={styles.mentorCard}>
-            {course.instructorAvatar ? (
-                <Image source={{ uri: course.instructorAvatar }} style={styles.mentorImg} />
-            ) : (
-                <View style={[styles.mentorImg, styles.initialsContainerSmall]}>
-                    <Text style={styles.initialsTextSmall}>{course.instructorInitials}</Text>
+const AboutTab = ({ course }: { course: MappedCourse }) => {
+    let rawPoints = Array.isArray(course.what_will_i_learn)
+        ? course.what_will_i_learn
+        : typeof course.what_will_i_learn === 'string'
+            ? (() => {
+                try {
+                    const parsed = JSON.parse(course.what_will_i_learn);
+                    return Array.isArray(parsed) ? parsed : [];
+                } catch (e) {
+                    return course.what_will_i_learn.split('\n').filter(p => p.trim());
+                }
+            })()
+            : [];
+
+    // Fallback Extraction Logic
+    const points = rawPoints.length > 0 ? rawPoints : (() => {
+        if (!course.description) return [];
+        const cleanDesc = stripHtmlTags(course.description);
+        const lines = cleanDesc.split('\n');
+        return lines
+            .map(line => line.trim())
+            .filter(line => line.startsWith('•') || line.startsWith('-') || line.startsWith('*') || /^\d+[\.\)]/.test(line))
+            .map(line => line.replace(/^[•\-\*\s\d\.\)]+/, '').trim())
+            .filter(p => p.length > 3);
+    })();
+
+    return (
+        <View>
+            <Text style={styles.sectionTitle}>Mentor</Text>
+            <View style={styles.mentorCard}>
+                {course.instructorAvatar ? (
+                    <Image source={{ uri: course.instructorAvatar }} style={styles.mentorImg} />
+                ) : (
+                    <View style={[styles.mentorImg, styles.initialsContainerSmall]}>
+                        <Text style={styles.initialsTextSmall}>{course.instructorInitials}</Text>
+                    </View>
+                )}
+                <View>
+                    <Text style={styles.mentorName}>{course.instructor}</Text>
+                    <Text style={styles.mentorRole}>Senior Instructor</Text>
+                </View>
+            </View>
+
+            <Text style={styles.sectionTitle}>About Course</Text>
+            <Text style={styles.desc}>{stripHtmlTags(course.description)}</Text>
+
+            {points.length > 0 && (
+                <View style={styles.learningSection}>
+                    <Text style={styles.learningSectionTitle}>What you’ll learn</Text>
+                    <View style={styles.learningGrid}>
+                        {points.map((point, index) => (
+                            <View key={index} style={styles.learningPointItem}>
+                                <Ionicons name="checkmark-circle-outline" size={18} color="#4CAF50" />
+                                <Text style={styles.learningPointText}>
+                                    {point}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
                 </View>
             )}
-            <View>
-                <Text style={styles.mentorName}>{course.instructor}</Text>
-                <Text style={styles.mentorRole}>Senior Instructor</Text>
-            </View>
         </View>
-        <Text style={styles.sectionTitle}>About Course</Text>
-        <Text style={styles.desc}>{stripHtmlTags(course.description)}</Text>
-    </View>
-);
+    );
+};
 
 const getPathKey = (s: number, l: number, sl?: number) => {
     return sl !== undefined ? `s-${s}-l-${l}-sl-${sl}` : `s-${s}-l-${l}`;
@@ -506,6 +630,19 @@ const getPathKey = (s: number, l: number, sl?: number) => {
 
 const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress }: { sections: Section[], isEnrolled: boolean, completedIds: string[], onLessonPress: () => void }) => {
     const [localSections, setLocalSections] = useState(sections);
+
+    useEffect(() => {
+        setLocalSections(sections);
+    }, [sections]);
+
+    if (!localSections || localSections.length === 0) {
+        return (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+                <Ionicons name="documents-outline" size={48} color="#ccc" />
+                <Text style={{ color: '#666', marginTop: 10, textAlign: 'center' }}>No lessons available for this course yet.</Text>
+            </View>
+        );
+    }
 
     const toggle = (i: number) => {
         const newSections = [...localSections];
@@ -714,4 +851,21 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
     },
+    learningSection: {
+        marginTop: 30,
+        padding: 20,
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#EEE',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 5,
+        elevation: 2
+    },
+    learningSectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a1a', marginBottom: 15 },
+    learningGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+    learningPointItem: { flexDirection: 'row', width: '50%', marginBottom: 15, paddingRight: 10, alignItems: 'flex-start' },
+    learningPointText: { fontSize: 13, color: '#555', marginLeft: 8, flex: 1, lineHeight: 18 },
 });

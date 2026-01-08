@@ -4,19 +4,34 @@ import { ActivityIndicator, Alert, FlatList, Image, RefreshControl, StyleSheet, 
 import { liveSessionService } from '../services/liveSessionService';
 import NotificationPopup from './NotificationPopup';
 
+// Helper to safely parse UTC date strings
+const parseUtcDate = (dateString: string) => {
+    if (!dateString) return new Date();
+    // If string doesn't end in Z and doesn't look like an offset, assume UTC and append Z
+    if (!dateString.endsWith('Z') && !dateString.includes('+')) {
+        return new Date(`${dateString}Z`);
+    }
+    return new Date(dateString);
+};
+
 // Helper function to format date for the specific date box
 const getDateParts = (dateString: string) => {
     if (!dateString) return { month: '---', day: '--', time: '--:--', weekday: '----' };
-    const date = new Date(dateString);
+
+    // Parse as UTC then let JS convert to local
+    const date = parseUtcDate(dateString);
+
     const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
     const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
     let hours = date.getHours();
     const minutes = date.getMinutes();
-    const ampm = hours >= 12 ? 'AM' : 'PM';
+    const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12;
     hours = hours ? hours : 12;
-    const time = `${hours}:${minutes < 10 ? '0' + minutes : minutes} ${ampm}`;
+
+    // Ensure padding
+    const time = `${hours}:${String(minutes).padStart(2, '0')} ${ampm}`;
 
     return {
         month: monthNames[date.getMonth()],
@@ -29,7 +44,7 @@ const getDateParts = (dateString: string) => {
 // Helper function for the regular list date formatting
 const formatScheduledTime = (dateString: string) => {
     if (!dateString) return 'TBA';
-    const date = new Date(dateString);
+    const date = parseUtcDate(dateString);
     const now = new Date();
 
     // Check if today
@@ -48,7 +63,8 @@ const formatScheduledTime = (dateString: string) => {
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12;
     hours = hours ? hours : 12;
-    const minutesStr = minutes < 10 ? '0' + minutes : minutes;
+
+    const minutesStr = String(minutes).padStart(2, '0');
     const time = `${hours}:${minutesStr} ${ampm}`;
 
     if (isToday) {
@@ -67,27 +83,31 @@ const getCourseData = (item: any) => {
 
 // Countdown Hook
 const useCountdown = (targetDate: string) => {
-    const [timeLeft, setTimeLeft] = useState({ hours: '00', minutes: '00', seconds: '00' });
+    const [timeLeft, setTimeLeft] = useState({ days: '00', hours: '00', minutes: '00', seconds: '00' });
 
     useEffect(() => {
         const interval = setInterval(() => {
             const now = new Date().getTime();
-            const distance = new Date(targetDate).getTime() - now;
+            const target = parseUtcDate(targetDate).getTime();
+            const difference = target - now; // Renamed to difference per request
 
-            if (distance < 0) {
-                setTimeLeft({ hours: '00', minutes: '00', seconds: '00' });
+            if (difference < 0) {
+                setTimeLeft({ days: '00', hours: '00', minutes: '00', seconds: '00' });
                 clearInterval(interval);
                 return;
             }
 
-            const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-            const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-            const s = Math.floor((distance % (1000 * 60)) / 1000);
+            // Forced Strict Math
+            const days = Math.floor(difference / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((difference % (1000 * 60)) / 1000);
 
             setTimeLeft({
-                hours: h < 10 ? `0${h}` : `${h}`,
-                minutes: m < 10 ? `0${m}` : `${m}`,
-                seconds: s < 10 ? `0${s}` : `${s}`
+                days: String(days).padStart(2, '0'),
+                hours: String(hours).padStart(2, '0'),
+                minutes: String(minutes).padStart(2, '0'),
+                seconds: String(seconds).padStart(2, '0')
             });
         }, 1000);
 
@@ -106,7 +126,7 @@ const SpotlightCard = memo(({ item, onNotify }: { item: any; onNotify: (item: an
     const instructorName = `${instructor?.first_name || ''} ${instructor?.last_name || ''}`.trim() || 'Instructor';
     const instructorPicture = instructor?.avatar_url || `https://ui-avatars.com/api/?name=${instructorName}&background=8A2BE2&color=fff`;
 
-    const { hours, minutes, seconds } = useCountdown(item.scheduled_at);
+    const { days, hours, minutes, seconds } = useCountdown(item.scheduled_at);
     const dateParts = getDateParts(item.scheduled_at);
 
     return (
@@ -124,7 +144,7 @@ const SpotlightCard = memo(({ item, onNotify }: { item: any; onNotify: (item: an
                     <View style={styles.spotlightOverlay}>
                         <View style={styles.spotlightTimeRow}>
                             <Ionicons name="time-outline" size={14} color="#fff" />
-                            <Text style={styles.spotlightTimeText}>{hours} : {minutes} : {seconds}</Text>
+                            <Text style={styles.spotlightTimeText}>{days} : {hours} : {minutes} : {seconds}</Text>
                         </View>
 
                         <View style={styles.categoryBadgeRow}>
@@ -175,7 +195,8 @@ const SpotlightCard = memo(({ item, onNotify }: { item: any; onNotify: (item: an
 const getTimeUntil = (dateString: string) => {
     if (!dateString) return 'TBA';
     const now = new Date().getTime();
-    const distance = new Date(dateString).getTime() - now;
+    const target = parseUtcDate(dateString).getTime();
+    const distance = target - now;
 
     if (distance < 0) return 'STARTED';
 
@@ -253,7 +274,7 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
         try {
             const data = await liveSessionService.fetchUpcomingClasses();
             const sorted = (data || []).sort((a: any, b: any) =>
-                new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
+                parseUtcDate(a.scheduled_at).getTime() - parseUtcDate(b.scheduled_at).getTime()
             );
             setSessions(sorted);
         } catch (error) {

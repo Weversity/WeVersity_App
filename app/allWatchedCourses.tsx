@@ -22,7 +22,7 @@ const WatchedCourseCard = ({ course, onPress }: { course: any; onPress: () => vo
         </View>
         <Text style={styles.instructorName}>{course.instructor}</Text>
         <View style={styles.progressBarContainer}>
-          <View style={[styles.progressBar, { width: `${(course.progress || 0) * 100}%` }]} />
+          <View style={[styles.progressBar, { width: `${Math.max((course.progress || 0) * 100, 2)}%` }]} />
         </View>
         <Text style={styles.learningTime}>{Math.round((course.progress || 0) * 100)}% complete</Text>
       </View>
@@ -43,52 +43,39 @@ export default function AllWatchedCoursesScreen() {
         const { data: { user } } = await (supabase as any).auth.getUser();
 
         if (user) {
+          // Direct Query with Strict Column Selection (Lightweight)
+          // No Limit here - we want ALL watched courses
           const { data, error } = await (supabase as any)
             .from('enrollments')
             .select(`
               completed_lessons,
               course:courses(
-                id,
-                title,
-                image_url,
-                course_content,
+                id, title, image_url, 
+                total_lessons,
                 instructor:profiles(first_name, last_name)
               )
             `)
-            .eq('student_id', user.id);
+            .eq('student_id', user.id)
+            .order('id', { ascending: false });
 
           if (!error && data) {
             const mapped = data.map((e: any) => {
               const c = e.course;
+              if (!c) return null;
+
               const instructorName = c.instructor
                 ? `${c.instructor.first_name || ''} ${c.instructor.last_name || ''}`.trim()
-                : 'Unknown Instructor';
+                : 'Instructor';
 
-              // Calculate progress
-              let lessonCount = 0;
-              if (c.course_content) {
-                try {
-                  const content = typeof c.course_content === 'string' ? JSON.parse(c.course_content) : c.course_content;
-                  let rawSections = [];
-                  if (Array.isArray(content)) {
-                    rawSections = content;
-                  } else if (content && typeof content === 'object') {
-                    rawSections = content.sections || content.data || Object.values(content).filter(v => Array.isArray(v));
-                  }
-
-                  if (Array.isArray(rawSections)) {
-                    rawSections.forEach((section: any) => {
-                      const lessons = section.lessons || section.data || section.items || (Array.isArray(section) ? section : []);
-                      lessonCount += Array.isArray(lessons) ? lessons.length : 0;
-                    });
-                  }
-                } catch (e) { console.error('Error parsing course content', e); }
-              }
-
+              // Accurate Progress Logic (Matched with StudentProfile)
               const completedCount = Array.isArray(e.completed_lessons)
                 ? e.completed_lessons.length
                 : (typeof e.completed_lessons === 'number' ? e.completed_lessons : 0);
-              const progressPercentage = lessonCount > 0 ? (completedCount / lessonCount) : 0;
+
+              // Step B & C: Use total_lessons if available, else fallback to 12
+              const totalItems = c.total_lessons || 12;
+
+              const progressPercentage = totalItems > 0 ? Math.min(completedCount / totalItems, 1) : 0;
 
               return {
                 id: c.id,
@@ -97,7 +84,7 @@ export default function AllWatchedCoursesScreen() {
                 image: c.image_url || 'https://via.placeholder.com/150',
                 progress: progressPercentage
               };
-            });
+            }).filter(Boolean); // Filter out any nulls
             setCourses(mapped);
           }
         }
@@ -132,13 +119,13 @@ export default function AllWatchedCoursesScreen() {
       ) : courses.length > 0 ? (
         <FlatList
           data={courses}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <WatchedCourseCard
               course={item}
               onPress={() => router.push(`/learning/${item.id}` as any)}
             />
           )}
-          keyExtractor={item => item.id.toString()}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         />

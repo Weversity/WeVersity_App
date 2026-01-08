@@ -400,6 +400,7 @@ export default function LearningPlayerScreen() {
     const params = useLocalSearchParams();
     const { id, title, thumbnail, instructor } = params;
     const router = useRouter();
+    const contentScrollViewRef = useRef<ScrollView>(null);
 
     // Use params for initial state to avoid flicker
     const [course, setCourse] = useState<any>(() => {
@@ -475,40 +476,59 @@ export default function LearningPlayerScreen() {
     const slideAnimation = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
     const toastOpacity = useRef(new Animated.Value(0)).current;
 
-    const { data: fullCourseData, isLoading: isQueryLoading, refetch } = useQuery({
+    // 1. Fetch Metadata (Fast)
+    const { data: courseMetadata, isLoading: isMetaLoading, refetch: refetchMeta } = useQuery({
         queryKey: ['course', id],
         queryFn: () => courseService.fetchCourseById(Number(id)),
         enabled: !!id,
     });
 
-    useEffect(() => {
-        if (!fullCourseData) return;
+    // 2. Fetch Content (Heavy - Separate Request)
+    const { data: contentData, isLoading: isContentLoading, error: contentError, refetch: refetchContent } = useQuery({
+        queryKey: ['courseContent', id],
+        queryFn: () => courseService.fetchCourseContent(Number(id)),
+        enabled: !!id,
+    });
 
-        const data = fullCourseData;
-        setCourse(data);
+    // Effect: Update Course Metadata
+    useEffect(() => {
+        if (courseMetadata) {
+            setCourse(courseMetadata);
+        }
+    }, [courseMetadata]);
+
+    // Effect: Process Content when Loaded
+    useEffect(() => {
+        if (!contentData) {
+            if (contentError) {
+                // If error, sections remain empty -> UI will show retry
+                setSections([]);
+            }
+            return;
+        }
 
         let parsedContent = null;
-        if (data?.course_content) {
-            try {
-                parsedContent = typeof data.course_content === 'string'
-                    ? JSON.parse(data.course_content)
-                    : data.course_content;
-            } catch (e) {
-                console.error("Failed to parse course_content JSON:", e);
-            }
-            if (!parsedContent) {
-                setSections([]);
-                return;
-            }
+        try {
+            parsedContent = typeof contentData === 'string'
+                ? JSON.parse(contentData)
+                : contentData;
+        } catch (e) {
+            console.error("Failed to parse course_content JSON:", e);
+        }
+
+        if (!parsedContent) {
+            setSections([]);
+            return;
         }
 
         const transformed = processCourseContent(parsedContent);
         setSections(transformed);
 
+        // Auto-select first lesson if nothing active
         if (!activeLessonPath && transformed.length > 0 && transformed[0].data.length > 0) {
             setActiveLessonPath({ s: 0, l: 0 });
         }
-    }, [fullCourseData]);
+    }, [contentData, contentError]);
 
     const fetchUserProgress = async () => {
         try {
@@ -720,8 +740,6 @@ export default function LearningPlayerScreen() {
         }
     };
 
-    const contentScrollViewRef = useRef<ScrollView>(null);
-
     const renderLessons = (lessons: Lesson[], sectionIndex: number, level = 0) => {
         return lessons.map((lesson, lessonIndex) => {
             const currentPath = { s: sectionIndex, l: lessonIndex };
@@ -764,16 +782,18 @@ export default function LearningPlayerScreen() {
         });
     };
 
-    if (isQueryLoading && !fullCourseData) {
+    // Loading State for Initial Metadata
+    if (isMetaLoading && !courseMetadata) {
         return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color="#8A2BE2" /></View>;
     }
 
-    if (!fullCourseData && !isQueryLoading) {
+    // Error State for Initial Metadata
+    if (!courseMetadata && !isMetaLoading) {
         return (
             <View style={[styles.container, styles.center]}>
                 <Ionicons name="alert-circle-outline" size={48} color="red" />
-                <Text style={styles.errorText}>Course content could not be loaded.</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+                <Text style={styles.errorText}>Course could not be loaded.</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={() => refetchMeta()}>
                     <Text style={styles.retryButtonText}>Retry</Text>
                 </TouchableOpacity>
             </View>
@@ -789,6 +809,7 @@ export default function LearningPlayerScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}><Ionicons name="arrow-back" size={28} color="#fff" /></TouchableOpacity>
             </View>
 
+            {/* Sidebar Overlay */}
             {sidebarVisible && (
                 <View style={StyleSheet.absoluteFill}>
                     <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => toggleSidebar(false)} />
@@ -797,38 +818,54 @@ export default function LearningPlayerScreen() {
                             <Text style={styles.sidebarTitle}>Course Content</Text>
                             <TouchableOpacity onPress={() => toggleSidebar(false)}><Ionicons name="close" size={24} color="#666" /></TouchableOpacity>
                         </View>
-                        <ScrollView>
-                            {sections.length > 0 ? sections.map((section, sIndex) => {
-                                const progress = sectionProgressData[sIndex] || { completed: 0, total: 0, percent: 0 };
 
-                                return (
-                                    <View key={sIndex} style={styles.sectionContainer}>
-                                        <TouchableOpacity
-                                            style={styles.sectionHeader}
-                                            onPress={() => toggleSection(sIndex)}
-                                        >
-                                            <View style={styles.sectionHeaderMain}>
-                                                <Text style={styles.sectionTitle}>{section.title}</Text>
-                                                <Text style={styles.sectionProgressText}>{progress.completed}/{progress.total}</Text>
-                                                <Ionicons
-                                                    name={section.isExpanded ? 'chevron-up' : 'chevron-down'}
-                                                    size={18}
-                                                    color="#666"
-                                                />
-                                            </View>
-                                            <View style={styles.progressBarContainer}>
-                                                <View style={[styles.progressBar, { width: `${progress.percent}%` }]} />
-                                            </View>
-                                        </TouchableOpacity>
-                                        {section.isExpanded && <View>{renderLessons(section.data, sIndex)}</View>}
-                                    </View>
-                                );
-                            }) : <Text style={styles.emptyStateText}>No content available.</Text>}
-                        </ScrollView>
+                        {/* Sidebar Content Loading State */}
+                        {isContentLoading ? (
+                            <View style={{ padding: 20, alignItems: 'center' }}>
+                                <ActivityIndicator color="#8A2BE2" />
+                                <Text style={{ color: '#666', marginTop: 10, fontSize: 12 }}>Loading lessons...</Text>
+                            </View>
+                        ) : contentError ? (
+                            <View style={{ padding: 20, alignItems: 'center' }}>
+                                <Text style={{ color: 'red', textAlign: 'center', marginBottom: 10 }}>Failed to load content</Text>
+                                <TouchableOpacity onPress={() => refetchContent()} style={{ padding: 8, backgroundColor: '#f0f0f0', borderRadius: 8 }}>
+                                    <Text style={{ fontSize: 12 }}>Try Again</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <ScrollView>
+                                {sections.length > 0 ? sections.map((section, sIndex) => {
+                                    const progress = sectionProgressData[sIndex] || { completed: 0, total: 0, percent: 0 };
+                                    return (
+                                        <View key={sIndex} style={styles.sectionContainer}>
+                                            <TouchableOpacity
+                                                style={styles.sectionHeader}
+                                                onPress={() => toggleSection(sIndex)}
+                                            >
+                                                <View style={styles.sectionHeaderMain}>
+                                                    <Text style={styles.sectionTitle}>{section.title}</Text>
+                                                    <Text style={styles.sectionProgressText}>{progress.completed}/{progress.total}</Text>
+                                                    <Ionicons
+                                                        name={section.isExpanded ? 'chevron-up' : 'chevron-down'}
+                                                        size={18}
+                                                        color="#666"
+                                                    />
+                                                </View>
+                                                <View style={styles.progressBarContainer}>
+                                                    <View style={[styles.progressBar, { width: `${progress.percent}%` }]} />
+                                                </View>
+                                            </TouchableOpacity>
+                                            {section.isExpanded && <View style={styles.sectionBody}>{renderLessons(section.data, sIndex)}</View>}
+                                        </View>
+                                    );
+                                }) : <Text style={styles.emptyStateText}>No content available.</Text>}
+                            </ScrollView>
+                        )}
                     </Animated.View>
                 </View>
             )}
 
+            {/* MAIN CONTENT AREA */}
             <ScrollView ref={contentScrollViewRef} style={styles.scrollBody} contentContainerStyle={{ paddingBottom: 100 }}>
                 <View style={styles.lessonHeader}>
                     <Text style={styles.lessonTitle}>{currentLesson?.title || 'Select a Lesson'}</Text>
@@ -858,6 +895,7 @@ export default function LearningPlayerScreen() {
                 )}
             </ScrollView>
 
+            {/* Success Toast */}
             {showSuccessToast && (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="checkmark-circle" size={20} color="#fff" />
@@ -887,7 +925,9 @@ const styles = StyleSheet.create({
     sectionHeader: { padding: 20, backgroundColor: '#fff' },
     sectionHeaderMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     sectionTitle: { fontSize: 15, fontWeight: 'bold', color: '#333', flex: 1, marginRight: 10 },
+    sectionProgress: { fontSize: 12, color: '#666', marginRight: 10 },
     sectionProgressText: { fontSize: 12, color: '#666', marginRight: 10 },
+    sectionBody: { backgroundColor: '#fafafa' },
     progressBarContainer: { height: 4, backgroundColor: '#eee', borderRadius: 2, overflow: 'hidden' },
     progressBar: { height: '100%', backgroundColor: '#22C55E' },
     lessonItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: '#f9f9f9' },

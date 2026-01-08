@@ -226,5 +226,70 @@ export const chatService = {
             console.error('Error in fetchChatPartner:', error.message);
             return null;
         }
+    },
+
+    // Upload attachment (image/video) to chat-attachments bucket
+    async uploadAttachment(uri) {
+        try {
+            if (!uri) return null;
+
+            // 1. Normalize URI (Ensure file:// prefix for Android)
+            const normalizedUri = uri.startsWith('file://') ? uri : `file://${uri}`;
+            console.log('Final URI:', normalizedUri);
+            console.log('Sending to Bucket: chat-attachments');
+
+            // 2. Get filename and extension
+            const fileExt = normalizedUri.split('.').pop()?.toLowerCase() || 'jpg';
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const filePath = `uploads/${fileName}`;
+
+            // 3. Convert URI to ArrayBuffer (More stable than Blob for Supabase on Android)
+            const arrayBuffer = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.onload = function () {
+                    if (xhr.status === 200 || xhr.status === 0) { // 0 for local files
+                        resolve(xhr.response);
+                    } else {
+                        reject(new Error(`XHR failed with status ${xhr.status}`));
+                    }
+                };
+                xhr.onerror = function (e) {
+                    console.error('XMLHttpRequest error:', e);
+                    reject(new TypeError("Network request failed during XHR"));
+                };
+                xhr.responseType = "arraybuffer";
+                xhr.open("GET", normalizedUri, true);
+                xhr.send(null);
+            });
+
+            // 4. Determine Content Type
+            const isVideo = normalizedUri.toLowerCase().match(/\.(mp4|mov|m4v)$/i);
+            const contentType = isVideo ? `video/${fileExt}` : `image/${fileExt}`;
+            console.log('Detected Content-Type:', contentType);
+
+            // 5. Upload to 'chat-attachments' bucket
+            const { data, error } = await supabase.storage
+                .from('chat-attachments')
+                .upload(filePath, arrayBuffer, {
+                    contentType: contentType,
+                    upsert: true
+                });
+
+            if (error) {
+                console.error('Supabase Storage Error:', error);
+                throw error;
+            }
+
+            // 6. Get Public URL
+            const { data: { publicUrl } } = supabase.storage
+                .from('chat-attachments')
+                .getPublicUrl(filePath);
+
+            console.log('Upload successful. Public URL:', publicUrl);
+            return publicUrl;
+        } catch (error) {
+            console.error('Error in uploadAttachment:', error.message);
+            throw error;
+        }
     }
 };
