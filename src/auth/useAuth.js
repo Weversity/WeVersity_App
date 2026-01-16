@@ -43,21 +43,34 @@ export const useAuth = () => {
         const initAuth = async () => {
             try {
                 // Check active session on mount
-                const result = await supabase.auth.getSession();
-                const session = result?.data?.session;
+                const { data, error } = await supabase.auth.getSession();
+
+                if (error) {
+                    console.warn('[useAuth] Session init error:', error.message);
+                    throw error;
+                }
+
+                const session = data?.session;
 
                 if (mounted) {
-                    setUser(session?.user ?? null);
                     if (session) {
+                        setUser(session.user);
                         await fetchProfile(session);
+                    } else {
+                        // No session, ensure we are clean
+                        setUser(null);
+                        setProfile(null);
                     }
                 }
             } catch (err) {
-                // Specifically ignore common session refresh errors during init
-                if (err.message?.includes('Refresh Token') || err.message?.includes('session')) {
-                    console.warn('[useAuth] Session init failed (invalid token), starting clean.');
-                } else {
-                    console.error("Auth init error:", err);
+                console.warn('[useAuth] Session check failed. Clearing stale data to fix PGRST301/Loops.', err);
+
+                // CRITICAL FIX: Force sign out to clear Async Storage and reset 'supabase-js' state
+                await supabase.auth.signOut().catch(() => { });
+
+                if (mounted) {
+                    setUser(null);
+                    setProfile(null);
                 }
             } finally {
                 if (mounted) setLoading(false);

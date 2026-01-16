@@ -28,6 +28,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         persistSession: true,
         detectSessionInUrl: false,
     },
+    global: {
+        headers: {
+            // "apikey" header is critical for proper Kong/Gateway routing in self-hosted setups
+            'apikey': supabaseAnonKey,
+        },
+    },
     // Explicitly specifying the schema is a robust way to avoid schema cache errors (PGRST002)
     db: {
         schema: 'public',
