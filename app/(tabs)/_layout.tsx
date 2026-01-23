@@ -40,6 +40,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
+          title: 'Shorts',
+          tabBarIcon: ({ color, size }) => <Ionicons name="film-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="live"
+        options={{
           title: 'Live',
           tabBarIcon: ({ color, size }) => <Ionicons name="videocam-outline" color={color} size={size} />,
         }}

@@ -92,19 +92,6 @@ const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: {
   />
 ));
 
-const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
-  <FlatList
-    data={conversations.filter((c) => c.unread > 0)}
-    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
-    keyExtractor={(item) => item.id}
-    contentContainerStyle={styles.listContent}
-    showsVerticalScrollIndicator={false}
-    refreshControl={
-      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
-    }
-    ListEmptyComponent={() => renderEmptyMessages('No unread messages.')}
-  />
-));
 
 const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
@@ -128,7 +115,6 @@ export default function InboxScreen() {
   const [index, setIndex] = useState(0);
   const [routes] = useState([
     { key: 'all', title: 'Chats' }, // Renamed from All to Chats to imply DMs, but let's see logic
-    { key: 'unread', title: 'Unread' },
     { key: 'communities', title: 'Communities' },
   ]);
 
@@ -251,8 +237,6 @@ export default function InboxScreen() {
     switch (route.key) {
       case 'all':
         return <AllChatsRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
-      case 'unread':
-        return <UnreadRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       case 'communities':
         return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       default:

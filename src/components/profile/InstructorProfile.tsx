@@ -1,7 +1,7 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { courseService } from '@/src/services/courseService';
+import { videoService } from '@/src/services/videoService';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -42,13 +42,24 @@ const getTimeAgo = (dateString: string) => {
   return `${diffInDays} days ago`;
 };
 
-const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort }: { visible: boolean; onClose: () => void; logout: () => void; onGoLive: () => void; onUploadShort: () => void }) => {
+const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onViewPublicProfile, router }: {
+  visible: boolean;
+  onClose: () => void;
+  logout: () => void;
+  onGoLive: () => void;
+  onUploadShort: () => void;
+  onViewPublicProfile: () => void;
+  router: any;
+}) => {
   if (!visible) return null;
 
   const menuItems = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
+    { id: '3', title: 'Public Profile', icon: 'person-circle-outline', onPress: () => { onClose(); onViewPublicProfile(); } },
     { id: '2', title: 'Go Live', icon: 'radio-outline', onPress: () => { onClose(); onGoLive(); } },
-    { id: '4', title: 'Upload Shorts', icon: 'phone-portrait-outline', onPress: () => { onClose(); onUploadShort(); } },
+    { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
+    { id: '7', title: 'Support', icon: 'help-circle-outline', onPress: () => { onClose(); router.push('/support'); } },
+    { id: '6', title: 'Following', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
     { id: '5', title: 'Logout', icon: 'log-out-outline', onPress: logout },
   ];
 
@@ -212,11 +223,26 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     setRefreshing(false);
   };
 
+  // ... imports
+
   const loadShorts = async () => {
     try {
-      const storedShorts = await AsyncStorage.getItem('recent_shorts');
-      if (storedShorts) {
-        setShorts(JSON.parse(storedShorts));
+      if (!user?.id) return;
+      // Fetch real data from Supabase
+      const data = await videoService.fetchInstructorShorts(user.id);
+      if (data) {
+        // Map Supabase data to local Short interface if needed, 
+        // but Short interface matches reasonably well (id, video_url -> uri).
+        // We'll normalize it:
+        const mapped = data.map(s => ({
+          id: s.id,
+          thumbnail: s.video_url, // For now using video URL as thumb, potentially use a thumb generator later
+          type: 'video' as 'video',
+          uri: s.video_url,
+          createdAt: s.created_at,
+          title: s.description || 'Untitled Short'
+        }));
+        setShorts(mapped);
       }
     } catch (error) {
       console.error('Failed to load shorts', error);
@@ -239,9 +265,14 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   };
 
   const deleteShort = async (id: string) => {
-    const updatedShorts = shorts.filter(s => s.id !== id);
-    setShorts(updatedShorts);
-    await AsyncStorage.setItem('recent_shorts', JSON.stringify(updatedShorts));
+    try {
+      await videoService.deleteShort(id);
+      const updatedShorts = shorts.filter(s => s.id !== id);
+      setShorts(updatedShorts);
+    } catch (error) {
+      Alert.alert("Error", "Failed to delete short");
+      console.error(error);
+    }
   };
 
   const uploadShort = async () => {
@@ -254,24 +285,39 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
     // Pick media
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsMultipleSelection: true,
-      quality: 1,
+      mediaTypes: ['videos'], // Enforce videos for Shorts
+      allowsMultipleSelection: false, // Upload one at a time for simplicity
+      quality: 0.7,
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_640x480, // Compress for S3 limits
+      allowsEditing: true,
     });
 
-    if (!result.canceled) {
-      const newShorts: Short[] = result.assets.map(asset => ({
-        id: Date.now().toString() + Math.random().toString(),
-        thumbnail: asset.uri, // Use URI as thumb for now
-        type: asset.type === 'video' ? 'video' : 'image',
-        uri: asset.uri,
-        createdAt: new Date().toISOString(),
-        title: asset.fileName || (asset.type === 'video' ? 'New Video Short' : 'New Image Short'),
-      }));
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0];
 
-      const updatedShorts = [...newShorts, ...shorts];
-      setShorts(updatedShorts);
-      await AsyncStorage.setItem('recent_shorts', JSON.stringify(updatedShorts));
+      try {
+        Alert.alert("Uploading", "Your short is being uploaded...");
+
+        // 1. Upload to Cloudinary
+        if (!user?.id) throw new Error("User not found");
+        const publicUrl = await videoService.uploadVideoToCloudinary(asset.uri);
+
+        // 2. Insert into Supabase
+        await videoService.createShort({
+          video_url: publicUrl,
+          description: asset.fileName || "New Short",
+          instructor_id: user.id
+        });
+
+        // 3. Refresh List
+        Alert.alert("Success", "Short uploaded successfully!");
+        loadShorts();
+
+      } catch (error: any) {
+        console.error("Upload failed", error);
+        // Show specific error from service if it exists
+        Alert.alert("Upload Failed", error.message || "Failed to upload short. Check your internet or Cloudinary config.");
+      }
     }
   };
 
@@ -498,6 +544,12 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         logout={logout}
         onGoLive={handleGoLive}
         onUploadShort={uploadShort}
+        onViewPublicProfile={() => {
+          if (user?.id) {
+            router.push({ pathname: '/viewProfile/[id]', params: { id: user.id, mode: 'edit' } });
+          }
+        }}
+        router={router}
       />
 
       {/* Camera Modal */}

@@ -1,29 +1,146 @@
-import { getFollowedMentors, Mentor, toggleFollow } from '@/src/data/mentorsStore';
+import { useAuth } from '@/src/context/AuthContext';
+import { supabase } from '@/src/lib/supabase';
+import { videoService } from '@/src/services/videoService';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { FlatList, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
+interface FollowedInstructor {
+  id: string;
+  following_id: string;
+  instructor: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    avatar_url: string;
+  };
+}
 
 export default function FollowersScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
-  const [followedMentors, setFollowedMentors] = useState<Mentor[]>(getFollowedMentors());
+  const [followedMentors, setFollowedMentors] = useState<FollowedInstructor[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchFollowedMentors = async () => {
+    if (!user?.id) return;
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('follows')
+        .select(`
+          id,
+          following_id,
+          instructor:profiles!following_id (
+            id,
+            first_name,
+            last_name,
+            avatar_url
+          )
+        `)
+        .eq('follower_id', user.id);
+
+      if (error) throw error;
+      setFollowedMentors(data as any || []);
+    } catch (error: any) {
+      console.error('Error fetching followed mentors:', error.message);
+      Alert.alert('Error', 'Failed to load followed instructors');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
-      setFollowedMentors(getFollowedMentors());
-    }, [])
+      fetchFollowedMentors();
+    }, [user?.id])
   );
 
-  const handleUnfollow = (id: string) => {
-    toggleFollow(id);
-    setFollowedMentors(getFollowedMentors());
+  const handleUnfollow = async (followingId: string) => {
+    if (!user?.id) return;
+
+    try {
+      await videoService.toggleFollow(user.id, followingId);
+      // Refresh list
+      fetchFollowedMentors();
+    } catch (error: any) {
+      console.error('Error toggling follow:', error.message);
+      Alert.alert('Error', 'Failed to unfollow instructor');
+    }
   };
 
-  const filteredMentors = followedMentors.filter(mentor =>
-    mentor.name.toLowerCase().includes(search.toLowerCase()) ||
-    mentor.specialty.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredMentors = followedMentors.filter(item => {
+    const name = `${item.instructor?.first_name || ''} ${item.instructor?.last_name || ''}`.toLowerCase();
+    const searchLower = search.toLowerCase();
+    return name.includes(searchLower);
+  });
+
+  const renderContent = () => {
+    if (loading && followedMentors.length === 0) {
+      return (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#8A2BE2" />
+          <Text style={styles.loadingText}>Loading followed instructors...</Text>
+        </View>
+      );
+    }
+
+    if (filteredMentors.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="people-outline" size={64} color="#ccc" />
+          <Text style={styles.emptyText}>{search ? 'No matches found' : 'No followed mentors yet'}</Text>
+          <Text style={styles.emptySubtext}>
+            {search ? 'Try adjusting your search' : 'Start following mentors to see them here'}
+          </Text>
+          {!search && (
+            <TouchableOpacity
+              style={styles.exploreButton}
+              onPress={() => router.push('/allMentors')}
+            >
+              <Text style={styles.exploreButtonText}>Explore Mentors</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={filteredMentors}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={styles.instructorItem}
+            onPress={() => router.push({ pathname: '/viewProfile/[id]', params: { id: item.following_id } })}
+          >
+            <Image
+              source={{ uri: item.instructor?.avatar_url || 'https://via.placeholder.com/150' }}
+              style={styles.avatar}
+            />
+            <View style={styles.instructorInfo}>
+              <Text style={styles.instructorName}>
+                {item.instructor?.first_name} {item.instructor?.last_name}
+              </Text>
+              <Text style={styles.instructorSpecialty}>Instructor</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.unfollowButton}
+              onPress={() => handleUnfollow(item.following_id)}
+            >
+              <Text style={styles.unfollowButtonText}>Unfollow</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+        contentContainerStyle={styles.listContainer}
+        refreshing={loading}
+        onRefresh={fetchFollowedMentors}
+      />
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -45,37 +162,7 @@ export default function FollowersScreen() {
           onChangeText={setSearch}
         />
       </View>
-      {filteredMentors.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="people-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyText}>No followed mentors yet</Text>
-          <Text style={styles.emptySubtext}>Start following mentors to see them here</Text>
-          <TouchableOpacity
-            style={styles.exploreButton}
-            onPress={() => router.push('/allMentors')}
-          >
-            <Text style={styles.exploreButtonText}>Explore Mentors</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredMentors}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.instructorItem}>
-              <Image source={{ uri: item.avatar }} style={styles.avatar} />
-              <View style={styles.instructorInfo}>
-                <Text style={styles.instructorName}>{item.name}</Text>
-                <Text style={styles.instructorSpecialty}>{item.specialty}</Text>
-              </View>
-              <TouchableOpacity style={styles.unfollowButton} onPress={() => handleUnfollow(item.id)}>
-                <Text style={styles.unfollowButtonText}>Unfollow</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          contentContainerStyle={styles.listContainer}
-        />
-      )}
+      {renderContent()}
     </View>
   );
 }
@@ -130,6 +217,16 @@ const styles = StyleSheet.create({
   listContainer: {
     paddingHorizontal: 20,
     paddingBottom: 20,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#8A2BE2',
+    fontSize: 16,
   },
   instructorItem: {
     flexDirection: 'row',

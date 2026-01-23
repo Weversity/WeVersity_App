@@ -112,6 +112,60 @@ const processCourseContent = (content: any): Section[] => {
 
 // --- UI Components ---
 
+const tagsStyles = {
+    h1: {
+        fontSize: 24,
+        fontWeight: 'bold' as const,
+        color: '#1a1a1a',
+        marginBottom: 12,
+        marginTop: 16,
+    },
+    h2: {
+        fontSize: 22,
+        fontWeight: 'bold' as const,
+        color: '#1a1a1a',
+        marginBottom: 12,
+        marginTop: 16,
+    },
+    h3: {
+        fontSize: 20,
+        fontWeight: 'bold' as const,
+        color: '#1a1a1a',
+        marginBottom: 8,
+    },
+    h4: {
+        fontSize: 18,
+        fontWeight: 'bold' as const,
+        color: '#1a1a1a',
+        marginBottom: 8,
+    },
+    p: {
+        fontSize: 16,
+        color: '#333333',
+        lineHeight: 24,
+        marginBottom: 10,
+    },
+    li: {
+        fontSize: 16,
+        color: '#333333',
+        lineHeight: 24,
+    },
+    ul: {
+        marginBottom: 10,
+    },
+    ol: {
+        marginBottom: 10,
+    },
+    strong: {
+        fontWeight: 'bold' as const,
+        color: '#000000',
+    },
+    b: {
+        fontWeight: 'bold' as const,
+        color: '#000000',
+    },
+};
+
 const ContentRenderer = ({
     lesson,
     onStartQuiz,
@@ -171,7 +225,6 @@ const ContentRenderer = ({
                         player={player}
                         contentFit="contain"
                     />
-                    <Text style={styles.heading}>{lesson.title}</Text>
                     {lesson.content && !lesson.video_url && !lesson.video_link && !lesson.content.startsWith('http') && (
                         <Text style={styles.paragraph}>{lesson.content}</Text>
                     )}
@@ -346,10 +399,14 @@ const ContentRenderer = ({
         default:
             return (
                 <View style={styles.contentContainer}>
-                    <Text style={styles.heading}>{lesson.title}</Text>
                     {lesson.image && <Image source={{ uri: lesson.image }} style={styles.contentImage} />}
                     {lesson.content ? (
-                        <RenderHTML contentWidth={width - 40} source={{ html: lesson.content }} />
+                        <RenderHTML
+                            contentWidth={width - 40}
+                            source={{ html: lesson.content }}
+                            tagsStyles={tagsStyles}
+                            baseStyle={{ lineHeight: 24 }}
+                        />
                     ) : (
                         <Text style={styles.paragraph}>This lesson may contain sub-topics. Please check the sidebar.</Text>
                     )}

@@ -1,12 +1,11 @@
 import { CourseCardSkeleton } from '@/src/components/CourseCardSkeleton';
 import SearchEmptyState from '@/src/components/SearchEmptyState';
-import { bookmarksStore } from '@/src/data/courses';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { useNavigation, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -27,7 +26,7 @@ import {
 const { width } = Dimensions.get('window');
 
 // Step 2: Key Name Matching Check
-const CourseCard = ({ course, onBookmarkToggle, isBookmarked, onPress }: { course: any; onBookmarkToggle: (id: string) => void; isBookmarked: boolean; onPress: () => void }) => {
+const CourseCard = ({ course, onPress }: { course: any; onPress: () => void }) => {
   return (
     <TouchableOpacity
       style={styles.card}
@@ -58,20 +57,12 @@ const CourseCard = ({ course, onBookmarkToggle, isBookmarked, onPress }: { cours
           </View>
         </View>
       </View>
-      <TouchableOpacity style={styles.bookmarkBtn} onPress={() => onBookmarkToggle(course.id)}>
-        <Ionicons
-          name={isBookmarked ? "bookmark" : "bookmark-outline"}
-          size={24}
-          color="#8A2BE2"
-        />
-      </TouchableOpacity>
     </TouchableOpacity>
   );
 };
 
 export default function MyCoursesScreen() {
   const router = useRouter();
-  const navigation = useNavigation();
 
   // State
   const queryClient = useQueryClient();
@@ -169,20 +160,6 @@ export default function MyCoursesScreen() {
         reviewCount: course.reviewCount
       }
     } as any);
-  };
-
-  // Force update for Bookmark Store sync
-  const [, setTick] = useState(0);
-  const forceUpdate = () => setTick(t => t + 1);
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', forceUpdate);
-    return unsubscribe;
-  }, [navigation]);
-
-  const toggleBookmark = (id: string) => {
-    bookmarksStore.has(id) ? bookmarksStore.delete(id) : bookmarksStore.add(id);
-    forceUpdate();
   };
 
   // Memoized filtering logic
@@ -290,8 +267,6 @@ export default function MyCoursesScreen() {
           renderItem={({ item }: { item: any }) => (
             <CourseCard
               course={item}
-              onBookmarkToggle={toggleBookmark}
-              isBookmarked={bookmarksStore.has(item.id)}
               onPress={() => handleCoursePress(item)}
             />
           )}
@@ -334,9 +309,6 @@ export default function MyCoursesScreen() {
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={showFilter} style={styles.headerIcon}>
             <Ionicons name="filter-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/bookmarkedCourses')} style={styles.headerIcon}>
-            <Ionicons name="bookmark-outline" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -585,9 +557,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     fontWeight: 'bold',
-  },
-  bookmarkBtn: {
-    padding: 5,
   },
   modalOverlay: {
     flex: 1,

@@ -71,7 +71,7 @@ interface MappedCourse {
     duration: string;
     tools?: any[];
     course_content?: any;
-    what_will_i_learn?: string[] | string | null;
+    what_you_will_learn?: string[] | null;
 }
 
 const getLessonType = (lesson: any): LessonType => {
@@ -179,6 +179,7 @@ export default function CourseDetailsScreen() {
             lessonCount: 0,
             duration: '...',
             course_content: null,
+            what_you_will_learn: null,
         };
     });
 
@@ -277,7 +278,7 @@ export default function CourseDetailsScreen() {
                 let priceDisplay = course?.price || 'Free';
                 let tools = course?.tools || [];
                 let categoryDisplay = course?.categories || 'General';
-                let whatWillILearn: string[] | string | null = null;
+                let whatWillILearn: string[] | null = null;
 
                 if (fullCourseData) {
                     const data = fullCourseData;
@@ -285,7 +286,17 @@ export default function CourseDetailsScreen() {
                     priceDisplay = (data as any).price || 'Free';
                     tools = (data as any).tools || [];
                     categoryDisplay = (data as any).categories || 'General';
-                    whatWillILearn = (data as any).what_will_i_learn || null;
+                    const rawPoints = (data as any).what_you_will_learn;
+                    if (Array.isArray(rawPoints)) {
+                        whatWillILearn = rawPoints;
+                    } else if (typeof rawPoints === 'string') {
+                        try {
+                            const parsed = JSON.parse(rawPoints);
+                            whatWillILearn = Array.isArray(parsed) ? parsed : [rawPoints];
+                        } catch {
+                            whatWillILearn = [rawPoints];
+                        }
+                    }
 
                     if (data.instructor) {
                         const inst = Array.isArray(data.instructor) ? data.instructor[0] : data.instructor;
@@ -374,6 +385,7 @@ export default function CourseDetailsScreen() {
                         lessonCount: 0,
                         duration: '...',
                         course_content: null,
+                        what_you_will_learn: null,
                     };
 
                     return {
@@ -393,7 +405,7 @@ export default function CourseDetailsScreen() {
                         categories: categoryDisplay,
                         price: priceDisplay,
                         course_content: contentToProcess,
-                        what_will_i_learn: whatWillILearn
+                        what_you_will_learn: whatWillILearn
                     };
                 });
             } catch (err: any) {
@@ -521,9 +533,9 @@ export default function CourseDetailsScreen() {
                     </View>
 
                     <View style={styles.tabContent}>
-                        {activeTab === 'About' && <AboutTab course={course} />}
-                        {activeTab === 'Lessons' && <LessonsTab sections={course.sections} isEnrolled={isEnrolled} completedIds={completedLessonIds} onLessonPress={handleEnroll} />}
-                        {activeTab === 'Reviews' && <ReviewsTab course={course} />}
+                        {activeTab === 'About' && <AboutTab course={course} isLoading={isQueryLoading} />}
+                        {activeTab === 'Lessons' && <LessonsTab sections={course.sections} isEnrolled={isEnrolled} completedIds={completedLessonIds} onLessonPress={handleEnroll} isLoading={isContentLoading} />}
+                        {activeTab === 'Reviews' && <ReviewsTab course={course} isLoading={isQueryLoading} />}
                     </View>
                 </View>
             </ScrollView>
@@ -559,41 +571,69 @@ const StatItem = ({ icon, label }: { icon: any, label: string }) => (
     </View>
 );
 
-const AboutTab = ({ course }: { course: MappedCourse }) => {
-    let rawPoints = Array.isArray(course.what_will_i_learn)
-        ? course.what_will_i_learn
-        : typeof course.what_will_i_learn === 'string'
-            ? (() => {
-                try {
-                    const parsed = JSON.parse(course.what_will_i_learn);
-                    return Array.isArray(parsed) ? parsed : [];
-                } catch (e) {
-                    return course.what_will_i_learn.split('\n').filter(p => p.trim());
-                }
-            })()
-            : [];
+const AboutTab = ({ course, isLoading }: { course: MappedCourse; isLoading: boolean }) => {
+    const [extractedPoints, setExtractedPoints] = useState<string[]>([]);
 
-    // Fallback Extraction Logic
-    const points = rawPoints.length > 0 ? rawPoints : (() => {
-        if (!course.description) return [];
-        const cleanDesc = stripHtmlTags(course.description);
-        const lines = cleanDesc.split('\n');
-        return lines
-            .map(line => line.trim())
-            .filter(line => line.startsWith('•') || line.startsWith('-') || line.startsWith('*') || /^\d+[\.\)]/.test(line))
-            .map(line => line.replace(/^[•\-\*\s\d\.\)]+/, '').trim())
-            .filter(p => p.length > 3);
-    })();
+    useEffect(() => {
+        if (!course || !course.description) {
+            setExtractedPoints([]);
+            return;
+        }
+
+        console.log('DEBUG: Processing learning points...');
+
+        // 1. Priority: Use database column if it exists and has data
+        if (course.what_you_will_learn && Array.isArray(course.what_you_will_learn) && course.what_you_will_learn.length > 0) {
+            console.log('DEBUG: Using database what_you_will_learn column');
+            setExtractedPoints(course.what_you_will_learn);
+            return;
+        }
+
+        // 2. Fallback: Extraction from description
+        console.log('DEBUG: Column empty, falling back to extraction from description');
+        let pointsArray: string[] = [];
+
+        // Step A: HTML <li> tags check
+        const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+        let match;
+        while ((match = liRegex.exec(course.description)) !== null) {
+            const clean = stripHtmlTags(match[1]).trim();
+            if (clean && clean.length > 2) pointsArray.push(clean);
+        }
+
+        // Step B: Bullet symbols fallback
+        if (pointsArray.length === 0) {
+            const lines = course.description.split(/[\n\r<br>]+/);
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
+                    const cleanLine = stripHtmlTags(trimmedLine.replace(/^[•\-\*]\s*/, '')).trim();
+                    if (cleanLine.length > 3) pointsArray.push(cleanLine);
+                }
+            });
+        }
+
+        setExtractedPoints(Array.from(new Set(pointsArray)));
+    }, [course?.id, course?.description, course?.what_you_will_learn]);
+
+    if (isLoading && !course?.description) {
+        return (
+            <View style={styles.tabCenter}>
+                <ActivityIndicator size="small" color="#8A2BE2" />
+            </View>
+        );
+    }
 
     return (
-        <View>
+        <View style={{ paddingBottom: 20 }}>
+            {/* 1. Mentor Section - TOP PRIORITY */}
             <Text style={styles.sectionTitle}>Mentor</Text>
             <View style={styles.mentorCard}>
                 {course.instructorAvatar ? (
                     <Image source={{ uri: course.instructorAvatar }} style={styles.mentorImg} />
                 ) : (
-                    <View style={[styles.mentorImg, styles.initialsContainerSmall]}>
-                        <Text style={styles.initialsTextSmall}>{course.instructorInitials}</Text>
+                    <View style={[styles.mentorImg, { backgroundColor: '#F3E5F5', justifyContent: 'center', alignItems: 'center' }]}>
+                        <Text style={[styles.initialsTextSmall, { color: '#8A2BE2' }]}>{course.instructorInitials}</Text>
                     </View>
                 )}
                 <View>
@@ -602,19 +642,21 @@ const AboutTab = ({ course }: { course: MappedCourse }) => {
                 </View>
             </View>
 
+            {/* 2. About Course Description */}
             <Text style={styles.sectionTitle}>About Course</Text>
-            <Text style={styles.desc}>{stripHtmlTags(course.description)}</Text>
+            <Text style={styles.desc}>
+                {course.description ? stripHtmlTags(course.description) : "No description available."}
+            </Text>
 
-            {points.length > 0 && (
-                <View style={styles.learningSection}>
+            {/* 3. What you'll learn Section */}
+            {extractedPoints.length > 0 && (
+                <View style={[styles.learningSection, { marginTop: 20 }]}>
                     <Text style={styles.learningSectionTitle}>What you’ll learn</Text>
                     <View style={styles.learningGrid}>
-                        {points.map((point, index) => (
+                        {extractedPoints.map((point, index) => (
                             <View key={index} style={styles.learningPointItem}>
-                                <Ionicons name="checkmark-circle-outline" size={18} color="#4CAF50" />
-                                <Text style={styles.learningPointText}>
-                                    {point}
-                                </Text>
+                                <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                                <Text style={styles.learningPointText}>{point}</Text>
                             </View>
                         ))}
                     </View>
@@ -628,12 +670,21 @@ const getPathKey = (s: number, l: number, sl?: number) => {
     return sl !== undefined ? `s-${s}-l-${l}-sl-${sl}` : `s-${s}-l-${l}`;
 };
 
-const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress }: { sections: Section[], isEnrolled: boolean, completedIds: string[], onLessonPress: () => void }) => {
+const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress, isLoading }: { sections: Section[], isEnrolled: boolean, completedIds: string[], onLessonPress: () => void, isLoading: boolean }) => {
     const [localSections, setLocalSections] = useState(sections);
 
     useEffect(() => {
         setLocalSections(sections);
     }, [sections]);
+
+    if (isLoading) {
+        return (
+            <View style={styles.tabCenter}>
+                <ActivityIndicator size="small" color="#8A2BE2" />
+                <Text style={styles.loadingText}>Loading course lessons...</Text>
+            </View>
+        );
+    }
 
     if (!localSections || localSections.length === 0) {
         return (
@@ -725,7 +776,7 @@ const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress }: { sec
     );
 };
 
-const ReviewsTab = ({ course }: { course: MappedCourse }) => {
+const ReviewsTab = ({ course, isLoading }: { course: MappedCourse; isLoading: boolean }) => {
     const renderStars = (rating: number) => {
         return (
             <View style={styles.starsRow}>
@@ -754,7 +805,12 @@ const ReviewsTab = ({ course }: { course: MappedCourse }) => {
     return (
         <View>
             <Text style={styles.tabSectionTitle}>Student Reviews</Text>
-            {course.reviews.length > 0 ? course.reviews.map((r, i) => (
+            {isLoading ? (
+                <View style={styles.tabCenter}>
+                    <ActivityIndicator size="small" color="#8A2BE2" />
+                    <Text style={styles.loadingText}>Loading reviews...</Text>
+                </View>
+            ) : course.reviews.length > 0 ? course.reviews.map((r, i) => (
                 <View key={i} style={styles.reviewCard}>
                     {r.user.avatar ? (
                         <Image
@@ -798,6 +854,8 @@ const styles = StyleSheet.create({
     ratingText: { fontSize: 12, color: '#666' },
     price: { fontSize: 20, fontWeight: 'bold', color: '#8A2BE2', marginBottom: 20 },
     statsPanel: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+    tabCenter: { padding: 40, alignItems: 'center', justifyContent: 'center' },
+    loadingText: { marginTop: 10, color: '#666', fontSize: 14 },
     statItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     statLabel: { fontSize: 12, color: '#666' },
     tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#eee', marginBottom: 20 },
@@ -865,7 +923,18 @@ const styles = StyleSheet.create({
         elevation: 2
     },
     learningSectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a1a', marginBottom: 15 },
-    learningGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-    learningPointItem: { flexDirection: 'row', width: '50%', marginBottom: 15, paddingRight: 10, alignItems: 'flex-start' },
-    learningPointText: { fontSize: 13, color: '#555', marginLeft: 8, flex: 1, lineHeight: 18 },
+    learningGrid: { flexDirection: 'column' },
+    learningPointItem: {
+        flexDirection: 'row',
+        width: '100%',
+        marginBottom: 12,
+        alignItems: 'flex-start'
+    },
+    learningPointText: {
+        fontSize: 14,
+        color: '#444',
+        marginLeft: 10,
+        flex: 1,
+        lineHeight: 20
+    },
 });

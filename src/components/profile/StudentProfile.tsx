@@ -21,10 +21,11 @@ const SideMenu = ({ visible, onClose, router }: { visible: boolean; onClose: () 
   if (!visible) return null;
 
   const menuItemsStudent = [
-    { id: '1', title: 'My Courses', icon: 'book-outline', onPress: () => { onClose(); router.push('/myCourses'); } },
+    { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '2', title: 'Upcoming', icon: 'calendar-outline', onPress: () => { onClose(); router.push('/upcoming'); } },
-    { id: '3', title: 'Inbox', icon: 'mail-outline', onPress: () => { onClose(); router.push('/inbox'); } },
     { id: '4', title: 'Mentors/Instructors', icon: 'school-outline', onPress: () => { onClose(); router.push(`/allMentors`); } },
+    { id: '6', title: 'Following', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
+    { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
     { id: '5', title: 'Support', icon: 'help-circle-outline', onPress: () => { onClose(); router.push('/support'); } },
   ];
 

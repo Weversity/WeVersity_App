@@ -1,8 +1,13 @@
+import { Buffer } from 'buffer';
+import 'react-native-get-random-values';
+global.Buffer = Buffer;
+
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import 'react-native-reanimated';
+import '../src/lib/polyfills';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '@/src/context/AuthContext';
@@ -25,20 +30,22 @@ export const unstable_settings = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
-
   return (
     <QueryClientProvider client={queryClient}>
       <CoursesProvider>
         <AuthProvider>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
             <Stack>
-              {/* ... existing screens ... */}
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
               <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="live/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="courseDetails/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="learning/[id]" options={{ headerShown: false }} />
+              <Stack.Screen name="viewProfile/[id]" options={{ headerShown: false }} />
+              <Stack.Screen name="instructorAnalytics/[id]" options={{ headerShown: false }} />
+              <Stack.Screen name="player/index" options={{ headerShown: false }} />
+
               <Stack.Screen name="profileSettings" options={{ headerShown: false }} />
               <Stack.Screen name="bookmarkedCourses" options={{ headerShown: false }} />
               <Stack.Screen name="signup" options={{ headerShown: false }} />
@@ -46,8 +53,10 @@ export default function RootLayout() {
               <Stack.Screen name="allMentors" options={{ headerShown: false }} />
               <Stack.Screen name="allReviews" options={{ headerShown: false }} />
               <Stack.Screen name="support" options={{ headerShown: false }} />
-
               <Stack.Screen name="allWatchedCourses" options={{ headerShown: false }} />
+              <Stack.Screen name="forgetPassword" options={{ headerShown: false }} />
+              <Stack.Screen name="quiz" options={{ headerShown: false }} />
+              <Stack.Screen name="myUploadedCourses" options={{ headerShown: false }} />
 
               <Stack.Screen
                 name="notifications"
@@ -59,7 +68,6 @@ export default function RootLayout() {
                   headerTitleAlign: 'center',
                 }}
               />
-              <Stack.Screen name="myUploadedCourses" options={{ headerShown: false }} />
             </Stack>
             <StatusBar style="auto" />
           </ThemeProvider>

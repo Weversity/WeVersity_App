@@ -66,6 +66,7 @@ export const courseService = {
                         title,
                         description,
                         image_url,
+                        what_you_will_learn,
                         instructor:profiles(first_name, last_name, avatar_url)
                     `)
                     .eq('id', id)

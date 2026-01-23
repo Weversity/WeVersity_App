@@ -13,24 +13,17 @@ export default function ProfileScreen() {
   const [showPopup, setShowPopup] = useState(false);
   const params = useLocalSearchParams();
 
-  // Effect to handle re-pressing the tab while already on the screen
   useEffect(() => {
-    // Check if repress param exists and we are not auth
     if (params.repress && !isAuthenticated) {
       setShowPopup(true);
-      // Optional: Clear params to avoid loop if navigating back? 
-      // Actually Expo Router params persist, so comparing against previous value might be needed if we used a stable ID, 
-      // but Date.now() guarantees change, so simple truthiness + dependency on [params.repress] is enough.
     }
   }, [params.repress, isAuthenticated]);
 
   useFocusEffect(
     useCallback(() => {
-      // When the screen comes into focus, show the popup if not authenticated
       if (!isLoading && !isAuthenticated) {
         setShowPopup(true);
       }
-      // Hide the popup when the screen goes out of focus
       return () => setShowPopup(false);
     }, [isLoading, isAuthenticated])
   );
@@ -56,9 +49,7 @@ export default function ProfileScreen() {
           showPopup
             ? <LoginPopup visible={showPopup} onClose={() => setShowPopup(false)} />
             : <AuthForm
-              onAuthSuccess={() => {
-                // Optionally, refresh or navigate upon successful login
-              }}
+              onAuthSuccess={() => { }}
               showSignUpLink={false}
               withHeader={true}
             />
