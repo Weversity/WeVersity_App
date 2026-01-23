@@ -30,8 +30,8 @@ interface ShortItem {
 interface ShortFeedItemProps {
     item: ShortItem;
     isVisible: boolean;
-    isMuted: boolean;
-    setIsMuted: (muted: boolean) => void;
+    isMuted?: boolean;
+    setIsMuted?: (muted: boolean) => void;
 }
 
 const getRandomColor = (name: string) => {
@@ -68,7 +68,7 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
     // Initialize Player
     const player = useVideoPlayer(item.video_url, player => {
         player.loop = true;
-        player.muted = isMuted;
+        player.muted = !!isMuted;
     });
 
     // Handle Visibility & Mute
@@ -82,7 +82,7 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
     }, [isVisible, player]);
 
     useEffect(() => {
-        player.muted = isMuted;
+        player.muted = !!isMuted;
     }, [isMuted, player]);
 
     // Check User Reaction on Mount
@@ -109,7 +109,11 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
     };
 
     const toggleMute = () => {
-        setIsMuted(!isMuted);
+        if (setIsMuted) {
+            setIsMuted(!isMuted);
+        } else {
+            player.muted = !player.muted;
+        }
     };
 
     const handleProfilePress = () => {
@@ -190,9 +194,8 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
                 </TouchableOpacity>
 
                 {/* Comment Button */}
-                <TouchableOpacity style={styles.actionButton} onPress={() => setShowComments(true)}>
+                <TouchableOpacity style={[styles.actionButton, { marginBottom: 28 }]} onPress={() => setShowComments(true)}>
                     <Ionicons name="chatbubble-ellipses-outline" size={32} color="white" />
-                    <Text style={styles.actionText}>{commentsCount}</Text>
                 </TouchableOpacity>
 
                 {/* Mute Button */}

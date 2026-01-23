@@ -142,12 +142,8 @@ export default function CommentsSheet({ videoId, visible, onClose, currentUser }
                     <Text style={styles.timeAgo}>
                         {new Date(item.created_at).toLocaleDateString()}
                     </Text>
-                    <Text style={styles.replyText}>Reply</Text>
                 </View>
             </View>
-            <TouchableOpacity style={styles.likeContainer}>
-                <Ionicons name="heart-outline" size={14} color="#888" />
-            </TouchableOpacity>
         </View>
     );
 
@@ -334,22 +330,20 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 15,
-        paddingVertical: 10,
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
+        paddingVertical: 12,
         backgroundColor: '#fff',
-        paddingBottom: Platform.OS === 'ios' ? 25 : 10,
+        paddingBottom: Platform.OS === 'ios' ? 30 : 15,
     },
     input: {
         flex: 1,
-        backgroundColor: '#f1f1f2',
-        borderRadius: 20,
-        paddingHorizontal: 15,
+        backgroundColor: '#F5F5F7',
+        borderRadius: 25,
+        paddingHorizontal: 18,
         paddingVertical: 10,
         maxHeight: 100,
         fontSize: 15,
         color: '#000',
-        marginRight: 10,
+        marginRight: 8,
     },
     sendButton: {
         padding: 2,

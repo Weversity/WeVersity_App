@@ -28,6 +28,8 @@ export default function PlayerScreen() {
         }
     };
 
+    const [isMuted, setIsMuted] = React.useState(false);
+
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor="black" />
@@ -40,6 +42,8 @@ export default function PlayerScreen() {
             <ShortFeedItem
                 item={item}
                 isVisible={true}
+                isMuted={isMuted}
+                setIsMuted={setIsMuted}
             />
         </View>
     );

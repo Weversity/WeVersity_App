@@ -142,10 +142,12 @@ export const videoService = {
   toggleFollow: async (followerId, followingId) => {
     const isFollowing = await videoService.checkIsFollowing(followerId, followingId);
     if (isFollowing) {
-      await supabase.from('follows').delete().match({ follower_id: followerId, following_id: followingId });
+      const { error } = await supabase.from('follows').delete().match({ follower_id: followerId, following_id: followingId });
+      if (error) throw error;
       return false;
     } else {
-      await supabase.from('follows').insert([{ follower_id: followerId, following_id: followingId }]);
+      const { error } = await supabase.from('follows').insert([{ follower_id: followerId, following_id: followingId }]);
+      if (error) throw error;
       return true;
     }
   },

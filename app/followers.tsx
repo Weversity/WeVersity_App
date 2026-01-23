@@ -2,6 +2,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { supabase } from '@/src/lib/supabase';
 import { videoService } from '@/src/services/videoService';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -88,22 +89,74 @@ export default function FollowersScreen() {
       );
     }
 
-    if (filteredMentors.length === 0) {
+    if (!search && followedMentors.length === 0) {
       return (
         <View style={styles.emptyContainer}>
-          <Ionicons name="people-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyText}>{search ? 'No matches found' : 'No followed mentors yet'}</Text>
-          <Text style={styles.emptySubtext}>
-            {search ? 'Try adjusting your search' : 'Start following mentors to see them here'}
-          </Text>
-          {!search && (
-            <TouchableOpacity
-              style={styles.exploreButton}
-              onPress={() => router.push('/allMentors')}
+          <View style={styles.emptyIconContainer}>
+            <LinearGradient
+              colors={['#8A2BE2', '#FF007F']}
+              style={styles.emptyIconCircle}
             >
-              <Text style={styles.exploreButtonText}>Explore Mentors</Text>
-            </TouchableOpacity>
-          )}
+              <Ionicons name="people-circle-outline" size={50} color="#fff" />
+            </LinearGradient>
+          </View>
+
+          <Text style={styles.emptyTitle}>Your Following List is Empty</Text>
+
+          <Text style={styles.emptySubtitle}>
+            Follow your favorite instructors to stay updated with their latest shorts and courses.
+          </Text>
+
+          <View style={styles.instructionCard}>
+            <Text style={styles.instructionTitle}>How to follow an instructor:</Text>
+
+            <View style={styles.stepRow}>
+              <View style={styles.stepNumber}><Text style={styles.stepNumberText}>1</Text></View>
+              <Text style={styles.stepText}>Go to the <Text style={styles.boldText}>Shorts Feed</Text></Text>
+            </View>
+
+            <View style={styles.stepRow}>
+              <View style={styles.stepNumber}><Text style={styles.stepNumberText}>2</Text></View>
+              <Text style={styles.stepText}>Tap on the <Text style={styles.boldText}>Instructor's Profile icon</Text> on any short</Text>
+            </View>
+
+            <View style={styles.stepRow}>
+              <View style={styles.stepNumber}><Text style={styles.stepNumberText}>3</Text></View>
+              <Text style={styles.stepText}>Hit the <Text style={styles.boldText}>Follow button</Text> to stay updated!</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => router.push('/')}
+            style={styles.exploreButtonWrapper}
+          >
+            <LinearGradient
+              colors={['#8A2BE2', '#FF007F']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.exploreButton}
+            >
+              <Text style={styles.exploreButtonText}>Explore Shorts</Text>
+              <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 8 }} />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (search && filteredMentors.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="search-outline" size={64} color="#ccc" style={{ marginBottom: 20 }} />
+          <Text style={styles.emptyTitle}>No matches found</Text>
+          <Text style={styles.emptySubtitle}>Try adjusting your search terms</Text>
+          <TouchableOpacity
+            style={styles.clearSearchButton}
+            onPress={() => setSearch('')}
+          >
+            <Text style={styles.clearSearchText}>Clear Search</Text>
+          </TouchableOpacity>
         </View>
       );
     }
@@ -276,32 +329,111 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
+    paddingHorizontal: 30,
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingTop: 40,
   },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
+  emptyIconContainer: {
     marginBottom: 24,
   },
+  emptyIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  emptySubtitle: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  instructionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    marginBottom: 32,
+  },
+  instructionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#8A2BE220',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  stepNumberText: {
+    color: '#8A2BE2',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  stepText: {
+    fontSize: 15,
+    color: '#444',
+  },
+  boldText: {
+    fontWeight: 'bold',
+    color: '#8A2BE2',
+  },
+  exploreButtonWrapper: {
+    width: '100%',
+  },
   exploreButton: {
-    backgroundColor: '#8A2BE2',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 25,
+    flexDirection: 'row',
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   exploreButtonText: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  clearSearchButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  clearSearchText: {
+    color: '#8A2BE2',
     fontWeight: '600',
+    fontSize: 16,
   },
 });

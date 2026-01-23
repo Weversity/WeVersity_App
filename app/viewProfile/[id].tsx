@@ -167,7 +167,7 @@ export default function ViewProfile() {
                     <Text style={styles.name}>{profile?.first_name} {profile?.last_name}</Text>
                     {isPersonalDashboardView && (
                         <TouchableOpacity
-                            onPress={() => router.push('/profile/edit' as any)}
+                            onPress={() => router.push('/profile/publicSettings' as any)}
                             activeOpacity={0.8}
                             style={styles.smallEditButton}
                         >
