@@ -38,7 +38,7 @@ export const liveSessionService = {
         }
     },
 
-    // Fetch currently active live sessions
+    // Fetch active or recently started live sessions
     async fetchActiveLiveSessions() {
         try {
             const { data, error } = await supabase
@@ -46,6 +46,8 @@ export const liveSessionService = {
                 .select(`
                   id,
                   status,
+                  scheduled_at,
+                  google_meet_url,
                   course_id,
                   course:courses(
                     id,
@@ -60,7 +62,7 @@ export const liveSessionService = {
                     )
                   )
                 `)
-                .eq('status', 'active');
+                .in('status', ['live', 'upcoming']);
 
             if (error) {
                 console.error('Error in fetchActiveLiveSessions:', error.message);

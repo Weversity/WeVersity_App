@@ -214,6 +214,11 @@ export default function FollowersScreen() {
           value={search}
           onChangeText={setSearch}
         />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch('')}>
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
       </View>
       {renderContent()}
     </View>
@@ -231,7 +236,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-    paddingBottom: 15,
+    paddingBottom: 12,
     backgroundColor: '#8A2BE2',
   },
   backButton: {
@@ -241,7 +246,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -250,7 +255,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 12,
-    margin: 20,
+    marginHorizontal: 16,
+    marginVertical: 10,
     paddingHorizontal: 15,
     height: 50,
     shadowColor: '#000',

@@ -114,15 +114,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 15 : 55,
-    paddingBottom: 20,
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
+    paddingBottom: 12,
     paddingHorizontal: 20,
     backgroundColor: '#8A2BE2', // Purple color (matching other headers)
   },
   onAirBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   liveDot: {
     width: 8,
@@ -133,13 +133,13 @@ const styles = StyleSheet.create({
   },
   onAirText: {
     color: '#FF3B5C',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 1,
   },
   headerTitle: {
     color: '#fff',
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 'bold',
   },
   searchIcon: {
@@ -152,10 +152,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     marginHorizontal: 16,
-    marginTop: 16,
+    marginTop: 10,
     marginBottom: 10,
     paddingHorizontal: 15,
-    paddingVertical: 12,
+    height: 50,
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

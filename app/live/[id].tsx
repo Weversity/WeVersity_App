@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
+  Linking,
   StatusBar,
   StyleSheet,
   Text,
@@ -63,7 +64,7 @@ const LiveClassScreen = () => {
     fetchSessionData();
   }, [id, fetchSessionData]);
 
-  const player = useVideoPlayer(session?.meeting_url || '', player => {
+  const player = useVideoPlayer(session?.google_meet_url || '', player => {
     player.loop = true;
     player.play();
     player.muted = isMuted;
@@ -100,8 +101,30 @@ const LiveClassScreen = () => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {/* Background Video */}
-      {session?.meeting_url ? (
+      {/* Stream Content */}
+      {session?.google_meet_url?.includes('zoom.us') || session?.google_meet_url?.includes('meet.google.com') ? (
+        <View style={styles.externalJoinContainer}>
+          <View style={styles.instructorProfileLarge}>
+            {instructor.avatar_url ? (
+              <Image source={{ uri: instructor.avatar_url }} style={styles.largeAvatar} />
+            ) : (
+              <View style={[styles.largeAvatar, styles.initialsCircleLarge]}>
+                <Text style={styles.initialsTextLarge}>{getInitials(instructor.first_name, instructor.last_name)}</Text>
+              </View>
+            )}
+            <Text style={styles.largeInstructorName}>{instructorName}</Text>
+            <Text style={styles.externalStatusText}>Session is happening via external meeting</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.joinExternalButton}
+            onPress={() => Linking.openURL(session.google_meet_url)}
+          >
+            <Ionicons name="videocam" size={24} color="#fff" style={{ marginRight: 10 }} />
+            <Text style={styles.joinExternalButtonText}>Join Live Session</Text>
+          </TouchableOpacity>
+        </View>
+      ) : session?.google_meet_url ? (
         <VideoView
           player={player}
           style={StyleSheet.absoluteFill}
@@ -205,8 +228,8 @@ const styles = StyleSheet.create({
   },
   instructorName: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: 'bold',
   },
   liveBadge: {
     backgroundColor: '#FF0050',
@@ -259,6 +282,66 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  externalJoinContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 30,
+    backgroundColor: '#000',
+  },
+  instructorProfileLarge: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  largeAvatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 4,
+    borderColor: '#8A2BE2',
+    marginBottom: 20,
+  },
+  initialsCircleLarge: {
+    backgroundColor: '#8A2BE2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  initialsTextLarge: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 40,
+  },
+  largeInstructorName: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  externalStatusText: {
+    color: '#aaa',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  joinExternalButton: {
+    backgroundColor: '#8A2BE2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 30,
+    width: '100%',
+    elevation: 5,
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  joinExternalButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
 

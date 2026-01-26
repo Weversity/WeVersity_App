@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useState } from 'react';
-import { Animated, Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Image, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
 import CommentsSheet from './CommentsSheet';
@@ -13,7 +13,6 @@ interface ShortItem {
     id: string;
     video_url: string;
     likes_count: number;
-    dislikes_count?: number; // Added for V2
     comments_count?: number; // Added for V2
     description?: string;
     instructor_id?: string;
@@ -30,8 +29,9 @@ interface ShortItem {
 interface ShortFeedItemProps {
     item: ShortItem;
     isVisible: boolean;
-    isMuted?: boolean;
-    setIsMuted?: (muted: boolean) => void;
+    onRefresh: () => void;
+    isMuted: boolean;
+    setIsMuted: (muted: boolean) => void;
 }
 
 const getRandomColor = (name: string) => {
@@ -47,7 +47,7 @@ const getInitials = (firstName?: string, lastName?: string) => {
     return ((firstName?.[0] || '') + (lastName?.[0] || '')).toUpperCase() || '?';
 };
 
-export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: ShortFeedItemProps) {
+export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, setIsMuted }: ShortFeedItemProps) {
     const router = useRouter();
     const { user } = useAuth();
 
@@ -56,9 +56,8 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
 
     // Interaction State
     const [likesCount, setLikesCount] = useState(item.likes_count || 0);
-    const [dislikesCount, setDislikesCount] = useState(item.dislikes_count || 0);
     const [commentsCount, setCommentsCount] = useState(item.comments_count || 0);
-    const [userReaction, setUserReaction] = useState<'like' | 'dislike' | null>(null);
+    const [userReaction, setUserReaction] = useState<'like' | null>(null);
 
     const [showComments, setShowComments] = useState(false);
 
@@ -68,7 +67,7 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
     // Initialize Player
     const player = useVideoPlayer(item.video_url, player => {
         player.loop = true;
-        player.muted = !!isMuted;
+        player.muted = isMuted;
     });
 
     // Handle Visibility & Mute
@@ -82,7 +81,9 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
     }, [isVisible, player]);
 
     useEffect(() => {
-        player.muted = !!isMuted;
+        if (player) {
+            player.muted = isMuted;
+        }
     }, [isMuted, player]);
 
     // Check User Reaction on Mount
@@ -109,11 +110,15 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
     };
 
     const toggleMute = () => {
-        if (setIsMuted) {
-            setIsMuted(!isMuted);
-        } else {
-            player.muted = !player.muted;
+        const nextMutedState = !isMuted;
+
+        // 1. Update the local player object immediately for instant sound reaction
+        if (player) {
+            player.muted = nextMutedState;
         }
+
+        // 2. Update the parent state to sync the UI (Icon/Text) and other items
+        setIsMuted(nextMutedState);
     };
 
     const handleProfilePress = () => {
@@ -124,16 +129,14 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
         }
     };
 
-    const handleReaction = async (type: 'like' | 'dislike') => {
-        if (!user) return;
+    const handleReaction = async (type: 'like') => {
+        if (!user) return; // Only allow likes
 
         // Animation for Like
-        if (type === 'like') {
-            Animated.sequence([
-                Animated.timing(likeScale, { toValue: 1.2, duration: 100, useNativeDriver: true }),
-                Animated.timing(likeScale, { toValue: 1, duration: 100, useNativeDriver: true })
-            ]).start();
-        }
+        Animated.sequence([
+            Animated.timing(likeScale, { toValue: 1.2, duration: 100, useNativeDriver: true }),
+            Animated.timing(likeScale, { toValue: 1, duration: 100, useNativeDriver: true })
+        ]).start();
 
         try {
             // Call RPC
@@ -141,11 +144,22 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
 
             // Update State from RPC Result
             setLikesCount(result.likes);
-            setDislikesCount(result.dislikes);
             setUserReaction(result.user_reaction);
 
         } catch (error) {
             console.error("Reaction failed", error);
+        }
+    };
+
+    const handleShare = async () => {
+        try {
+            const shareUrl = `https://weversity.org/shorts/${item.id}`;
+            await Share.share({
+                message: `Check out this short on WeVersity: ${shareUrl}`,
+                url: shareUrl, // iOS only
+            });
+        } catch (error) {
+            console.error("Share failed", error);
         }
     };
 
@@ -183,27 +197,27 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
                     <Text style={styles.actionText}>{likesCount}</Text>
                 </TouchableOpacity>
 
-                {/* Dislike Button */}
-                <TouchableOpacity onPress={() => handleReaction('dislike')} style={styles.actionButton}>
-                    <Ionicons
-                        name={userReaction === 'dislike' ? "thumbs-down" : "thumbs-down-outline"}
-                        size={32}
-                        color={userReaction === 'dislike' ? "white" : "white"} // Usually keeps white, maybe red if disliked
-                    />
-                    <Text style={styles.actionText}>{dislikesCount !== 0 ? dislikesCount : 'Dislike'}</Text>
-                </TouchableOpacity>
-
                 {/* Comment Button */}
-                <TouchableOpacity style={[styles.actionButton, { marginBottom: 28 }]} onPress={() => setShowComments(true)}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={32} color="white" />
+                <TouchableOpacity style={[styles.actionButton, { marginBottom: 28, marginTop: 10 }]} onPress={() => setShowComments(true)}>
+                    <Ionicons name="chatbox-ellipses-outline" size={32} color="white" />
                 </TouchableOpacity>
 
                 {/* Mute Button */}
                 <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
-                    <View style={styles.muteButtonInner}>
-                        <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={26} color="white" />
-                    </View>
-                    <Text style={styles.actionText}>{isMuted ? 'Muted' : 'Mute'}</Text>
+                    <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={32} color="white" />
+                    <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
+                </TouchableOpacity>
+
+                {/* Share Button */}
+                <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
+                    <Ionicons name="share-social-outline" size={32} color="white" />
+                    <Text style={styles.actionText}>Share</Text>
+                </TouchableOpacity>
+
+                {/* Reload / Shuffle Button */}
+                <TouchableOpacity onPress={onRefresh} style={styles.actionButton}>
+                    <Ionicons name="sync" size={32} color="white" />
+                    <Text style={styles.actionText}>Reload</Text>
                 </TouchableOpacity>
             </View>
 
@@ -260,7 +274,7 @@ export default function ShortFeedItem({ item, isVisible, isMuted, setIsMuted }: 
 const styles = StyleSheet.create({
     container: {
         width: width,
-        height: height - (80), // Adjust for tab bar height
+        height: '100%',
         backgroundColor: 'black',
     },
     videoContainer: {
@@ -381,15 +395,5 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 14,
-    },
-    muteButtonInner: {
-        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
     }
 });

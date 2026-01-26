@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import SupportForm from '@/src/components/SupportForm';
 import SupportChat from '@/src/components/SupportChat';
+import SupportForm from '@/src/components/SupportForm';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SupportScreen() {
   const [formVisible, setFormVisible] = useState(false);
@@ -26,7 +26,7 @@ export default function SupportScreen() {
     setFormVisible(false);
     // Use a timeout to allow the first modal to close before the second one opens
     setTimeout(() => {
-        setChatVisible(true);
+      setChatVisible(true);
     }, 500);
   };
 
@@ -59,14 +59,14 @@ export default function SupportScreen() {
         </View>
       </SafeAreaView>
 
-      <SupportForm 
-        visible={formVisible} 
+      <SupportForm
+        visible={formVisible}
         onClose={() => setFormVisible(false)}
         onStartChat={handleStartChat}
       />
-      
-      <SupportChat 
-        visible={chatVisible} 
+
+      <SupportChat
+        visible={chatVisible}
         onClose={handleClose}
         initialEmail={initialEmail}
         initialMessage={initialMessage}
@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-    paddingBottom: 5,
+    paddingBottom: 12,
     paddingHorizontal: 20,
     backgroundColor: '#8A2BE2',
     alignItems: 'center',
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   headerText: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     textAlign: 'center',
   },
-    button: {
+  button: {
     backgroundColor: '#8A2BE2',
     paddingVertical: 12,
     paddingHorizontal: 30,

@@ -10,7 +10,14 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "icon": "./assets/images/ios-dark.png"
+      "icon": "./assets/images/ios-dark.png",
+      "bundleIdentifier": "org.weversity.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "associatedDomains": [
+        "applinks:weversity.org"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +28,24 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "org.weversity.app"
+      "package": "org.weversity.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "weversity.org",
+              "pathPrefix": "/shorts"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static"
@@ -41,6 +65,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4da62831-d87d-4a1e-972f-64aa6d4d4bac"
+      }
+    },
+    "owner": "wevesity"
   }
 }

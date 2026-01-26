@@ -341,7 +341,7 @@ export default function MyCoursesScreen() {
 
       {searchVisible && (
         <View style={styles.searchInputContainer}>
-          <Ionicons name="search-outline" size={20} color="#999" style={styles.searchInputIcon} />
+          <Ionicons name="search" size={20} color="#999" style={styles.searchInputIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search courses..."
@@ -350,7 +350,7 @@ export default function MyCoursesScreen() {
             placeholderTextColor="#999"
           />
           <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchQuery('') }}>
-            <Ionicons name="close-circle-outline" size={20} color="#999" />
+            <Ionicons name="close-circle" size={20} color="#999" />
           </TouchableOpacity>
         </View>
       )}
@@ -414,11 +414,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-    paddingBottom: 15,
+    paddingBottom: 12,
     backgroundColor: '#8A2BE2',
   },
   headerText: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -428,7 +428,9 @@ const styles = StyleSheet.create({
     gap: 15,
   },
   headerIcon: {
-    padding: 5,
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 8,
   },
   tabsAndSearchContainer: {
     flexDirection: 'row',
@@ -470,11 +472,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F8F9FA',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    marginHorizontal: 20,
+    paddingHorizontal: 15,
+    marginHorizontal: 16,
     marginTop: 10,
     marginBottom: 10,
-    height: 44,
+    height: 50,
     borderWidth: 1,
     borderColor: '#E9ECEF',
   },

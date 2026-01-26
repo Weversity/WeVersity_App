@@ -51,7 +51,7 @@ const CourseItem = memo(({ item }: { item: any }) => {
             </View>
           </View>
 
-          <Link href={`/live/${course.id}`} asChild>
+          <Link href={`/live/${item.id}`} asChild>
             <TouchableOpacity style={styles.joinButton}>
               <Text style={styles.joinButtonText}>Join Now</Text>
               <Ionicons name="play" size={14} color="#fff" style={styles.playIcon} />
@@ -123,14 +123,25 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
     loadSessions();
   }, [loadSessions]);
 
-  // Filter sessions based on search query (searching through nested course data)
+  // Filter sessions based on search query AND specialized status logic
   const filteredSessions = useMemo(() => {
+    const now = new Date();
+
+    // First, apply the "live" or "upcoming but passed time" logic
+    const validSessions = sessions.filter(session => {
+      if (session.status === 'live') return true;
+      if (session.status === 'upcoming' && session.scheduled_at) {
+        return now >= new Date(session.scheduled_at);
+      }
+      return false;
+    });
+
     if (!searchQuery.trim()) {
-      return sessions;
+      return validSessions;
     }
 
     const query = searchQuery.toLowerCase();
-    return sessions.filter(session => {
+    return validSessions.filter(session => {
       const course = session.course || {};
       const instructor = course.instructor || {};
       const title = course.title?.toLowerCase() || '';

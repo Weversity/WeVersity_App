@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     },
     header: {
         paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-        paddingBottom: 25,
+        paddingBottom: 12,
         paddingHorizontal: 20,
         backgroundColor: '#8A2BE2',
         flexDirection: 'row',
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
         borderBottomRightRadius: 30,
     },
     headerText: {
-        fontSize: 20,
+        fontSize: 22,
         fontWeight: 'bold',
         color: '#fff',
     },

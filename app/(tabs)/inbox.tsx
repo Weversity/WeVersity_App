@@ -1,6 +1,7 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -18,6 +19,84 @@ import {
 } from 'react-native';
 import { TabBar, TabView } from 'react-native-tab-view';
 
+// Guest View Component for Unauthorized Users
+const GuestView = ({ onGoToProfile }: { onGoToProfile: () => void }) => {
+  return (
+    <View style={styles.guestContainer}>
+      <View style={styles.guestInner}>
+        <Image
+          source={require('@/assets/images/chatbox.png')}
+          style={styles.guestImage}
+          resizeMode="contain"
+        />
+
+        <View style={styles.stepsCard}>
+          <Text style={styles.stepsTitle}>Follow these steps</Text>
+
+          <View style={styles.timelineContainer}>
+            {/* Step 1 */}
+            <View style={styles.stepItem}>
+              <View style={styles.badgeContainer}>
+                <View style={[styles.stepBadge, { backgroundColor: '#8A2BE2' }]}>
+                  <Text style={styles.badgeText}>1</Text>
+                </View>
+                <View style={styles.dashedLine} />
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepName}>Go to Profile</Text>
+                <Text style={styles.stepDesc}>Tap on the Profile option located in the bottom navigation menu.</Text>
+              </View>
+            </View>
+
+            {/* Step 2 */}
+            <View style={styles.stepItem}>
+              <View style={styles.badgeContainer}>
+                <View style={[styles.stepBadge, { backgroundColor: '#8A2BE2' }]}>
+                  <Text style={styles.badgeText}>2</Text>
+                </View>
+                <View style={styles.dashedLine} />
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepName}>Login Your Account</Text>
+                <Text style={styles.stepDesc}>Enter your credentials in the profile section to login securely.</Text>
+              </View>
+            </View>
+
+            {/* Step 3 */}
+            <View style={styles.stepItem}>
+              <View style={styles.badgeContainer}>
+                <View style={[styles.stepBadge, { backgroundColor: '#8A2BE2' }]}>
+                  <Text style={styles.badgeText}>3</Text>
+                </View>
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepName}>View Your Inbox</Text>
+                <Text style={styles.stepDesc}>Once logged in, all your Messages will be automatically displayed here.</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          onPress={onGoToProfile}
+          activeOpacity={0.8}
+          style={styles.profileButtonShadow}
+        >
+          <LinearGradient
+            colors={['#8A2BE2', '#4B0082']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.profileButton}
+          >
+            <Text style={styles.profileButtonText}>Go to Profile</Text>
+            <Ionicons name="arrow-forward" size={18} color="#fff" />
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
 // Reusable Conversation Item Component
 const ConversationItem = memo(({ item, onPress }: { item: any; onPress: (id: string) => void }) => {
   return (
@@ -34,7 +113,6 @@ const ConversationItem = memo(({ item, onPress }: { item: any; onPress: (id: str
             resizeMode="cover"
           />
         ) : item.isGroup ? (
-          // Community Fallback Icon
           <Ionicons name="people" size={24} color="#555" />
         ) : item.system ? (
           <Ionicons name="notifications" size={24} color="#555" />
@@ -80,7 +158,7 @@ const renderEmptyMessages = (message: string) => (
 
 const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
-    data={conversations} // Show all conversations including Communities
+    data={conversations}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
     contentContainerStyle={styles.listContent}
@@ -91,7 +169,6 @@ const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: {
     ListEmptyComponent={() => renderEmptyMessages('No messages found.')}
   />
 ));
-
 
 const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
@@ -114,54 +191,46 @@ export default function InboxScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [routes] = useState([
-    { key: 'all', title: 'Chats' }, // Renamed from All to Chats to imply DMs, but let's see logic
+    { key: 'all', title: 'Chats' },
     { key: 'communities', title: 'Communities' },
   ]);
 
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
 
   const formatConversation = useCallback((conv: any) => {
-    // Safety check for last_message
     const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
     const isMe = msg.sender_id === user?.id;
-
-    // Robust Date handling
     let timeStr = '';
     let timestamp = 0;
-
     try {
       const dateInput = msg.created_at || new Date().toISOString();
       const dateObj = new Date(dateInput);
-
-      // Check if date is valid
       if (!isNaN(dateObj.getTime())) {
         timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         timestamp = dateObj.getTime();
       } else {
-        // Fallback
         timeStr = 'Now';
         timestamp = Date.now();
       }
     } catch (e) {
       timeStr = '';
     }
-
     return {
       id: conv.id,
       name: conv.name || 'Group Chat',
       message: (isMe ? 'You: ' : '') + (msg.content || 'Tap to view'),
       time: timeStr,
       unread: conv.unread_count || 0,
-      avatar: conv.avatar, // Uses course image if available
+      avatar: conv.avatar,
       avatarColor: '#F3F4F6',
       isGroup: !!conv.isGroup,
       timestamp: timestamp,
-      system: false // Legacy flag
+      system: false
     };
   }, [user?.id]);
-
 
   const loadChats = useCallback(async () => {
     try {
@@ -169,7 +238,6 @@ export default function InboxScreen() {
       setLoading(true);
       const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
       const mapped = inboxData.map(formatConversation);
-      // Sort by timestamp descending
       setConversations(mapped.sort((a, b) => b.timestamp - a.timestamp));
     } catch (error) {
       console.error('Failed to load chats:', error);
@@ -182,21 +250,15 @@ export default function InboxScreen() {
   useEffect(() => {
     if (!user) return;
     loadChats();
-
     const subscription = chatService.subscribeToGlobalChat((newMessage: any) => {
-      // Logic to move conversation to top
       setConversations(prev => {
         const chatId = newMessage.group_id || newMessage.conversation_id;
         if (!chatId) return prev;
-
         const others = prev.filter(c => c.id !== chatId);
-
         const existing = prev.find(c => c.id === chatId);
-
         const isMe = newMessage.sender_id === user.id;
         const updatedConv = {
           id: chatId,
-          // Robust name fallback to prevent flickering
           name: existing?.name || newMessage.group_name || 'Community Chat',
           avatar: existing?.avatar,
           message: (isMe ? 'You: ' : '') + newMessage.content,
@@ -207,11 +269,9 @@ export default function InboxScreen() {
           isGroup: existing?.isGroup || !!newMessage.group_id,
           timestamp: new Date(newMessage.created_at).getTime()
         };
-
         return [updatedConv, ...others];
       });
     });
-
     return () => {
       subscription.unsubscribe();
     };
@@ -257,36 +317,47 @@ export default function InboxScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
       <View style={styles.header}>
         <Text style={styles.headerText}>Inbox</Text>
       </View>
       <View style={styles.contentArea}>
-        <View style={styles.searchSection}>
-          <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search messages..."
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholderTextColor="#999"
-            />
-          </View>
-        </View>
-
-        {loading && conversations.length === 0 ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#8A2BE2" />
-          </View>
+        {!user ? (
+          <GuestView onGoToProfile={() => router.push('/profile')} />
         ) : (
-          <TabView
-            navigationState={{ index, routes }}
-            renderScene={renderScene}
-            onIndexChange={setIndex}
-            initialLayout={{ width: layout.width }}
-            renderTabBar={renderTabBar}
-          />
+          <>
+            <View style={styles.searchSection}>
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color="#9BA3AF" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search messages..."
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholderTextColor="#9BA3AF"
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <Ionicons name="close-circle" size={20} color="#9BA3AF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {loading && conversations.length === 0 ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#8A2BE2" />
+              </View>
+            ) : (
+              <TabView
+                navigationState={{ index, routes }}
+                renderScene={renderScene}
+                onIndexChange={setIndex}
+                initialLayout={{ width: layout.width }}
+                renderTabBar={renderTabBar}
+              />
+            )}
+          </>
         )}
       </View>
     </View>
@@ -298,16 +369,129 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  header: {
-    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-    paddingBottom: 15,
-    paddingHorizontal: 20,
-    backgroundColor: '#8A2BE2',
+  guestContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  guestInner: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 25,
+    paddingTop: 40,
+  },
+  guestImage: {
+    width: 180,
+    height: 150,
+    marginBottom: 30,
+  },
+  stepsCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+    marginBottom: 30,
+  },
+  stepsTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#000',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  timelineContainer: {
+    paddingLeft: 5,
+  },
+  stepItem: {
+    flexDirection: 'row',
+    marginBottom: 15,
+  },
+  badgeContainer: {
+    alignItems: 'center',
+    width: 24,
+    marginRight: 12,
+  },
+  stepBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  dashedLine: {
+    width: 1,
+    flex: 1,
+    backgroundColor: '#E5E7EB',
+    height: 25,
+    position: 'absolute',
+    top: 24,
+    zIndex: 1,
+  },
+  stepContent: {
+    flex: 1,
+    paddingTop: 0,
+  },
+  stepName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#8A2BE2',
+    marginBottom: 2,
+  },
+  stepDesc: {
+    fontSize: 12,
+    color: '#6B7280',
+    lineHeight: 16,
+  },
+  profileButtonShadow: {
+    width: '80%',
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  profileButton: {
+    width: '100%',
+    height: 48,
+    borderRadius: 50,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  profileButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginRight: 8,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
+    paddingBottom: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#8A2BE2',
+  },
+  headerIcon: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 8,
+  },
   headerText: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -315,9 +499,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   searchSection: {
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    paddingTop: 10,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
@@ -325,12 +506,14 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F9FAFB',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 44,
+    paddingHorizontal: 15,
+    height: 52,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: '#F3F4F6',
+    marginHorizontal: 16,
+    marginVertical: 12,
   },
   searchIcon: {
     marginRight: 8,
@@ -384,21 +567,21 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start', // Align start for multiline
+    alignItems: 'flex-start',
     marginBottom: 4,
   },
   name: {
-    flex: 1, // Allow name to take available space
+    flex: 1,
     fontSize: 16,
     fontWeight: '700',
     color: '#1F2937',
-    lineHeight: 20, // Tighter line height
-    marginRight: 8, // Space between name and time
+    lineHeight: 20,
+    marginRight: 8,
   },
   metaContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 2, // Align with text
+    paddingTop: 2,
   },
   time: {
     fontSize: 12,

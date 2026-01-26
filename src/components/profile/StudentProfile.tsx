@@ -594,7 +594,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   welcomeTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -742,7 +742,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#000',
     marginBottom: 15,
