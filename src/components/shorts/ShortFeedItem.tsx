@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useState } from 'react';
@@ -51,6 +52,7 @@ const getInitials = (firstName?: string, lastName?: string) => {
 export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, setIsMuted }: ShortFeedItemProps) {
     const router = useRouter();
     const { user } = useAuth();
+    const isFocused = useIsFocused(); // Track screen focus
 
     // Playback State
     const [isPlaying, setIsPlaying] = useState(isVisible);
@@ -64,6 +66,7 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
 
     // Animations
     const [likeScale] = useState(new Animated.Value(1));
+    const [playIconOpacity] = useState(new Animated.Value(0));
 
     // Detect media type
     const getMediaType = (): 'image' | 'video' => {
@@ -88,18 +91,33 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
         }
     });
 
-    // Handle Visibility & Mute (only for videos)
+    // CRITICAL: Handle Visibility & Screen Focus (only for videos)
     useEffect(() => {
         if (isVideo && player) {
-            if (isVisible) {
+            // Video must pause if screen is not focused OR item is not visible
+            if (isFocused && isVisible) {
                 player.play();
+                setIsPlaying(true);
+                // Fade out play icon
+                Animated.timing(playIconOpacity, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                }).start();
             } else {
                 player.pause();
+                setIsPlaying(false);
+                // Fade in play icon
+                Animated.timing(playIconOpacity, {
+                    toValue: 1,
+                    duration: 200,
+                    useNativeDriver: true,
+                }).start();
             }
-            setIsPlaying(isVisible);
         }
-    }, [isVisible, player, isVideo]);
+    }, [isFocused, isVisible, player, isVideo]);
 
+    // Handle Mute (only for videos)
     useEffect(() => {
         if (isVideo && player) {
             player.muted = isMuted;
@@ -124,9 +142,19 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
         if (player.playing) {
             player.pause();
             setIsPlaying(false);
+            Animated.timing(playIconOpacity, {
+                toValue: 1,
+                duration: 200,
+                useNativeDriver: true,
+            }).start();
         } else {
             player.play();
             setIsPlaying(true);
+            Animated.timing(playIconOpacity, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+            }).start();
         }
     };
 
@@ -196,9 +224,9 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
                             nativeControls={false}
                         />
                         {!isPlaying && (
-                            <View style={styles.playIconContainer}>
+                            <Animated.View style={[styles.playIconContainer, { opacity: playIconOpacity }]}>
                                 <Ionicons name="play" size={50} color="rgba(255,255,255,0.7)" />
-                            </View>
+                            </Animated.View>
                         )}
                     </>
                 ) : (
@@ -210,46 +238,50 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
                 )}
             </TouchableOpacity>
 
-            {/* Mute Button removed from here, moved to rightContainer */}
-
-            {/* Right Action Buttons */}
+            {/* Right Action Buttons - Repositioned to Bottom Right */}
             <View style={styles.rightContainer}>
-                {/* Profile icon above Like button removed */}
-
                 {/* Like Button */}
                 <TouchableOpacity onPress={() => handleReaction('like')} style={styles.actionButton}>
-                    <Animated.View style={{ transform: [{ scale: likeScale }] }}>
+                    <Animated.View style={styles.iconCircle}>
                         <Ionicons
                             name={userReaction === 'like' ? "heart" : "heart-outline"}
-                            size={35}
+                            size={24}
                             color={userReaction === 'like' ? "#ff2d55" : "white"}
                         />
                     </Animated.View>
                     <Text style={styles.actionText}>{likesCount}</Text>
                 </TouchableOpacity>
 
-                {/* Comment Button */}
-                <TouchableOpacity style={[styles.actionButton, { marginBottom: 28, marginTop: 10 }]} onPress={() => setShowComments(true)}>
-                    <Ionicons name="chatbox-ellipses-outline" size={32} color="white" />
+                {/* Comment Button - No count label */}
+                <TouchableOpacity style={styles.actionButton} onPress={() => setShowComments(true)}>
+                    <View style={styles.iconCircle}>
+                        <Ionicons name="chatbox-ellipses-outline" size={24} color="white" />
+                    </View>
                 </TouchableOpacity>
 
                 {/* Mute Button - Only show for videos */}
                 {isVideo && (
                     <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
-                        <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={32} color="white" />
-                        <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
+                        <View style={styles.iconCircle}>
+                            <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={24} color="white" />
+                        </View>
+                        <Text style={styles.actionText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
                     </TouchableOpacity>
                 )}
 
                 {/* Share Button */}
                 <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
-                    <Ionicons name="share-social-outline" size={32} color="white" />
+                    <View style={styles.iconCircle}>
+                        <Ionicons name="share-social-outline" size={24} color="white" />
+                    </View>
                     <Text style={styles.actionText}>Share</Text>
                 </TouchableOpacity>
 
                 {/* Reload / Shuffle Button */}
                 <TouchableOpacity onPress={onRefresh} style={styles.actionButton}>
-                    <Ionicons name="sync" size={32} color="white" />
+                    <View style={styles.iconCircle}>
+                        <Ionicons name="sync" size={24} color="white" />
+                    </View>
                     <Text style={styles.actionText}>Reload</Text>
                 </TouchableOpacity>
             </View>
@@ -279,8 +311,6 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
                         </Text>
                     </View>
                 </TouchableOpacity>
-
-                {/* Yellow badge removed */}
 
                 {item.instructor?.bio ? (
                     <Text style={styles.bioText} numberOfLines={3}>
@@ -326,10 +356,11 @@ const styles = StyleSheet.create({
     },
     rightContainer: {
         position: 'absolute',
-        right: 10,
-        bottom: 100, // Above bottom gradient
+        right: 16,
+        bottom: 40, // Positioned above nav bar
         alignItems: 'center',
-        zIndex: 10
+        zIndex: 10,
+        gap: 16, // Consistent spacing between icon groups
     },
     profileContainer: {
         marginBottom: 20,
@@ -354,7 +385,7 @@ const styles = StyleSheet.create({
     plusIcon: {
         position: 'absolute',
         bottom: -10,
-        left: 15, // Center horizontally relative to avatar
+        left: 15,
         backgroundColor: '#ff2d55',
         borderRadius: 10,
         width: 20,
@@ -364,17 +395,33 @@ const styles = StyleSheet.create({
     },
     actionButton: {
         alignItems: 'center',
-        marginBottom: 15,
+        gap: 4, // Space between icon and label
+    },
+    iconCircle: {
+        width: 45, // Exactly 45px circle
+        height: 45,
+        borderRadius: 22.5,
+        backgroundColor: 'rgba(255, 255, 255, 0.15)', // Modern glassmorphism background
+        borderWidth: 0.5,
+        borderColor: 'rgba(255, 255, 255, 0.3)', // Subtle border for depth
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     actionText: {
         color: 'white',
-        fontSize: 13,
+        fontSize: 11,
         fontWeight: '600',
-        marginTop: 5,
         textAlign: 'center',
-        textShadowColor: 'rgba(0, 0, 0, 0.75)',
-        textShadowOffset: { width: -1, height: 1 },
-        textShadowRadius: 10
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4, // Stronger shadow for better visibility on white backgrounds
+    },
+    iconShadow: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.6,
+        shadowRadius: 3,
+        elevation: 3,
     },
     bottomOverlayCard: {
         position: 'absolute',
@@ -406,10 +453,16 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '700',
         fontSize: 16,
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
     },
     instructorRole: {
         color: 'rgba(255,255,255,0.7)',
         fontSize: 12,
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
     },
     badgeContainer: {
         marginBottom: 8,
@@ -423,6 +476,9 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 14,
         lineHeight: 20,
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
     },
     avatarInitialSmall: {
         color: '#fff',
