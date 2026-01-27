@@ -12,8 +12,9 @@ const { width, height } = Dimensions.get('window');
 interface ShortItem {
     id: string;
     video_url: string;
+    type?: 'image' | 'video'; // Added type field
     likes_count: number;
-    comments_count?: number; // Added for V2
+    comments_count?: number;
     description?: string;
     instructor_id?: string;
     instructor?: {
@@ -64,27 +65,46 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     // Animations
     const [likeScale] = useState(new Animated.Value(1));
 
-    // Initialize Player
-    const player = useVideoPlayer(item.video_url, player => {
-        player.loop = true;
-        player.muted = isMuted;
-    });
+    // Detect media type
+    const getMediaType = (): 'image' | 'video' => {
+        // First check if type is explicitly set
+        if (item.type) return item.type;
 
-    // Handle Visibility & Mute
-    useEffect(() => {
-        if (isVisible) {
-            player.play();
-        } else {
-            player.pause();
-        }
-        setIsPlaying(isVisible);
-    }, [isVisible, player]);
+        // Fallback: detect from file extension
+        const url = item.video_url.toLowerCase();
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        const isImage = imageExtensions.some(ext => url.includes(ext));
+        return isImage ? 'image' : 'video';
+    };
 
-    useEffect(() => {
-        if (player) {
+    const mediaType = getMediaType();
+    const isVideo = mediaType === 'video';
+
+    // Initialize Player (only for videos)
+    const player = useVideoPlayer(isVideo ? item.video_url : '', player => {
+        if (isVideo) {
+            player.loop = true;
             player.muted = isMuted;
         }
-    }, [isMuted, player]);
+    });
+
+    // Handle Visibility & Mute (only for videos)
+    useEffect(() => {
+        if (isVideo && player) {
+            if (isVisible) {
+                player.play();
+            } else {
+                player.pause();
+            }
+            setIsPlaying(isVisible);
+        }
+    }, [isVisible, player, isVideo]);
+
+    useEffect(() => {
+        if (isVideo && player) {
+            player.muted = isMuted;
+        }
+    }, [isMuted, player, isVideo]);
 
     // Check User Reaction on Mount
     useEffect(() => {
@@ -100,6 +120,7 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     };
 
     const togglePlay = () => {
+        if (!isVideo) return; // Images don't play
         if (player.playing) {
             player.pause();
             setIsPlaying(false);
@@ -166,16 +187,26 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     return (
         <View style={styles.container}>
             <TouchableOpacity activeOpacity={1} onPress={togglePlay} style={styles.videoContainer}>
-                <VideoView
-                    player={player}
-                    style={styles.video}
-                    contentFit="cover"
-                    nativeControls={false}
-                />
-                {!isPlaying && (
-                    <View style={styles.playIconContainer}>
-                        <Ionicons name="play" size={50} color="rgba(255,255,255,0.7)" />
-                    </View>
+                {isVideo ? (
+                    <>
+                        <VideoView
+                            player={player}
+                            style={styles.video}
+                            contentFit="cover"
+                            nativeControls={false}
+                        />
+                        {!isPlaying && (
+                            <View style={styles.playIconContainer}>
+                                <Ionicons name="play" size={50} color="rgba(255,255,255,0.7)" />
+                            </View>
+                        )}
+                    </>
+                ) : (
+                    <Image
+                        source={{ uri: item.video_url }}
+                        style={styles.video}
+                        resizeMode="cover"
+                    />
                 )}
             </TouchableOpacity>
 
@@ -202,11 +233,13 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
                     <Ionicons name="chatbox-ellipses-outline" size={32} color="white" />
                 </TouchableOpacity>
 
-                {/* Mute Button */}
-                <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
-                    <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={32} color="white" />
-                    <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
-                </TouchableOpacity>
+                {/* Mute Button - Only show for videos */}
+                {isVideo && (
+                    <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
+                        <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={32} color="white" />
+                        <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
+                    </TouchableOpacity>
+                )}
 
                 {/* Share Button */}
                 <TouchableOpacity onPress={handleShare} style={styles.actionButton}>

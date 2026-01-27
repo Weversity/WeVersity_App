@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import NotificationIcon from '../notifications/NotificationIcon';
@@ -24,6 +25,7 @@ interface Short {
   thumbnail: string; // uri
   type: 'image' | 'video';
   uri: string;
+  public_id?: string;
   createdAt: string; // ISO string
   title?: string;
 }
@@ -115,6 +117,105 @@ const ShortViewerModal = ({ short, visible, onClose }: { short: Short; visible: 
   );
 };
 
+const SHORT_CARD_GAP = 10;
+const SHORT_CARD_WIDTH = (width - 40 - (SHORT_CARD_GAP * 2)) / 3;
+
+const ShortCard = ({ short, onPress, onDelete }: { short: Short; onPress: () => void; onDelete: (short: Short) => void }) => {
+  const [thumbnail, setThumbnail] = useState<string | null>(short.type === 'image' ? short.uri : short.thumbnail);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const generateThumbnail = async () => {
+      // STRICT CHECK: Only generate if it is explicit video type
+      if (short.type === 'video') {
+        // If we already have a generated thumbnail that is NOT the video URI, skip
+        if (thumbnail && thumbnail !== short.uri) return;
+
+        try {
+          setLoading(true);
+          const { uri } = await VideoThumbnails.getThumbnailAsync(short.uri, {
+            time: 1000,
+          });
+          if (isMounted) {
+            setThumbnail(uri);
+          }
+        } catch (e) {
+          console.warn("Could not generate thumbnail", e);
+        } finally {
+          if (isMounted) setLoading(false);
+        }
+      } else {
+        // It is an image, just use the uri
+        if (isMounted && thumbnail !== short.uri) {
+          setThumbnail(short.uri);
+        }
+      }
+    };
+    generateThumbnail();
+    return () => { isMounted = false; };
+  }, [short.uri, short.type]);
+
+  return (
+    <TouchableOpacity style={styles.shortCard} onPress={onPress} activeOpacity={0.9}>
+      {(loading || !thumbnail) ? (
+        <View style={[styles.shortCardImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
+          <ActivityIndicator size="small" color="#fff" />
+        </View>
+      ) : (
+        <Image source={{ uri: thumbnail }} style={styles.shortCardImage} />
+      )}
+
+      {/* Play Icon Overlay */}
+      {short.type === 'video' && (
+        <View style={styles.playIconContainer}>
+          <Ionicons name="play" size={12} color="#fff" />
+        </View>
+      )}
+
+      {/* Delete Button - Top Right */}
+      <TouchableOpacity style={styles.cardDeleteButton} onPress={() => onDelete(short)}>
+        <Ionicons name="trash-outline" size={14} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Time Gradient Overlay - NO Title */}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.9)']}
+        style={styles.shortCardOverlay}
+      >
+        <Text style={styles.shortCardTime}>{getTimeAgo(short.createdAt)}</Text>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+};
+
+const UploadChoiceModal = ({ visible, onClose, onCamera, onGallery }: { visible: boolean; onClose: () => void; onCamera: () => void; onGallery: () => void }) => {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity style={styles.modalBackdrop} onPress={onClose} activeOpacity={1} />
+        <View style={styles.actionSheetContainer}>
+          <Text style={styles.actionSheetTitle}>Choose an Option</Text>
+
+          <TouchableOpacity style={styles.actionSheetButton} onPress={onCamera}>
+            <Ionicons name="camera-outline" size={24} color="#8A2BE2" />
+            <Text style={styles.actionSheetButtonText}>Take Video/Photo</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionSheetButton} onPress={onGallery}>
+            <Ionicons name="images-outline" size={24} color="#8A2BE2" />
+            <Text style={styles.actionSheetButtonText}>Choose from Gallery</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.actionSheetButton, styles.cancelButton]} onPress={onClose}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 interface InstructorStats {
   totalStudents: number;
   totalRevenue: number;
@@ -125,6 +226,7 @@ interface InstructorStats {
 const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const { user, profile } = useAuth();
   const [menuVisible, setMenuVisible] = useState(false);
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const router = useRouter();
 
   // Camera State
@@ -148,10 +250,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   });
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false); // Deletion state
 
   const firstName = user?.user_metadata?.first_name;
   const lastName = user?.user_metadata?.last_name;
   const emailUsername = profile?.email?.split('@')[0] || user?.email?.split('@')[0];
+
+  const manualSync = async () => {
+    Alert.alert("Syncing...", "Checking for invalid entries and ghost files...");
+    await loadShorts();
+    Alert.alert("Sync Complete", "Your profile is now up to date.");
+  };
 
   const instructorName = (firstName && lastName)
     ? `${firstName} ${lastName}`
@@ -218,7 +327,8 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     setRefreshing(true);
     await Promise.all([
       fetchStats(),
-      fetchCourses()
+      fetchCourses(),
+      loadShorts() // Ensure manual cleanup is possible via pull-to-refresh
     ]);
     setRefreshing(false);
   };
@@ -228,97 +338,190 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const loadShorts = async () => {
     try {
       if (!user?.id) return;
+
+      console.log('📥 Loading shorts for instructor:', user.id);
+
       // Fetch real data from Supabase
       const data = await videoService.fetchInstructorShorts(user.id);
+
+      console.log('📊 Fetched shorts count:', data?.length || 0);
+
       if (data) {
-        // Map Supabase data to local Short interface if needed, 
-        // but Short interface matches reasonably well (id, video_url -> uri).
-        // We'll normalize it:
-        const mapped = data.map(s => ({
+        // MANUAL CLEANUP LOGIC: Filter out invalid entries
+        const validData = data.filter((s: any) => {
+          const isValid = s.video_url && s.video_url.trim() !== '' && s.id;
+          if (!isValid) {
+            console.warn('⚠️ FILTERING OUT INVALID SHORT:', {
+              id: s.id,
+              video_url: s.video_url,
+              reason: !s.id ? 'Missing ID' : 'Invalid video_url'
+            });
+          }
+          return isValid;
+        });
+
+        console.log('✅ Valid shorts after cleanup:', validData.length);
+        console.log('🗑️ Filtered out invalid shorts:', data.length - validData.length);
+
+        // Map Supabase data to local Short interface
+        const mapped = validData.map((s: any) => ({
           id: s.id,
-          thumbnail: s.video_url, // For now using video URL as thumb, potentially use a thumb generator later
-          type: 'video' as 'video',
+          thumbnail: s.video_url, // For now using video URL as thumb
+          type: s.type || 'video', // Use stored type or default to video
           uri: s.video_url,
+          public_id: s.public_id, // Store public_id in local state
           createdAt: s.created_at,
           title: s.description || 'Untitled Short'
         }));
+
+        console.log('📋 Final mapped shorts:', mapped.length);
         setShorts(mapped);
       }
     } catch (error) {
-      console.error('Failed to load shorts', error);
+      console.error('❌ Failed to load shorts:', error);
     }
   };
 
-  const confirmDeleteShort = (id: string) => {
+  const confirmDeleteShort = (short: Short) => {
     Alert.alert(
       "Delete Short",
       "Are you sure you want to delete this short?",
       [
-        { text: "No", style: "cancel" },
+        { text: "Cancel", style: "cancel" },
         {
-          text: "Yes",
+          text: "Delete",
           style: "destructive",
-          onPress: () => deleteShort(id)
+          onPress: () => deleteShort(short)
         }
       ]
     );
   };
 
-  const deleteShort = async (id: string) => {
+  const deleteShort = async (short: Short) => {
     try {
-      await videoService.deleteShort(id);
-      const updatedShorts = shorts.filter(s => s.id !== id);
-      setShorts(updatedShorts);
-    } catch (error) {
-      Alert.alert("Error", "Failed to delete short");
-      console.error(error);
+      console.log('🗑️ ========== DELETION STARTED ==========');
+      console.log('DELETING THIS ID:', short.id); // Requested specific log
+      console.log('TYPE OF ID:', typeof short.id); // Helper log
+      console.log('🔍 LOG: Short object:', JSON.stringify(short, null, 2));
+      console.log('🔍 LOG: public_id:', short.public_id);
+      console.log('🔍 LOG: type:', short.type);
+
+      // STEP 1 & 2: Sequential deletion (Cloudinary -> Supabase)
+      // This will throw an error if either step fails
+      const result = await videoService.deleteShort(short.id, short.public_id, short.type);
+
+      console.log('✅ LOG: Deletion result:', JSON.stringify(result));
+      console.log('✅ Deletion successful, updating UI state');
+
+      // STEP 3: State Cleanup - Immediately remove from UI after successful deletion
+      setShorts(prev => {
+        const filtered = prev.filter(item => item.id !== short.id);
+        console.log('🔄 LOG: Shorts before filter:', prev.length);
+        console.log('🔄 LOG: Shorts after filter:', filtered.length);
+        return filtered;
+      });
+
+      // FORCE REFRESH: Reload from database to ensure UI is in sync
+      console.log('🔄 LOG: Force refreshing shorts from database...');
+      await loadShorts();
+      console.log('✅ LOG: Force refresh complete');
+
+      Alert.alert("Success", "Short deleted successfully");
+      console.log('🗑️ ========== DELETION COMPLETED ==========');
+    } catch (error: any) {
+      console.error('❌ ========== DELETION FAILED ==========');
+      console.error('❌ Deletion failed:', error);
+      console.error('❌ Error message:', error?.message);
+      console.error('❌ Error stack:', error?.stack);
+
+      // Provide detailed error feedback
+      const errorMessage = error?.message || "Failed to delete short";
+      Alert.alert("Error", errorMessage);
+
+      // Reload from server to ensure UI is in sync with database
+      console.log('🔄 LOG: Reloading shorts after error...');
+      await loadShorts();
     }
   };
 
-  const uploadShort = async () => {
+  const processUpload = async (asset: ImagePicker.ImagePickerAsset) => {
+    try {
+      setUploadModalVisible(false); // Close modal immediately
+      Alert.alert("Uploading", "Your short is being uploaded...");
+
+      // 1. Upload to Cloudinary
+      if (!user?.id) throw new Error("User not found");
+
+      const type = asset.type === 'image' ? 'image' : 'video';
+      const result = await videoService.uploadVideoToCloudinary(asset.uri, type);
+
+      // 2. Insert into Supabase
+      await videoService.createShort({
+        video_url: result.secure_url,
+        description: asset.fileName || "New Short",
+        instructor_id: user.id,
+        type: type,
+        public_id: result.public_id
+      });
+
+      // 3. Refresh List
+      Alert.alert("Success", "Short uploaded successfully!");
+      loadShorts();
+
+    } catch (error: any) {
+      console.error("Upload failed", error);
+      // Detailed error for debugging
+      const errorMessage = error.message || "Failed to upload short. Please check your connection.";
+      Alert.alert("Upload Failed", errorMessage);
+    }
+  };
+
+  const handleCameraCapture = async () => {
     // Request permission
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      alert('Sorry, we need camera roll permissions to make this work!');
+    const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (permissionResult.status !== 'granted') {
+      Alert.alert('Permission needed', 'Camera permission is required to take photos or videos.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images', 'videos'], // Updated from MediaTypeOptions
+      quality: 0.7,
+      allowsEditing: true,
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_640x480,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      processUpload(result.assets[0]);
+    }
+  };
+
+  const handleGallerySelect = async () => {
+    // Request permission
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permissionResult.status !== 'granted') {
+      Alert.alert('Permission needed', 'Gallery permission is required to upload shorts.');
       return;
     }
 
     // Pick media
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'], // Enforce videos for Shorts
-      allowsMultipleSelection: false, // Upload one at a time for simplicity
+      mediaTypes: ['images', 'videos'], // Updated from MediaTypeOptions
+      allowsMultipleSelection: false,
       quality: 0.7,
-      videoExportPreset: ImagePicker.VideoExportPreset.H264_640x480, // Compress for S3 limits
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_640x480,
       allowsEditing: true,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      const asset = result.assets[0];
-
-      try {
-        Alert.alert("Uploading", "Your short is being uploaded...");
-
-        // 1. Upload to Cloudinary
-        if (!user?.id) throw new Error("User not found");
-        const publicUrl = await videoService.uploadVideoToCloudinary(asset.uri);
-
-        // 2. Insert into Supabase
-        await videoService.createShort({
-          video_url: publicUrl,
-          description: asset.fileName || "New Short",
-          instructor_id: user.id
-        });
-
-        // 3. Refresh List
-        Alert.alert("Success", "Short uploaded successfully!");
-        loadShorts();
-
-      } catch (error: any) {
-        console.error("Upload failed", error);
-        // Show specific error from service if it exists
-        Alert.alert("Upload Failed", error.message || "Failed to upload short. Check your internet or Cloudinary config.");
-      }
+      processUpload(result.assets[0]);
     }
+  };
+
+  const uploadShort = () => {
+    setUploadModalVisible(true);
   };
 
   const handleGoLive = async () => {
@@ -364,6 +567,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             </View>
           </View>
           <View style={styles.headerRight}>
+
             <NotificationIcon />
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
               <Ionicons name="menu" size={28} color="#fff" />
@@ -371,6 +575,16 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           </View>
         </View>
       </View>
+
+      {/* Deletion Loading Overlay */}
+      {isDeleting && (
+        <View style={styles.uploadingOverlay}>
+          <View style={styles.uploadingContainer}>
+            <ActivityIndicator size="large" color="#8A2BE2" />
+            <Text style={styles.uploadingText}>Deleting Short...</Text>
+          </View>
+        </View>
+      )}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -461,20 +675,38 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           </View>
 
           {shorts.length === 0 ? (
-            <Text style={styles.emptyShortsText}>No shorts uploaded yet</Text>
+            <View style={styles.emptyCoursesContainer}>
+              <Ionicons name="videocam-outline" size={40} color="#D1C4E9" />
+              <Text style={styles.emptyCoursesTitle}>No Shorts Yet</Text>
+              <Text style={styles.emptyCoursesSubtitle}>Create short videos to engage your students.</Text>
+            </View>
           ) : (
-            shorts.slice(0, 3).map(short => (
-              <TouchableOpacity key={short.id} style={styles.shortItem} onPress={() => setSelectedShort(short)}>
-                <Image source={{ uri: short.thumbnail }} style={styles.shortIcon} />
-                <View style={styles.shortInfo}>
-                  <Text style={styles.shortTitle} numberOfLines={1}>{short.title || 'Untitled Short'}</Text>
-                  <Text style={styles.shortTime}>{getTimeAgo(short.createdAt)}</Text>
-                </View>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeleteShort(short.id)}>
-                  <Ionicons name="trash-outline" size={20} color="#FF5252" />
+            <View>
+              {
+                /* 
+                   Using a View with flexWrap for grid if few items, 
+                   or just simple map since it's "Recent Shorts" (likely limited number).
+                   But user asked for numColumns={3} in FlatList or flexWrap.
+                   We already have scrollview as main container. Nesting FlatList is tricky.
+                   Let's use a View with flexWrap to respect the parent ScrollView.
+                */
+              }
+              <View style={styles.shortsGrid}>
+                {shorts.slice(0, 9).map(short => (
+                  <ShortCard
+                    key={short.id}
+                    short={short}
+                    onPress={() => setSelectedShort(short)}
+                    onDelete={confirmDeleteShort}
+                  />
+                ))}
+              </View>
+              {shorts.length > 9 && (
+                <TouchableOpacity onPress={() => setViewAllShortsVisible(true)} style={{ alignSelf: 'center', marginTop: 10 }}>
+                  <Text style={styles.seeAllText}>View More</Text>
                 </TouchableOpacity>
-              </TouchableOpacity>
-            ))
+              )}
+            </View>
           )}
         </View>
 
@@ -552,6 +784,27 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         router={router}
       />
 
+      <SideMenu
+        visible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+        logout={logout}
+        onGoLive={handleGoLive}
+        onUploadShort={uploadShort}
+        onViewPublicProfile={() => {
+          if (user?.id) {
+            router.push({ pathname: '/viewProfile/[id]', params: { id: user.id, mode: 'edit' } });
+          }
+        }}
+        router={router}
+      />
+
+      <UploadChoiceModal
+        visible={uploadModalVisible}
+        onClose={() => setUploadModalVisible(false)}
+        onCamera={handleCameraCapture}
+        onGallery={handleGallerySelect}
+      />
+
       {/* Camera Modal */}
       <Modal visible={isCameraVisible} animationType="slide" onRequestClose={() => setIsCameraVisible(false)}>
         <View style={{ flex: 1, backgroundColor: 'black' }}>
@@ -594,7 +847,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                   <Text style={styles.shortTitle} numberOfLines={1}>{item.title || 'Untitled Short'}</Text>
                   <Text style={styles.shortTime}>{getTimeAgo(item.createdAt)}</Text>
                 </View>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeleteShort(item.id)}>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeleteShort(item)}>
                   <Ionicons name="trash-outline" size={20} color="#FF5252" />
                 </TouchableOpacity>
               </TouchableOpacity>
@@ -797,11 +1050,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
+
   sectionTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
   },
+  // ... other styles
+  actionSheetContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    width: '100%',
+    position: 'absolute',
+    bottom: 0,
+    paddingBottom: 40,
+  },
+  actionSheetTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#333',
+  },
+  actionSheetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    gap: 15,
+  },
+  actionSheetButtonText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  cancelButton: {
+    marginTop: 15,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderBottomWidth: 0,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FF5252',
+  },
+
   seeAllText: {
     color: '#8A2BE2',
     fontSize: 14,
@@ -839,6 +1137,69 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     marginTop: 10,
+  },
+
+
+  // New Shorts Card Styles
+  shortsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SHORT_CARD_GAP,
+  },
+  shortCard: {
+    width: SHORT_CARD_WIDTH,
+    height: SHORT_CARD_WIDTH * 1.3, // Slightly portrait
+    borderRadius: 15, // 15-20px
+    backgroundColor: '#000',
+    overflow: 'hidden',
+    marginBottom: 5,
+    // No border as requested
+  },
+  shortCardImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  shortCardOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 8,
+    paddingTop: 20,
+    justifyContent: 'flex-end',
+  },
+  shortCardTime: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+    opacity: 0.9,
+  },
+  playIconContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -12 }, { translateY: -12 }],
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+  },
+  cardDeleteButton: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 0, 0, 0.6)', // Semi-transparent red
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
 
   // Modal / Side Menu Styles
@@ -1091,6 +1452,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
     marginTop: 5,
+  },
+  uploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  uploadingContainer: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    width: 200,
+  },
+  uploadingText: {
+    marginTop: 10,
+    color: '#000',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

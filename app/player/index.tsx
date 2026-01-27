@@ -44,6 +44,7 @@ export default function PlayerScreen() {
                 isVisible={true}
                 isMuted={isMuted}
                 setIsMuted={setIsMuted}
+                onRefresh={() => { }}
             />
         </View>
     );
