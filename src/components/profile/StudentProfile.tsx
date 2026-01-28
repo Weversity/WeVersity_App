@@ -1,9 +1,10 @@
+import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import NotificationIcon from '../notifications/NotificationIcon';
 
 const { width } = Dimensions.get('window');
@@ -16,9 +17,14 @@ const continueLearning = [
 ];
 
 
-const SideMenu = ({ visible, onClose, router }: { visible: boolean; onClose: () => void; router: any }) => {
+const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean; onClose: () => void; router: any; profileData?: any }) => {
   const { logout, user } = useAuth(); // Get logout and user from useAuth
   if (!visible) return null;
+
+  const displayAvatar = profileData?.avatar_url || user?.user_metadata?.avatar || user?.user_metadata?.avatar_url;
+  const firstName = profileData?.first_name || user?.user_metadata?.first_name || 'Student';
+  const lastName = profileData?.last_name || user?.user_metadata?.last_name || '';
+  const initials = `${firstName[0]}${lastName[0] || ''}`.toUpperCase();
 
   const menuItemsStudent = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
@@ -35,7 +41,16 @@ const SideMenu = ({ visible, onClose, router }: { visible: boolean; onClose: () 
         <TouchableOpacity style={styles.modalBackdrop} onPress={onClose} activeOpacity={1} />
         <View style={styles.menuContainer}>
           <View style={styles.menuHeader}>
-            <Text style={styles.menuTitle}>We Versity</Text>
+            <View style={styles.menuProfileSection}>
+              {displayAvatar && displayAvatar.trim() !== '' && displayAvatar.startsWith('http') ? (
+                <Image source={{ uri: displayAvatar }} key={displayAvatar} style={styles.menuAvatar} />
+              ) : (
+                <View style={[styles.menuAvatar, { backgroundColor: '#F3E5F5', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#8A2BE2' }]}>
+                  <Text style={{ color: '#8A2BE2', fontWeight: 'bold', fontSize: 18 }}>{initials}</Text>
+                </View>
+              )}
+              <Text style={styles.menuProfileName} numberOfLines={1}>{firstName} {lastName}</Text>
+            </View>
           </View>
           <View style={styles.menuItems}>
             <Text style={styles.menuSubtitle}>MENU</Text>
@@ -65,15 +80,36 @@ const SideMenu = ({ visible, onClose, router }: { visible: boolean; onClose: () 
 const StudentProfile = () => {
   const { role, user, profile } = useAuth();
 
-  const firstName = user?.user_metadata?.first_name;
-  const lastName = user?.user_metadata?.last_name;
+  const [profileData, setProfileData] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchProfileData = async () => {
+    try {
+      if (!user?.id) return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('first_name, last_name, avatar_url')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        setProfileData(data);
+      }
+    } catch (error) {
+      console.error('Error fetching profile data:', error);
+    }
+  };
+
+  const dynamicFirstName = profileData?.first_name || user?.user_metadata?.first_name;
+  const dynamicLastName = profileData?.last_name || user?.user_metadata?.last_name;
   const emailUsername = profile?.email?.split('@')[0] || user?.email?.split('@')[0];
 
-  const userDisplayName = (firstName && lastName)
-    ? `${firstName} ${lastName}`
-    : (emailUsername || 'Student');
+  const userDisplayName = (dynamicFirstName && dynamicLastName)
+    ? `${dynamicFirstName} ${dynamicLastName}`
+    : (dynamicFirstName || emailUsername || 'Student');
 
-  const userProfilePic = user?.user_metadata?.avatar || 'https://example.com/default-avatar.png';
+  const displayAvatar = profileData?.avatar_url || user?.user_metadata?.avatar || user?.user_metadata?.avatar_url;
+  const initials = `${(dynamicFirstName || 'S')[0]}${(dynamicLastName || '')[0]}`.toUpperCase();
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedCourseTab, setSelectedCourseTab] = useState('Technical Courses');
   const [upcomingCount, setUpcomingCount] = useState(0);
@@ -143,132 +179,85 @@ const StudentProfile = () => {
   const isFetchingRef = useRef(false);
   const debounceTimerRef = useRef<any>(null);
 
+  // Separate lightweight fetch functions - Lifted for onRefresh access
+  const fetchUpcomingCount = async (supabase: any) => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const tonight = new Date(); tonight.setHours(23, 59, 59, 999);
+    const { data } = await supabase.from('live_sessions').select('id', { count: 'exact', head: true }).gte('scheduled_at', today.toISOString()).lte('scheduled_at', tonight.toISOString());
+    setUpcomingCount(data?.length || 0);
+  };
+
+  const fetchLiveSessions = async (supabase: any) => {
+    if (!user?.id) return;
+    const { data } = await supabase.from('live_sessions').select('id, title, status, started_at, course_id').in('status', ['active', 'live']).order('started_at', { ascending: false }).limit(5);
+    if (data && data.length > 0) {
+      const processed = await Promise.all(data.map(async (s: any) => {
+        const { count } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('course_id', s.course_id);
+        return {
+          id: s.id,
+          title: s.title || 'Live Session',
+          instructor: 'Instructor',
+          viewers: count || 0,
+          startedAt: s.started_at,
+          image: 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
+        };
+      }));
+      setActiveSessions(processed);
+    } else {
+      setActiveSessions([]);
+    }
+  };
+
+  const fetchInstructors = async (supabase: any) => {
+    const { data } = await supabase.from('profiles').select('id, first_name, last_name, avatar_url').eq('role', 'instructor').limit(10);
+    if (data) {
+      setTopInstructors(data.map((p: any) => ({
+        id: p.id,
+        name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Instructor',
+        avatar: p.avatar_url,
+        initials: `${p.first_name?.[0] || 'I'}${p.last_name?.[0] || 'N'}`
+      })));
+    }
+    setIsLoadingInstructors(false);
+  };
+
+  const fetchEnrollments = async (supabase: any) => {
+    if (!user?.id) return;
+    const { data, error } = await supabase
+      .from('enrollments')
+      .select('completed_lessons, course:courses(id, title, image_url, total_lessons, instructor:profiles(first_name, last_name))')
+      .eq('student_id', user.id)
+      .order('id', { ascending: false })
+      .limit(3);
+
+    if (error || !data || data.length === 0) {
+      setRecentCourses([]);
+      setIsLoadingRecent(false);
+      return;
+    }
+
+    const mapped = data.map((e: any) => {
+      const c = e.course;
+      const inst = Array.isArray(c.instructor) ? c.instructor[0] : c.instructor;
+      const instructorName = inst ? `${inst.first_name || ''} ${inst.last_name || ''}`.trim() : 'Instructor';
+      const completedCount = Array.isArray(e.completed_lessons) ? e.completed_lessons.length : (typeof e.completed_lessons === 'number' ? e.completed_lessons : 0);
+      const totalItems = c.total_lessons || 12;
+      return {
+        id: c.id,
+        title: c.title,
+        instructor: instructorName,
+        image: c.image_url || 'https://via.placeholder.com/150',
+        progress: totalItems > 0 ? Math.min(completedCount / totalItems, 1) : 0
+      };
+    }).filter(Boolean);
+    setRecentCourses(mapped);
+    setIsLoadingRecent(false);
+  };
+
   useEffect(() => {
     let subscription: any;
 
-    // Separate lightweight fetch functions
-    const fetchUpcomingCount = async (supabase: any) => {
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const tonight = new Date(); tonight.setHours(23, 59, 59, 999);
-      const { data } = await supabase.from('live_sessions').select('id', { count: 'exact', head: true }).gte('scheduled_at', today.toISOString()).lte('scheduled_at', tonight.toISOString());
-      setUpcomingCount(data?.length || 0);
-    };
 
-    const fetchLiveSessions = async (supabase: any) => {
-      if (!user?.id) return;
-      // CRITICAL: Only fetch minimal data for live sessions
-      const { data } = await supabase.from('live_sessions').select('id, title, status, started_at, course_id').in('status', ['active', 'live']).order('started_at', { ascending: false }).limit(5);
-      if (data && data.length > 0) {
-        const processed = await Promise.all(data.map(async (s: any) => {
-          const { count } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('course_id', s.course_id);
-          return {
-            id: s.id,
-            title: s.title || 'Live Session',
-            instructor: 'Instructor', // Simplified - no join
-            viewers: count || 0,
-            startedAt: s.started_at,
-            image: 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
-          };
-        }));
-        setActiveSessions(processed);
-      } else {
-        setActiveSessions([]);
-      }
-    };
-
-    const fetchInstructors = async (supabase: any) => {
-      const { data } = await supabase.from('profiles').select('id, first_name, last_name, avatar_url').eq('role', 'instructor').limit(10);
-      if (data) {
-        setTopInstructors(data.map((p: any) => ({
-          id: p.id,
-          name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Instructor',
-          avatar: p.avatar_url,
-          initials: `${p.first_name?.[0] || 'I'}${p.last_name?.[0] || 'N'}`
-        })));
-      }
-      setIsLoadingInstructors(false);
-    };
-
-    const fetchEnrollments = async (supabase: any) => {
-      if (!user?.id) return;
-
-      console.log('DEBUG: ========== ENROLLMENT FETCH START ==========');
-
-      // Verify auth session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (!session) {
-        console.error('ERROR: No active session - user not authenticated');
-        setIsLoadingRecent(false);
-        return;
-      }
-
-      console.log('DEBUG: Using Direct Database Query for Enrollments');
-
-      // Direct Query with Strict Column Selection (Lightweight)
-      // Added total_lessons to select and ordering by created_at
-      const { data, error } = await supabase
-        .from('enrollments')
-        .select('completed_lessons, course:courses(id, title, image_url, total_lessons, instructor:profiles(first_name, last_name))')
-        .eq('student_id', user.id)
-        .order('id', { ascending: false })
-        .limit(3);
-
-      console.log('DEBUG: Direct Query Response:', data);
-
-      if (error) {
-        console.error('ERROR: Direct query failed:', error);
-        setIsLoadingRecent(false);
-        return;
-      }
-
-      if (!data || data.length === 0) {
-        console.warn('No enrollments found for user:', user.id);
-        setRecentCourses([]);
-        setIsLoadingRecent(false);
-        return;
-      }
-
-      const mapped = data.map((e: any, index: number) => {
-        try {
-          const c = e.course;
-          if (!c || !c.id) {
-            console.warn(`No valid course data for enrollment ${index + 1}`);
-            return null;
-          }
-
-          // Flexible instructor handling
-          const inst = Array.isArray(c.instructor) ? c.instructor[0] : c.instructor;
-          const instructorName = inst ? `${inst.first_name || ''} ${inst.last_name || ''}`.trim() : 'Instructor';
-
-          // Accurate Progress Logic
-          // Step A: Count completed lessons
-          const completedCount = Array.isArray(e.completed_lessons)
-            ? e.completed_lessons.length
-            : (typeof e.completed_lessons === 'number' ? e.completed_lessons : 0);
-
-          // Step B & C: Use total_lessons if available, else fallback to 12
-          const totalItems = c.total_lessons || 12;
-
-          const progress = totalItems > 0 ? Math.min(completedCount / totalItems, 1) : 0; // Cap at 100%
-
-          return {
-            id: c.id,
-            title: c.title,
-            instructor: instructorName,
-            image: c.image_url || 'https://via.placeholder.com/150',
-            progress: progress
-          };
-        } catch (err) {
-          console.error(`DEBUG: Error mapping enrollment ${index + 1}:`, err);
-          return null;
-        }
-      }).filter(Boolean);
-
-      console.log('DEBUG: Final mapped courses:', mapped);
-      setRecentCourses(mapped);
-      setIsLoadingRecent(false);
-      console.log('DEBUG: ========== ENROLLMENT FETCH END ==========');
-    };
 
 
     const initializeDashboard = async () => {
@@ -278,14 +267,13 @@ const StudentProfile = () => {
 
       try {
         const { supabase } = await import('@/src/auth/supabase');
-        const { data: { session } } = await (supabase as any).auth.getSession();
-        if (!session) {
-          console.log('DEBUG: No active session found.');
-          return;
-        }
 
         // Execute separate lightweight fetches
-        await fetchUpcomingCount(supabase);
+        await Promise.all([
+          fetchProfileData(),
+          fetchUpcomingCount(supabase),
+        ]);
+
         if (user?.id) {
           await Promise.all([
             fetchLiveSessions(supabase),
@@ -323,6 +311,19 @@ const StudentProfile = () => {
     };
   }, [user?.id]);
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    const { supabase } = await import('@/src/auth/supabase');
+    await Promise.all([
+      fetchProfileData(),
+      fetchUpcomingCount(supabase),
+      fetchLiveSessions(supabase),
+      fetchInstructors(supabase),
+      fetchEnrollments(supabase)
+    ]);
+    setRefreshing(false);
+  };
+
 
   return (
     <View style={styles.container}>
@@ -336,13 +337,11 @@ const StudentProfile = () => {
         <View style={styles.topBar}>
           <View style={styles.profileContainer}>
             <TouchableOpacity onPress={() => router.push('/profileSettings')}>
-              {userProfilePic && userProfilePic !== 'https://example.com/default-avatar.png' ? (
-                <Image source={{ uri: userProfilePic }} style={styles.headerProfilePic} />
+              {displayAvatar && displayAvatar.trim() !== '' && displayAvatar.startsWith('http') ? (
+                <Image source={{ uri: displayAvatar }} key={displayAvatar || 'avatar'} style={styles.headerProfilePic} />
               ) : (
                 <View style={[styles.headerProfilePic, { backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' }]}>
-                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
-                    {firstName?.[0]?.toUpperCase()}{lastName?.[0]?.toUpperCase()}
-                  </Text>
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>{initials}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -360,7 +359,11 @@ const StudentProfile = () => {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#8A2BE2']} />}
+      >
 
         {/* Welcome Card */}
         <LinearGradient
@@ -513,7 +516,7 @@ const StudentProfile = () => {
 
 
       </ScrollView>
-      <SideMenu visible={menuVisible} onClose={() => setMenuVisible(false)} router={router} />
+      <SideMenu visible={menuVisible} onClose={() => setMenuVisible(false)} router={router} profileData={profileData} />
     </View>
   );
 };
@@ -523,6 +526,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  menuHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    backgroundColor: '#fff',
+  },
+  menuProfileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  menuAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  menuProfileName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
   },
   header: {
     paddingTop: 50, // Adjusted for status bar
@@ -1004,12 +1029,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 10,
-  },
-  menuHeader: {
-    marginBottom: 40,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
   },
   menuTitle: {
     fontSize: 24,

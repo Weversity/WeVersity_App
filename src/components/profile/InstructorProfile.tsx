@@ -1,8 +1,9 @@
+import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext';
 import { courseService } from '@/src/services/courseService';
 import { videoService } from '@/src/services/videoService';
 import { Ionicons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -44,21 +45,26 @@ const getTimeAgo = (dateString: string) => {
   return `${diffInDays} days ago`;
 };
 
-const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onViewPublicProfile, router }: {
+const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile, router, profileData }: {
   visible: boolean;
   onClose: () => void;
   logout: () => void;
-  onGoLive: () => void;
   onUploadShort: () => void;
   onViewPublicProfile: () => void;
   router: any;
+  profileData?: any;
 }) => {
+  const { user } = useAuth();
   if (!visible) return null;
+
+  const displayAvatar = profileData?.avatar_url || user?.user_metadata?.avatar || user?.user_metadata?.avatar_url;
+  const firstName = profileData?.first_name || user?.user_metadata?.first_name || 'Instructor';
+  const lastName = profileData?.last_name || user?.user_metadata?.last_name || '';
+  const initials = `${firstName[0]}${lastName[0] || ''}`.toUpperCase();
 
   const menuItems = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '3', title: 'Public Profile', icon: 'person-circle-outline', onPress: () => { onClose(); onViewPublicProfile(); } },
-    { id: '2', title: 'Go Live', icon: 'radio-outline', onPress: () => { onClose(); onGoLive(); } },
     { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
     { id: '7', title: 'Support', icon: 'help-circle-outline', onPress: () => { onClose(); router.push('/support'); } },
     { id: '6', title: 'Following', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
@@ -71,7 +77,16 @@ const SideMenu = ({ visible, onClose, logout, onGoLive, onUploadShort, onViewPub
         <TouchableOpacity style={styles.modalBackdrop} onPress={onClose} activeOpacity={1} />
         <View style={styles.menuContainer}>
           <View style={styles.menuHeader}>
-            <Text style={styles.menuTitle}>WeVersity</Text>
+            <View style={styles.menuProfileSection}>
+              {displayAvatar && displayAvatar.trim() !== '' && displayAvatar.startsWith('http') ? (
+                <Image source={{ uri: displayAvatar }} key={displayAvatar} style={styles.menuAvatar} />
+              ) : (
+                <View style={[styles.menuAvatar, { backgroundColor: '#F3E5F5', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#8A2BE2' }]}>
+                  <Text style={{ color: '#8A2BE2', fontWeight: 'bold', fontSize: 18 }}>{initials}</Text>
+                </View>
+              )}
+              <Text style={styles.menuProfileName} numberOfLines={1}>{firstName} {lastName}</Text>
+            </View>
           </View>
           <View style={styles.menuItems}>
             <Text style={styles.menuSubtitle}>MENU</Text>
@@ -117,10 +132,12 @@ const ShortViewerModal = ({ short, visible, onClose }: { short: Short; visible: 
   );
 };
 
-const SHORT_CARD_GAP = 10;
+const SHORT_CARD_GAP = 8;
 const SHORT_CARD_WIDTH = (width - 40 - (SHORT_CARD_GAP * 2)) / 3;
+// Dashboard has nested padding: 20 (ScrollView) + 20 (recentSection) = 40 per side => 80 total + 10 margin of safety = 90
+const DASHBOARD_SHORT_WIDTH = (width - 90 - (SHORT_CARD_GAP * 2)) / 3;
 
-const ShortCard = ({ short, onPress, onDelete }: { short: Short; onPress: () => void; onDelete: (short: Short) => void }) => {
+const ShortCard = ({ short, onPress, onDelete, style }: { short: Short; onPress: () => void; onDelete: (short: Short) => void; style?: any }) => {
   const [thumbnail, setThumbnail] = useState<string | null>(short.type === 'image' ? short.uri : short.thumbnail);
   const [loading, setLoading] = useState(false);
 
@@ -157,7 +174,7 @@ const ShortCard = ({ short, onPress, onDelete }: { short: Short; onPress: () => 
   }, [short.uri, short.type]);
 
   return (
-    <TouchableOpacity style={styles.shortCard} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity style={[styles.shortCard, style]} onPress={onPress} activeOpacity={0.9}>
       {(loading || !thumbnail) ? (
         <View style={[styles.shortCardImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
           <ActivityIndicator size="small" color="#fff" />
@@ -229,9 +246,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const router = useRouter();
 
-  // Camera State
-  const [permission, requestPermission] = useCameraPermissions();
-  const [isCameraVisible, setIsCameraVisible] = useState(false);
+
 
   // Shorts State
   const [shorts, setShorts] = useState<Short[]>([]);
@@ -248,12 +263,30 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     courseRating: 0,
     totalReviews: 0
   });
+  const [profileData, setProfileData] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false); // Deletion state
 
-  const firstName = user?.user_metadata?.first_name;
-  const lastName = user?.user_metadata?.last_name;
+  const fetchProfileData = async () => {
+    try {
+      if (!user?.id) return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('first_name, last_name, avatar_url')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        setProfileData(data);
+      }
+    } catch (error) {
+      console.error('Error fetching profile data:', error);
+    }
+  };
+
+  const dynamicFirstName = profileData?.first_name || user?.user_metadata?.first_name;
+  const dynamicLastName = profileData?.last_name || user?.user_metadata?.last_name;
   const emailUsername = profile?.email?.split('@')[0] || user?.email?.split('@')[0];
 
   const manualSync = async () => {
@@ -262,14 +295,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     Alert.alert("Sync Complete", "Your profile is now up to date.");
   };
 
-  const instructorName = (firstName && lastName)
-    ? `${firstName} ${lastName}`
-    : (emailUsername || 'Instructor');
+  const instructorName = (dynamicFirstName && dynamicLastName)
+    ? `${dynamicFirstName} ${dynamicLastName}`
+    : (dynamicFirstName || emailUsername || 'Instructor');
 
-  // Use a default avatar if none exists
-  const profilePic = user?.user_metadata?.avatar || 'https://example.com/default-avatar.png';
+  const displayAvatar = profileData?.avatar_url || user?.user_metadata?.avatar || user?.user_metadata?.avatar_url;
+  const initials = `${(dynamicFirstName || 'I')[0]}${(dynamicLastName || '')[0]}`.toUpperCase();
+
+
 
   useEffect(() => {
+    fetchProfileData();
     loadShorts();
     if (user?.id) {
       fetchCourses();
@@ -326,9 +362,10 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([
+      fetchProfileData(),
       fetchStats(),
       fetchCourses(),
-      loadShorts() // Ensure manual cleanup is possible via pull-to-refresh
+      loadShorts()
     ]);
     setRefreshing(false);
   };
@@ -524,21 +561,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     setUploadModalVisible(true);
   };
 
-  const handleGoLive = async () => {
-    if (!permission) {
-      // Permission is still loading
-      return;
-    }
 
-    if (!permission.granted) {
-      const result = await requestPermission();
-      if (result.granted) {
-        setIsCameraVisible(true);
-      }
-    } else {
-      setIsCameraVisible(true);
-    }
-  };
 
   return (
     <View style={styles.container}>
@@ -551,13 +574,11 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         <View style={styles.customHeader}>
           <View style={styles.profileContainer}>
             <TouchableOpacity onPress={() => router.push('/profileSettings')}>
-              {profilePic && profilePic !== 'https://example.com/default-avatar.png' ? (
-                <Image source={{ uri: profilePic }} style={styles.headerProfilePic} />
+              {displayAvatar && displayAvatar.trim() !== '' && displayAvatar.startsWith('http') ? (
+                <Image source={{ uri: displayAvatar }} key={displayAvatar} style={styles.headerProfilePic} />
               ) : (
                 <View style={[styles.headerProfilePic, { backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' }]}>
-                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
-                    {firstName?.[0]?.toUpperCase()}{lastName?.[0]?.toUpperCase()}
-                  </Text>
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>{initials}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -644,15 +665,6 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         </View>
 
         {/* Quick Actions */}
-        <TouchableOpacity style={styles.actionButton} onPress={handleGoLive}>
-          <View style={styles.actionIconCircle}>
-            <Ionicons name="radio-outline" size={24} color="#8A2BE2" />
-          </View>
-          <View>
-            <Text style={styles.actionTitle}>Go Live</Text>
-            <Text style={styles.actionSubtitle}>Stream to your students</Text>
-          </View>
-        </TouchableOpacity>
 
 
         <TouchableOpacity style={styles.actionButton} onPress={uploadShort}>
@@ -692,12 +704,18 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                 */
               }
               <View style={styles.shortsGrid}>
-                {shorts.slice(0, 9).map(short => (
+                {shorts.slice(0, 6).map((short, index) => (
                   <ShortCard
                     key={short.id}
                     short={short}
                     onPress={() => setSelectedShort(short)}
                     onDelete={confirmDeleteShort}
+                    style={{
+                      width: DASHBOARD_SHORT_WIDTH,
+                      height: DASHBOARD_SHORT_WIDTH * 1.5,
+                      marginBottom: SHORT_CARD_GAP,
+                      marginRight: (index + 1) % 3 === 0 ? 0 : SHORT_CARD_GAP,
+                    }}
                   />
                 ))}
               </View>
@@ -770,25 +788,11 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
       </ScrollView>
 
-      <SideMenu
-        visible={menuVisible}
-        onClose={() => setMenuVisible(false)}
-        logout={logout}
-        onGoLive={handleGoLive}
-        onUploadShort={uploadShort}
-        onViewPublicProfile={() => {
-          if (user?.id) {
-            router.push({ pathname: '/viewProfile/[id]', params: { id: user.id, mode: 'edit' } });
-          }
-        }}
-        router={router}
-      />
 
       <SideMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
         logout={logout}
-        onGoLive={handleGoLive}
         onUploadShort={uploadShort}
         onViewPublicProfile={() => {
           if (user?.id) {
@@ -796,6 +800,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           }
         }}
         router={router}
+        profileData={profileData}
       />
 
       <UploadChoiceModal
@@ -805,27 +810,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         onGallery={handleGallerySelect}
       />
 
-      {/* Camera Modal */}
-      <Modal visible={isCameraVisible} animationType="slide" onRequestClose={() => setIsCameraVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: 'black' }}>
-          <CameraView style={{ flex: 1 }} facing="front">
-            <View style={styles.cameraControls}>
-              <TouchableOpacity style={styles.closeCameraBtn} onPress={() => setIsCameraVisible(false)}>
-                <Ionicons name="close" size={30} color="#fff" />
-              </TouchableOpacity>
 
-              <View style={styles.liveIndicator}>
-                <View style={styles.redDot} />
-                <Text style={styles.liveText}>PREVIEW</Text>
-              </View>
-
-              <TouchableOpacity style={styles.startStreamBtn}>
-                <Text style={styles.startStreamText}>Start Stream</Text>
-              </TouchableOpacity>
-            </View>
-          </CameraView>
-        </View>
-      </Modal>
 
       {/* View All Shorts Modal */}
       <Modal visible={viewAllShortsVisible} animationType="slide" onRequestClose={() => setViewAllShortsVisible(false)}>
@@ -840,18 +825,18 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             data={shorts}
             keyExtractor={item => item.id}
             contentContainerStyle={{ padding: 20 }}
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.shortItem} onPress={() => setSelectedShort(item)}>
-                <Image source={{ uri: item.thumbnail }} style={styles.shortIcon} />
-                <View style={styles.shortInfo}>
-                  <Text style={styles.shortTitle} numberOfLines={1}>{item.title || 'Untitled Short'}</Text>
-                  <Text style={styles.shortTime}>{getTimeAgo(item.createdAt)}</Text>
-                </View>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeleteShort(item)}>
-                  <Ionicons name="trash-outline" size={20} color="#FF5252" />
-                </TouchableOpacity>
-              </TouchableOpacity>
+            renderItem={({ item, index }) => (
+              <ShortCard
+                short={item}
+                onPress={() => setSelectedShort(item)}
+                onDelete={confirmDeleteShort}
+                style={{
+                  marginBottom: SHORT_CARD_GAP,
+                  marginRight: (index + 1) % 3 === 0 ? 0 : SHORT_CARD_GAP,
+                }}
+              />
             )}
+            numColumns={3}
             ListEmptyComponent={<Text style={styles.emptyShortsText}>No shorts found.</Text>}
           />
         </View>
@@ -948,18 +933,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   statsContainer: {
-    marginBottom: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    marginBottom: 15, // Consistent gap
+    flexDirection: 'column',
+    gap: 15, // Consistent gap between cards
   },
   statCard: {
-    width: '48%',
+    width: '100%',
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 15,
+    padding: 20, // Equal padding
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'center', // Ensure alignment
     borderWidth: 1,
     borderColor: '#E0D4FC',
     shadowColor: '#8A2BE2',
@@ -1006,15 +991,15 @@ const styles = StyleSheet.create({
   actionButton: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    padding: 20, // Equal padding
+    marginBottom: 15, // Consistent gap
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E0D4FC',
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 15,
-    height: 120,
+    // height removed to let padding dictate size
   },
   actionIconCircle: {
     width: 60,
@@ -1023,13 +1008,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F0FF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 0, // Removed bottom margin since it's in a row
   },
   actionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
-    textAlign: 'center',
+    textAlign: 'center', // Keep center
   },
   actionSubtitle: {
     fontSize: 13,
@@ -1037,10 +1022,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   recentSection: {
-    marginTop: 10,
+    marginTop: 0, // Gap handled by previous element's marginBottom
+    marginBottom: 20, // Strict 20px gap as requested
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 20,
+    padding: 20, // Equal padding
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
@@ -1048,7 +1034,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 10, // Reduced to 10px for tighter title spacing
   },
 
   sectionTitle: {
@@ -1144,15 +1130,16 @@ const styles = StyleSheet.create({
   shortsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: SHORT_CARD_GAP,
+    justifyContent: 'flex-start',
+    // Gap removed to use manual margins for precise control
   },
   shortCard: {
     width: SHORT_CARD_WIDTH,
-    height: SHORT_CARD_WIDTH * 1.3, // Slightly portrait
+    height: SHORT_CARD_WIDTH * 1.5, // 1.5:1 aspect ratio
     borderRadius: 15, // 15-20px
     backgroundColor: '#000',
     overflow: 'hidden',
-    marginBottom: 5,
+    // marginBottom and marginRight handled by props
     // No border as requested
   },
   shortCardImage: {
@@ -1246,10 +1233,27 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   menuHeader: {
-    marginBottom: 40,
-    paddingBottom: 20,
+    padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+    backgroundColor: '#fff',
+  },
+  menuProfileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  menuAvatar: {
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
+    marginRight: 12,
+  },
+  menuProfileName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
   },
   menuTitle: {
     fontSize: 24,

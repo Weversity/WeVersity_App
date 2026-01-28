@@ -53,8 +53,8 @@ export default function PublicSettingsScreen() {
             if (data) {
                 setFirstName(data.first_name || '');
                 setLastName(data.last_name || '');
-                setBio(data.bio || '');
-                setRole(data.role || 'Instructor');
+                setBio(data.biography || ''); // Map to 'biography' field
+                setRole(data.occupation || 'Instructor'); // Map to 'occupation' field
                 setAvatarUrl(data.avatar_url || '');
             }
         } catch (error: any) {
@@ -85,17 +85,66 @@ export default function PublicSettingsScreen() {
     };
 
     const handleSave = async () => {
-        Alert.alert(
-            "Under Development",
-            "This feature is currently being worked on and is not yet functional. Please check back soon!",
-            [{ text: "OK" }]
-        );
+        try {
+            setSaving(true);
+
+            let finalAvatarUrl = avatarUrl;
+
+            // Upload image to Cloudinary if new image is selected
+            if (newImageUri) {
+                try {
+                    finalAvatarUrl = await uploadImageToCloudinary(newImageUri);
+                } catch (uploadError: any) {
+                    console.error('Image upload failed:', uploadError);
+                    Alert.alert('Upload Error', 'Failed to upload image. Saving other changes...');
+                }
+            }
+
+            // Update profiles table with correct field mapping
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({
+                    first_name: firstName,
+                    last_name: lastName,
+                    occupation: role, // Map 'role' to 'occupation'
+                    biography: bio, // Map 'bio' to 'biography'
+                    avatar_url: finalAvatarUrl,
+                })
+                .eq('id', user?.id);
+
+            if (profileError) throw profileError;
+
+            // Sync with auth metadata for real-time updates across the app
+            try {
+                await supabase.auth.updateUser({
+                    data: {
+                        first_name: firstName,
+                        last_name: lastName,
+                        avatar_url: finalAvatarUrl,
+                    }
+                });
+            } catch (authError: any) {
+                console.error('Auth metadata update failed (non-critical):', authError);
+            }
+
+            // Update local state
+            setAvatarUrl(finalAvatarUrl);
+            setNewImageUri(null);
+
+            Alert.alert('Success', 'Profile updated successfully!');
+            router.back();
+        } catch (error: any) {
+            console.error('Error saving profile:', error.message);
+            Alert.alert('Error', 'Failed to save profile changes');
+        } finally {
+            setSaving(false);
+        }
     };
 
     // Helper dedicated to Image Upload
     const uploadImageToCloudinary = async (fileUri: string) => {
         const cloudName = 'dn93gd6yw';
-        const uploadPreset = 'weversity_shorts';
+        const uploadPreset = 'weversity_unsigned';
 
         const data = new FormData();
         // @ts-ignore

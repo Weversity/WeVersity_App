@@ -141,81 +141,91 @@ export default function ViewProfile() {
         );
     }
 
-    const renderHeader = () => (
-        <View style={styles.headerContainer}>
-            <View style={styles.profileSection}>
-                <View style={styles.avatarWrapper}>
-                    {profile?.avatar_url ? (
-                        <Image
-                            source={{ uri: profile.avatar_url }}
-                            style={styles.avatar}
-                        />
-                    ) : (
-                        <View style={[
-                            styles.avatar,
-                            styles.avatarPlaceholder,
-                            { backgroundColor: getRandomColor(profile?.first_name || 'User') }
-                        ]}>
-                            <Text style={styles.avatarInitial}>
-                                {getInitials(profile?.first_name, profile?.last_name)}
-                            </Text>
-                        </View>
-                    )}
-                </View>
+    const renderHeader = () => {
+        // Merge profile data with auth metadata if it's the owner for instant updates
+        const displayProfile = isOwner && user?.user_metadata ? {
+            ...profile,
+            first_name: user.user_metadata.first_name || profile?.first_name,
+            last_name: user.user_metadata.last_name || profile?.last_name,
+            avatar_url: user.user_metadata.avatar_url || profile?.avatar_url
+        } : profile;
 
-                <View style={styles.nameRow}>
-                    <Text style={styles.name}>{profile?.first_name} {profile?.last_name}</Text>
-                    {isPersonalDashboardView && (
+        return (
+            <View style={styles.headerContainer}>
+                <View style={styles.profileSection}>
+                    <View style={styles.avatarWrapper}>
+                        {displayProfile?.avatar_url ? (
+                            <Image
+                                source={{ uri: displayProfile.avatar_url }}
+                                style={styles.avatar}
+                            />
+                        ) : (
+                            <View style={[
+                                styles.avatar,
+                                styles.avatarPlaceholder,
+                                { backgroundColor: getRandomColor(displayProfile?.first_name || 'User') }
+                            ]}>
+                                <Text style={styles.avatarInitial}>
+                                    {getInitials(displayProfile?.first_name, displayProfile?.last_name)}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+
+                    <View style={styles.nameRow}>
+                        <Text style={styles.name}>{displayProfile?.first_name} {displayProfile?.last_name}</Text>
+                        {/* Removed small edit button as requested */}
+                    </View>
+                    <Text style={styles.role}>Instructor</Text>
+
+                    <View style={styles.statsContainer}>
+                        <View style={styles.statBox}>
+                            <Text style={styles.statNumber}>{formatCount(followersCount)}</Text>
+                            <Text style={styles.statText}>FOLLOWERS</Text>
+                        </View>
+                        <View style={styles.statBox}>
+                            <Text style={styles.statNumber}>{shorts.length}</Text>
+                            <Text style={styles.statText}>SHORTS</Text>
+                        </View>
+                        <View style={styles.statBox}>
+                            <Text style={styles.statNumber}>{formatCount(totalLikes)}</Text>
+                            <Text style={styles.statText}>LIKES</Text>
+                        </View>
+                    </View>
+
+                    {isOwner ? (
                         <TouchableOpacity
                             onPress={() => router.push('/profile/publicSettings' as any)}
                             activeOpacity={0.8}
-                            style={styles.smallEditButton}
+                            style={styles.editButton}
                         >
-                            <Text style={styles.smallEditButtonText}>Edit</Text>
+                            <Text style={styles.editButtonText}>Edit Profile</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity onPress={handleFollow} activeOpacity={0.8}>
+                            <LinearGradient
+                                colors={isFollowing ? ['#333', '#444'] : ['#8A2BE2', '#FF007F']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.followButton}
+                            >
+                                <Text style={styles.followButtonText}>
+                                    {isFollowing ? 'Following' : 'Follow'}
+                                </Text>
+                            </LinearGradient>
                         </TouchableOpacity>
                     )}
                 </View>
-                <Text style={styles.role}>Instructor</Text>
 
-                <View style={styles.statsContainer}>
-                    <View style={styles.statBox}>
-                        <Text style={styles.statNumber}>{formatCount(followersCount)}</Text>
-                        <Text style={styles.statText}>FOLLOWERS</Text>
-                    </View>
-                    <View style={styles.statBox}>
-                        <Text style={styles.statNumber}>{shorts.length}</Text>
-                        <Text style={styles.statText}>SHORTS</Text>
-                    </View>
-                    <View style={styles.statBox}>
-                        <Text style={styles.statNumber}>{formatCount(totalLikes)}</Text>
-                        <Text style={styles.statText}>LIKES</Text>
+                <View style={styles.tabsContainer}>
+                    <View style={styles.tabItem}>
+                        <Text style={styles.tabTextActive}>Shorts</Text>
+                        <View style={styles.activeIndicator} />
                     </View>
                 </View>
-
-                {!isPersonalDashboardView && (
-                    <TouchableOpacity onPress={handleFollow} activeOpacity={0.8}>
-                        <LinearGradient
-                            colors={isFollowing ? ['#333', '#444'] : ['#8A2BE2', '#FF007F']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.followButton}
-                        >
-                            <Text style={styles.followButtonText}>
-                                {isFollowing ? 'Following' : 'Follow'}
-                            </Text>
-                        </LinearGradient>
-                    </TouchableOpacity>
-                )}
             </View>
-
-            <View style={styles.tabsContainer}>
-                <View style={styles.tabItem}>
-                    <Text style={styles.tabTextActive}>Shorts</Text>
-                    <View style={styles.activeIndicator} />
-                </View>
-            </View>
-        </View>
-    );
+        );
+    };
 
     return (
         <SafeAreaView style={styles.container}>

@@ -1,6 +1,7 @@
 import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext'; // Assuming AuthContext for logout
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -9,14 +10,51 @@ import {
   Animated,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   TouchableOpacity,
   View
 } from 'react-native';
+
+const CLOUDINARY_CLOUD_NAME = 'dn93gd6yw';
+const CLOUDINARY_UPLOAD_PRESET = 'weversity_unsigned';
+
+const uploadImageToCloudinary = async (uri: string) => {
+  try {
+    const data = new FormData();
+    // @ts-ignore
+    data.append('file', {
+      uri,
+      type: 'image/jpeg',
+      name: 'profile_avatar.jpg',
+    });
+    data.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    data.append('cloud_name', CLOUDINARY_CLOUD_NAME);
+
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+      method: 'POST',
+      body: data,
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    const result = await res.json();
+    if (result.secure_url) {
+      return result.secure_url;
+    } else {
+      throw new Error(result.error?.message || 'Upload failed');
+    }
+  } catch (error) {
+    console.error('Cloudinary Upload Error:', error);
+    throw error;
+  }
+};
 
 
 // Confirmation Dialog Component
@@ -93,18 +131,21 @@ const dialogStyles = StyleSheet.create({
 });
 
 // Edit Profile Modal Component
-const EditProfileModal = ({ visible, onClose, initialData }: { visible: boolean; onClose: () => void; initialData: any }) => {
+const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visible: boolean; onClose: () => void; initialData: any; onRefresh: () => Promise<void> | void }) => {
   const [firstName, setFirstName] = useState(initialData?.firstName || '');
   const [lastName, setLastName] = useState(initialData?.lastName || '');
-  const [profileImage, setProfileImage] = useState(initialData?.profilePic || '');
+  const [occupation, setOccupation] = useState(initialData?.occupation || '');
+  const [profileImage, setProfileImage] = useState(initialData?.avatarUrl || '');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isUploading, setIsUploading] = useState(false); // Image upload state
   const scaleAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
       setFirstName(initialData?.firstName || '');
       setLastName(initialData?.lastName || '');
-      // setProfileImage(initialData?.profilePic); // Optional if dynamic
+      setOccupation(initialData?.occupation || '');
+      setProfileImage(initialData?.avatarUrl || '');
       Animated.spring(scaleAnim, {
         toValue: 1,
         friction: 7,
@@ -116,30 +157,141 @@ const EditProfileModal = ({ visible, onClose, initialData }: { visible: boolean;
     }
   }, [visible, initialData]);
 
-  const handleUpdateProfile = async () => {
-    if (!firstName.trim()) {
-      Alert.alert('Error', 'First name is required');
-      return;
+  const handleImagePick = () => {
+    Alert.alert(
+      'Profile Photo Size: 200x200 pixels',
+      'Choose an option',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Photo', onPress: () => pickImage('camera') },
+        { text: 'Choose from Gallery', onPress: () => pickImage('gallery') },
+      ]
+    );
+  };
+
+  const pickImage = async (mode: 'camera' | 'gallery') => {
+    try {
+      let result;
+      if (mode === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (perm.status !== 'granted') {
+          Alert.alert('Permission needed', 'Camera permission is required.');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.5,
+        });
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (perm.status !== 'granted') {
+          Alert.alert('Permission needed', 'Gallery permission is required.');
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.5,
+        });
+      }
+
+      if (!result.canceled && result.assets[0].uri) {
+        uploadImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Image Picker Error:', error);
+      Alert.alert('Error', 'Failed to pick image');
     }
+  };
+
+  const uploadImage = async (uri: string) => {
+    setIsUploading(true);
+    try {
+      const secureUrl = await uploadImageToCloudinary(uri);
+      setProfileImage(secureUrl);
+    } catch (error: any) {
+      Alert.alert('Upload Failed', error.message || 'Could not upload image');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleUpdateProfile = async () => {
+    // 1. State Lock - Prevent double clicks
+    if (isUpdating) return;
 
     setIsUpdating(true);
+    console.log('Starting profile update...');
+
     try {
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-        }
-      });
+      // Data Validation
+      const fName = firstName?.trim() || '';
+      const lName = lastName?.trim() || '';
+      const occ = occupation?.trim() || '';
+      const pImg = profileImage || '';
 
-      if (error) throw error;
+      console.log('Fetching user...');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
 
-      Alert.alert('Success', 'Profile updated successfully');
+      // 2. Update Profiles Table (Priority)
+      console.log('Updating profiles table...');
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          first_name: fName,
+          last_name: lName,
+          occupation: occ,
+          avatar_url: pImg,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (profileError) throw profileError;
+
+      // 3. Update Auth Metadata (Non-Blocking / Independent)
+      console.log('Syncing auth metadata...');
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            first_name: fName,
+            last_name: lName,
+            avatar_url: pImg
+          }
+        });
+      } catch (authErr) {
+        // Log but do NOT fail the main process
+        console.warn('Auth metadata update failed (non-critical):', authErr);
+      }
+
+      console.log('Update Success');
+
+      // 4. Critical Execution Order
+      console.log('Executing refresh...');
+      await onRefresh(); // Trigger parent sync
+
+      console.log('Stopping spinner and closing...');
+      setIsUpdating(false);
       onClose();
+
+      // 5. Success Feedback
+      if (Platform.OS === 'android') {
+        ToastAndroid.show('Your profile is successfully updated', ToastAndroid.SHORT);
+      } else {
+        Alert.alert('Success', 'Your profile is successfully updated');
+      }
+
     } catch (error: any) {
+      setIsUpdating(false); // Emergency spinner stop
+      console.log('Update Error', error);
       console.error('Update profile error:', error);
       Alert.alert('Error', error.message || 'Failed to update profile');
     } finally {
-      setIsUpdating(false);
+      // 5. Unset Loading State - Safety check
+      if (isUpdating) setIsUpdating(false);
     }
   };
 
@@ -152,26 +304,48 @@ const EditProfileModal = ({ visible, onClose, initialData }: { visible: boolean;
           </TouchableOpacity>
           <Text style={editProfileStyles.modalTitle}>Edit Profile</Text>
 
-          <TouchableOpacity style={editProfileStyles.profileImageContainer}>
-            <Image source={{ uri: profileImage }} style={editProfileStyles.profileImage} />
+          <TouchableOpacity
+            style={editProfileStyles.profileImageContainer}
+            onPress={handleImagePick}
+            disabled={isUploading || isUpdating}
+          >
+            {isUploading ? (
+              <ActivityIndicator color="#8A2BE2" />
+            ) : (
+              <Image
+                source={(profileImage && profileImage.trim() !== '' && profileImage.startsWith('http'))
+                  ? { uri: profileImage }
+                  : { uri: `https://ui-avatars.com/api/?name=${firstName}+${lastName}&background=8A2BE2&color=fff` }}
+                style={[editProfileStyles.profileImage, { backgroundColor: '#f0f0f0' }]}
+              />
+            )}
             <View style={editProfileStyles.cameraIcon}>
               <Ionicons name="camera-outline" size={24} color="#fff" />
             </View>
           </TouchableOpacity>
 
           <TextInput
-            style={editProfileStyles.input}
+            style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
             placeholder="First Name"
             value={firstName}
             onChangeText={setFirstName}
             placeholderTextColor="#666"
             editable={!isUpdating}
           />
+
           <TextInput
-            style={editProfileStyles.input}
+            style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
             placeholder="Last Name"
             value={lastName}
             onChangeText={setLastName}
+            placeholderTextColor="#666"
+            editable={!isUpdating}
+          />
+          <TextInput
+            style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
+            placeholder="Occupation"
+            value={occupation}
+            onChangeText={setOccupation}
             placeholderTextColor="#666"
             editable={!isUpdating}
           />
@@ -188,8 +362,8 @@ const EditProfileModal = ({ visible, onClose, initialData }: { visible: boolean;
             )}
           </TouchableOpacity>
         </Animated.View>
-      </TouchableOpacity>
-    </Modal>
+      </TouchableOpacity >
+    </Modal >
   );
 };
 
@@ -421,10 +595,40 @@ export default function ProfileSettingsScreen() {
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
   const [changePasswordModalVisible, setChangePasswordModalVisible] = useState(false);
 
-  const firstName = user?.user_metadata?.first_name;
-  const lastName = user?.user_metadata?.last_name;
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [profileData, setProfileData] = useState<any>(null);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [editProfileModalVisible]); // Refetch when modal closes to update UI
+
+  const fetchProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        setProfileData(data);
+      }
+    } catch (e) {
+      console.error('Fetch profile error:', e);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  // Use profileData if available, fallback to user_metadata or context
+  const firstName = profileData?.first_name || user?.user_metadata?.first_name;
+  const lastName = profileData?.last_name || user?.user_metadata?.last_name;
   const fullName = firstName ? `${firstName} ${lastName || ''}`.trim() : (profile?.email?.split('@')[0] || 'User');
   const userEmail = user?.email || '';
+  const avatarUrl = profileData?.avatar_url || user?.user_metadata?.avatar_url;
 
   // Calculate initials
   const initials = `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase() || (userEmail?.[0]?.toUpperCase() || 'U');
@@ -480,9 +684,12 @@ export default function ProfileSettingsScreen() {
           <View style={styles.userInfoRow}>
             {/* Avatar */}
             <View style={styles.avatarContainer}>
-              <View style={styles.initialsAvatar}>
-                <Text style={styles.initialsText}>{initials}</Text>
-              </View>
+              <Image
+                source={(avatarUrl && avatarUrl.trim() !== '' && avatarUrl.startsWith('http'))
+                  ? { uri: avatarUrl }
+                  : { uri: `https://ui-avatars.com/api/?name=${firstName}+${lastName}&background=8A2BE2&color=fff` }}
+                style={styles.profilePic}
+              />
             </View>
             <View style={styles.userInfoText}>
               <Text style={styles.userName}>{fullName}</Text>
@@ -548,7 +755,13 @@ export default function ProfileSettingsScreen() {
       <EditProfileModal
         visible={editProfileModalVisible}
         onClose={() => setEditProfileModalVisible(false)}
-        initialData={{ firstName, lastName, profilePic: null }} // Passing null for pic as we don't have it yet
+        onRefresh={fetchProfile}
+        initialData={{
+          firstName: firstName,
+          lastName: lastName,
+          avatarUrl: avatarUrl,
+          occupation: profileData?.occupation
+        }}
       />
 
       {/* Change Password Modal */}
