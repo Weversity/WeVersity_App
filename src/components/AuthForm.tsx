@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { loginUser } from '../auth/login';
 import { signUpUser } from '../auth/signup';
+import { supabase } from '../auth/supabase';
 import { Role, useAuth } from '../context/AuthContext';
 import PhoneInput from './PhoneNumberInput';
 
@@ -42,6 +43,11 @@ const AuthForm: React.FC<{
         const [email, setEmail] = useState('');
         const [password, setPassword] = useState('');
         const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+
+        // Forgot Password State
+        const [isForgotModalVisible, setIsForgotModalVisible] = useState(false);
+        const [resetEmail, setResetEmail] = useState('');
+        const [isResetting, setIsResetting] = useState(false);
 
         // Sign-up specific state
         const [firstName, setFirstName] = useState('');
@@ -99,6 +105,27 @@ const AuthForm: React.FC<{
                 }
             } catch (error: any) {
                 Alert.alert('Signup Failed', error.message || "An error occurred during sign up");
+            }
+        };
+
+        const handleResetPassword = async () => {
+            if (!resetEmail) {
+                Alert.alert("Error", "Please enter your email.");
+                return;
+            }
+            setIsResetting(true);
+            try {
+                const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+                    redirectTo: 'weversity://reset-password',
+                });
+                if (error) throw error;
+                Alert.alert("Check your email!", "Reset link sent to your email.");
+                setIsForgotModalVisible(false);
+                setResetEmail('');
+            } catch (error: any) {
+                Alert.alert("Error", error.message || "Failed to send reset email.");
+            } finally {
+                setIsResetting(false);
             }
         };
 
@@ -189,7 +216,7 @@ const AuthForm: React.FC<{
                         />
                         <Text style={styles.checkboxText}>Keep me signed in</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => router.push('/forgetPassword')}>
+                    <TouchableOpacity onPress={() => setIsForgotModalVisible(true)}>
                         <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                     </TouchableOpacity>
                 </View>
@@ -286,6 +313,47 @@ const AuthForm: React.FC<{
                 <ScrollView contentContainerStyle={styles.container}>
                     {isSignUp && showSignUpLink ? renderSignUpForm() : renderSignInForm()}
                 </ScrollView>
+
+                {/* Forgot Password Modal */}
+                <Modal
+                    transparent={true}
+                    visible={isForgotModalVisible}
+                    animationType="fade"
+                    onRequestClose={() => setIsForgotModalVisible(false)}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <Text style={styles.modalTitle}>Reset Password</Text>
+                            <Text style={styles.modalDescription}>Enter your email to receive a password reset link.</Text>
+
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Enter your email"
+                                value={resetEmail}
+                                onChangeText={setResetEmail}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                placeholderTextColor="#666"
+                            />
+
+                            <TouchableOpacity
+                                style={styles.modalButton}
+                                onPress={handleResetPassword}
+                                disabled={isResetting}
+                            >
+                                {isResetting ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <Text style={styles.buttonText}>Send Link</Text>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity onPress={() => setIsForgotModalVisible(false)}>
+                                <Text style={styles.modalCancelText}>Back to Sign In</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
             </View>
         );
     };
@@ -465,6 +533,50 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#8A2BE2',
         fontWeight: 'bold',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContent: {
+        width: '85%',
+        backgroundColor: '#fff',
+        borderRadius: 20,
+        padding: 25,
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#8A2BE2',
+        marginBottom: 10,
+    },
+    modalDescription: {
+        fontSize: 14,
+        color: '#666',
+        textAlign: 'center',
+        marginBottom: 20,
+    },
+    modalButton: {
+        width: '100%',
+        backgroundColor: '#8A2BE2',
+        borderRadius: 10,
+        padding: 15,
+        alignItems: 'center',
+        marginTop: 10,
+        marginBottom: 15,
+    },
+    modalCancelText: {
+        color: '#666',
+        fontSize: 14,
+        fontWeight: '600',
     },
 });
 
