@@ -1,6 +1,7 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
@@ -188,6 +189,11 @@ export default function InboxScreen() {
   const router = useRouter();
   const layout = useWindowDimensions();
   const { user } = useAuth();
+
+  // NOTE: isFocused can be used for manual refetch logic if needed, but per latest plan 
+  // we primarily rely on mount/auth events to keep it simple.
+  const isFocused = useIsFocused();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [routes] = useState([
@@ -200,6 +206,7 @@ export default function InboxScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
 
+  // Restore the format helper
   const formatConversation = useCallback((conv: any) => {
     const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
     const isMe = msg.sender_id === user?.id;
@@ -232,24 +239,38 @@ export default function InboxScreen() {
     };
   }, [user?.id]);
 
-  const loadChats = useCallback(async () => {
+  const loadChats = useCallback(async (showFullScreenLoading: boolean = true) => {
+    if (!user) return;
+
     try {
-      if (!user) return;
-      setLoading(true);
+      if (showFullScreenLoading && conversations.length === 0) {
+        setLoading(true);
+      } else {
+        setRefreshing(true); // Silent background refresh or manual pull-to-refresh
+      }
+
+      console.log('🔄 [Inbox] Fetching conversations...');
       const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
       const mapped = inboxData.map(formatConversation);
       setConversations(mapped.sort((a, b) => b.timestamp - a.timestamp));
     } catch (error) {
-      console.error('Failed to load chats:', error);
+      console.error('❌ [Inbox] Error fetching chats:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, formatConversation]);
+  }, [user?.id, formatConversation, conversations.length]);
 
+  // 1. Initial Load Effect
   useEffect(() => {
     if (!user) return;
-    loadChats();
+    loadChats(true);
+  }, [user?.id]); // Only run on mount or if user ID changes (Login/Logout)
+
+  // 2. Realtime Subscription Effect
+  useEffect(() => {
+    if (!user) return;
+
     const subscription = chatService.subscribeToGlobalChat((newMessage: any) => {
       setConversations(prev => {
         const chatId = newMessage.group_id || newMessage.conversation_id;
@@ -272,14 +293,25 @@ export default function InboxScreen() {
         return [updatedConv, ...others];
       });
     });
+
     return () => {
-      subscription.unsubscribe();
+      (async () => {
+        try {
+          const { supabase } = await import('@/src/lib/supabase');
+          await supabase.removeChannel(subscription);
+        } catch (err) {
+          // Ignore clean up errors
+        }
+        // Local unsubscribe if method exists on the object
+        if (subscription && typeof subscription.unsubscribe === 'function') {
+          subscription.unsubscribe();
+        }
+      })();
     };
-  }, [user, loadChats]);
+  }, [user?.id]);
 
   const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadChats();
+    loadChats(false);
   }, [loadChats]);
 
   const filteredConversations = useMemo(() => {
@@ -596,6 +628,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    marginBottom: 4,
   },
   messagePreview: {
     flex: 1,

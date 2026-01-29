@@ -10,6 +10,8 @@ export default function HomeScreen() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // No local fetch guards needed, relying on simple mount effect
+
   // Pulsating animation for live dot
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -30,6 +32,11 @@ export default function HomeScreen() {
       ])
     ).start();
   }, []);
+
+  // Simple load triggger
+  // Note: LiveCourses component handles the actual fetching internally, 
+  // but we ensure it mounts correctly.
+
 
   // Get first name from profile or metadata
   const firstName = profile?.first_name || user?.user_metadata?.first_name || 'Student';

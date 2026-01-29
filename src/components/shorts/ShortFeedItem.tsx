@@ -10,6 +10,9 @@ import CommentsSheet from './CommentsSheet';
 
 const { width, height } = Dimensions.get('window');
 
+// Biography character limit for showing Read More button
+const BIO_CHAR_LIMIT = 60;
+
 interface ShortItem {
     id: string;
     video_url: string;
@@ -23,8 +26,8 @@ interface ShortItem {
         first_name?: string;
         last_name?: string;
         avatar_url?: string;
-        role?: string;
-        bio?: string;
+        occupation?: string; // Map to database 'occupation' field
+        biography?: string; // Map to database 'biography' field
     };
 }
 
@@ -57,6 +60,9 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     // Playback State
     const [isPlaying, setIsPlaying] = useState(isVisible);
 
+    // Bio Expansion State
+    const [isExpanded, setIsExpanded] = useState(false);
+
     // Interaction State
     const [likesCount, setLikesCount] = useState(item.likes_count || 0);
     const [commentsCount, setCommentsCount] = useState(item.comments_count || 0);
@@ -67,6 +73,19 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     // Animations
     const [likeScale] = useState(new Animated.Value(1));
     const [playIconOpacity] = useState(new Animated.Value(0));
+
+    // Debug: Log instructor data to verify database fields
+    useEffect(() => {
+        if (item.instructor) {
+            console.log('📊 Instructor Data:', {
+                id: item.instructor.id,
+                name: `${item.instructor.first_name} ${item.instructor.last_name}`,
+                occupation: item.instructor.occupation,
+                biography: item.instructor.biography,
+                hasBiography: !!item.instructor.biography && item.instructor.biography.trim() !== ''
+            });
+        }
+    }, [item.instructor]);
 
     // Detect media type
     const getMediaType = (): 'image' | 'video' => {
@@ -90,6 +109,34 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
             player.muted = isMuted;
         }
     });
+
+    // Toggle Bio Expansion with Video Playback Sync
+    const toggleBioExpansion = () => {
+        if (!isExpanded) {
+            // Expanding bio - PAUSE video
+            if (isVideo && player) {
+                player.pause();
+                setIsPlaying(false);
+                Animated.timing(playIconOpacity, {
+                    toValue: 1,
+                    duration: 200,
+                    useNativeDriver: true,
+                }).start();
+            }
+        } else {
+            // Collapsing bio - RESUME video
+            if (isVideo && player && isFocused && isVisible) {
+                player.play();
+                setIsPlaying(true);
+                Animated.timing(playIconOpacity, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                }).start();
+            }
+        }
+        setIsExpanded(!isExpanded);
+    };
 
     // CRITICAL: Handle Visibility & Screen Focus (only for videos)
     useEffect(() => {
@@ -307,18 +354,27 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
                             {item.instructor?.first_name || 'Instructor'} {item.instructor?.last_name || ''}
                         </Text>
                         <Text style={styles.instructorRole}>
-                            Senior Instructor
+                            {item.instructor?.occupation || 'Senior Instructor'}
                         </Text>
                     </View>
                 </TouchableOpacity>
 
-                {item.instructor?.bio ? (
-                    <Text style={styles.bioText} numberOfLines={3}>
-                        {item.instructor.bio}
-                    </Text>
+                {item.instructor?.biography && item.instructor.biography.trim() !== '' ? (
+                    <>
+                        <Text style={styles.bioText} numberOfLines={isExpanded ? undefined : 2}>
+                            {item.instructor.biography}
+                        </Text>
+                        {item.instructor.biography.length > BIO_CHAR_LIMIT && (
+                            <TouchableOpacity onPress={toggleBioExpansion}>
+                                <Text style={styles.readMoreText}>
+                                    {isExpanded ? 'Show Less' : 'Read More'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                    </>
                 ) : (
-                    <Text style={styles.bioText} numberOfLines={3}>
-                        Select which contact details should we use to reset your password
+                    <Text style={styles.bioText} numberOfLines={2}>
+                        No Bio .....
                     </Text>
                 )}
             </View>
@@ -484,5 +540,14 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 14,
+    },
+    readMoreText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 13,
+        marginTop: 4,
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
     }
 });

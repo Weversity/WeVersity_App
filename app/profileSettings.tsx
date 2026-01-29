@@ -138,6 +138,7 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
   const [profileImage, setProfileImage] = useState(initialData?.avatarUrl || '');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploading, setIsUploading] = useState(false); // Image upload state
+  const { updateUser } = useAuth();
   const scaleAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -266,6 +267,16 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
         // Log but do NOT fail the main process
         console.warn('Auth metadata update failed (non-critical):', authErr);
       }
+
+      // 3b. Optimistically sync local auth context so all screens immediately reflect new metadata.
+      updateUser({
+        user_metadata: {
+          ...(user?.user_metadata || {}),
+          first_name: fName,
+          last_name: lName,
+          avatar_url: pImg,
+        },
+      });
 
       console.log('Update Success');
 
@@ -588,10 +599,10 @@ const changePasswordStyles = StyleSheet.create({
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
-  const { logout, user, profile } = useAuth(); // Get logout function from AuthContext
+  const { logout, user, profile, updateUser } = useAuth(); // Get logout function and optimistic updater from AuthContext
 
   const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
-  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
   const [changePasswordModalVisible, setChangePasswordModalVisible] = useState(false);
 
@@ -651,17 +662,7 @@ export default function ProfileSettingsScreen() {
     }
   };
 
-  const handleDeleteAccount = () => {
-    setDeleteDialogVisible(true);
-  };
 
-  const handleConfirmDeleteAccount = () => {
-    setDeleteDialogVisible(false);
-    // Perform actual account deletion
-    console.log('Account Deleted');
-    logout(); // Log out after deleting account
-    router.replace('/'); // Redirect to login/home
-  };
 
 
   return (
@@ -727,11 +728,6 @@ export default function ProfileSettingsScreen() {
               <Ionicons name="log-out-outline" size={18} color="#8A2BE2" style={styles.btnIcon} />
               <Text style={styles.logoutText}>Logout</Text>
             </TouchableOpacity>
-            <View style={{ width: 15 }} />
-            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
-              <Ionicons name="trash-outline" size={18} color="#fff" style={styles.btnIcon} />
-              <Text style={styles.deleteText}>Delete</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -744,12 +740,7 @@ export default function ProfileSettingsScreen() {
         onConfirm={handleConfirmLogout}
         onCancel={() => setLogoutDialogVisible(false)}
       />
-      <ConfirmationDialog
-        visible={deleteDialogVisible}
-        message="Are you sure you want to delete your account?"
-        onConfirm={handleConfirmDeleteAccount}
-        onCancel={() => setDeleteDialogVisible(false)}
-      />
+
 
       {/* Edit Profile Modal */}
       <EditProfileModal
@@ -926,20 +917,5 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
   },
-  deleteBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: '#E74C3C',
-    paddingVertical: 10,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E74C3C',
-  },
-  deleteText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
+
 });

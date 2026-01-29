@@ -1,12 +1,21 @@
+import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import React, { useState } from 'react';
 import { StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import UpcomingClasses from '../../src/components/UpcomingClasses';
 
 export default function UpcomingScreen() {
+  const { user } = useAuth();
+  const isFocused = useIsFocused();
+
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // No complex fetch guards needed
+  // UpcomingClasses handles its own data fetching on mount.
+
 
   return (
     <View style={styles.container}>

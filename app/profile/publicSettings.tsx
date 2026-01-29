@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function PublicSettingsScreen() {
     const router = useRouter();
-    const { user } = useAuth();
+    const { user, updateUser } = useAuth();
     const insets = useSafeAreaInsets();
 
     const [loading, setLoading] = useState(true);
@@ -85,6 +85,9 @@ export default function PublicSettingsScreen() {
     };
 
     const handleSave = async () => {
+        // Prevent double submission
+        if (saving) return;
+
         try {
             setSaving(true);
 
@@ -94,9 +97,14 @@ export default function PublicSettingsScreen() {
             if (newImageUri) {
                 try {
                     finalAvatarUrl = await uploadImageToCloudinary(newImageUri);
+                    console.log('Image uploaded successfully:', finalAvatarUrl);
                 } catch (uploadError: any) {
-                    console.error('Image upload failed:', uploadError);
+                    console.error('Cloudinary upload failed:', uploadError);
+                    // Reset saving state before showing error
+                    setSaving(false);
                     Alert.alert('Upload Error', 'Failed to upload image. Saving other changes...');
+                    // Continue with profile update even if image upload fails
+                    setSaving(true);
                 }
             }
 
@@ -112,32 +120,66 @@ export default function PublicSettingsScreen() {
                 })
                 .eq('id', user?.id);
 
-            if (profileError) throw profileError;
-
-            // Sync with auth metadata for real-time updates across the app
-            try {
-                await supabase.auth.updateUser({
-                    data: {
-                        first_name: firstName,
-                        last_name: lastName,
-                        avatar_url: finalAvatarUrl,
-                    }
-                });
-            } catch (authError: any) {
-                console.error('Auth metadata update failed (non-critical):', authError);
+            if (profileError) {
+                console.error('Supabase profile update failed:', profileError);
+                throw profileError;
             }
 
-            // Update local state
+            console.log('Profile updated successfully in database');
+
+            // Update local state immediately
             setAvatarUrl(finalAvatarUrl);
             setNewImageUri(null);
 
-            Alert.alert('Success', 'Profile updated successfully!');
-            router.back();
+            // CRITICAL: Reset saving state BEFORE showing Alert to prevent white screen
+            setSaving(false);
+
+            // Sync with auth metadata (non-blocking, fire-and-forget)
+            // This runs in the background and won't block the UI
+            supabase.auth.updateUser({
+                data: {
+                    first_name: firstName,
+                    last_name: lastName,
+                    avatar_url: finalAvatarUrl,
+                }
+            }).catch((authError: any) => {
+                // Log but don't block on auth metadata errors
+                console.error('Auth metadata update failed (non-critical):', authError);
+            });
+
+            // Optimistically update local auth user metadata so other screens (Inbox, ViewProfile, etc.)
+            // instantly see the latest profile values without waiting for Supabase cache refresh.
+            updateUser({
+                user_metadata: {
+                    ...(user?.user_metadata || {}),
+                    first_name: firstName,
+                    last_name: lastName,
+                    avatar_url: finalAvatarUrl,
+                },
+            });
+
+            // Show success message and navigate only after user clicks OK
+            Alert.alert(
+                'Success',
+                'Profile updated successfully!',
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => {
+                            // Small delay to ensure Alert closes completely before navigation
+                            setTimeout(() => {
+                                router.back();
+                            }, 300);
+                        }
+                    }
+                ]
+            );
+
         } catch (error: any) {
             console.error('Error saving profile:', error.message);
-            Alert.alert('Error', 'Failed to save profile changes');
-        } finally {
+            // Reset saving state before showing error
             setSaving(false);
+            Alert.alert('Error', 'Failed to save profile changes. Please try again.');
         }
     };
 

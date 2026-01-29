@@ -48,38 +48,94 @@ export default function ViewProfile() {
     const [totalLikes, setTotalLikes] = useState(0);
     const [followersCount, setFollowersCount] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [isFollowing, setIsFollowing] = useState(false);
 
-    useEffect(() => {
-        if (id) {
-            loadProfile();
-            if (user) {
-                checkFollowStatus();
-            }
-        }
-    }, [id, user]);
+    // CRITICAL: Prevent infinite re-render loop with fetch guard
+    const isFetchingRef = React.useRef(false);
+    const lastFetchTimeRef = React.useRef(0); // Throttle fetches
+    const isMountedRef = React.useRef(true);
 
-    const loadProfile = async () => {
+    // Track mount status only; avoid forcing loading state changes here.
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => { isMountedRef.current = false; };
+    }, []);
+
+    useEffect(() => {
+        if (!isMountedRef.current) return;
+        if (!id) return;
+
+        // SWR rule:
+        // - If we already have profile/shorts, NEVER show the full-screen loader again.
+        // - Only use full-screen loading on a true cold start (no profile yet).
+        const showFullScreen = !profile && shorts.length === 0;
+        loadProfile(showFullScreen);
+
+        if (user) {
+            checkFollowStatus();
+        }
+    }, [id, user?.updated_at]); // Depend on updated_at to catch profile changes, avoiding object ref loops
+
+    const loadProfile = async (showFullScreenLoading: boolean = true) => {
+        const now = Date.now();
+        // THROTTLE: Don't fetch more than once every 1.5 seconds unless it's an initial load
+        if (now - lastFetchTimeRef.current < 1500 && !showFullScreenLoading) {
+            console.log('⏳ [ViewProfile] Throttling fetch (too frequent)');
+            return;
+        }
+
+        // CRITICAL: Prevent multiple simultaneous fetches
+        if (isFetchingRef.current) {
+            console.log('⚠️ [ViewProfile] Fetch already in progress, skipping...');
+            return;
+        }
+
         try {
-            setLoading(true);
+            isFetchingRef.current = true;
+            lastFetchTimeRef.current = now;
+            console.log('🔄 [ViewProfile] --- FETCH START ---', { showFullScreenLoading, hasProfile: !!profile });
+
+            // SWR rule:
+            // - If we already have profile/shorts, do NOT clear them or show a white screen.
+            // - Only show full-screen loader when no data exists yet.
+            if (showFullScreenLoading && !profile && shorts.length === 0) {
+                setLoading(true);
+            } else {
+                setRefreshing(true);
+            }
+
+            // Force fresh data by not relying on potential internal cache for public profile.
+            // videoService.fetchPublicProfile already applies a cache-busting filter,
+            // and we can pass a dummy timestamp here if additional control is needed later.
             const data = await videoService.fetchPublicProfile(id as string);
+
+            if (!isMountedRef.current) return; // Prevent setting state if unmounted
+
             setProfile(data.profile);
             setShorts(data.shorts);
             setTotalLikes(data.totalLikes);
 
-            // Fetch real followers count
             const { count, error } = await supabase
                 .from('follows')
                 .select('*', { count: 'exact', head: true })
                 .eq('following_id', id);
 
+            if (!isMountedRef.current) return;
+
             if (!error) {
                 setFollowersCount(count || 0);
             }
+
+            console.log('✅ [ViewProfile] --- FETCH END --- Success');
         } catch (error) {
-            console.error("Failed to load public profile", error);
+            if (isMountedRef.current) console.error('❌ [ViewProfile] --- FETCH END --- Error:', error);
         } finally {
-            setLoading(false);
+            if (isMountedRef.current) {
+                setLoading(false);
+                setRefreshing(false);
+            }
+            isFetchingRef.current = false;
         }
     };
 
@@ -133,7 +189,9 @@ export default function ViewProfile() {
         return count.toString();
     };
 
-    if (loading) {
+    // Professional "data over spinner" rule:
+    // Only show full-screen spinner when we truly have no data yet.
+    if (loading && !profile && shorts.length === 0) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#8A2BE2" />

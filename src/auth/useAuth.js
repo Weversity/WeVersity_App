@@ -42,32 +42,21 @@ export const useAuth = () => {
 
         const initAuth = async () => {
             try {
-                // Check active session on mount
                 const { data, error } = await supabase.auth.getSession();
-
-                if (error) {
-                    console.warn('[useAuth] Session init error:', error.message);
-                    throw error;
-                }
-
-                const session = data?.session;
+                if (error) throw error;
 
                 if (mounted) {
-                    if (session) {
-                        setUser(session.user);
-                        await fetchProfile(session);
+                    if (data?.session) {
+                        setUser(data.session.user);
+                        await fetchProfile(data.session);
                     } else {
-                        // No session, ensure we are clean
                         setUser(null);
                         setProfile(null);
                     }
                 }
-            } catch (err) {
-                console.warn('[useAuth] Session check failed. Clearing stale data to fix PGRST301/Loops.', err);
-
-                // CRITICAL FIX: Force sign out to clear Async Storage and reset 'supabase-js' state
+            } catch (error) {
+                console.warn('[useAuth] Session init error:', error);
                 await supabase.auth.signOut().catch(() => { });
-
                 if (mounted) {
                     setUser(null);
                     setProfile(null);
@@ -79,14 +68,24 @@ export const useAuth = () => {
 
         initAuth();
 
-        // Listen for auth state changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-            if (mounted) {
-                setUser(session?.user ?? null);
-                setLoading(true); // Show loading while fetching profile
-                await fetchProfile(session);
-                setLoading(false);
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (!mounted) return;
+
+            // Ignore USER_UPDATED events to prevent global reloads on profile changes
+            if (event === 'USER_UPDATED') {
+                return;
             }
+
+            if (session?.user) {
+                setUser(session.user);
+                await fetchProfile(session);
+            } else {
+                setUser(null);
+                setProfile(null);
+            }
+
+            // Ensure loading is false after any auth change
+            setLoading(false);
         });
 
         return () => {

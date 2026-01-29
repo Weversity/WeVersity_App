@@ -17,12 +17,50 @@ interface AuthContextType {
   logout: () => void;
   unreadCount: number;
   setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
+  /**
+   * Optimistically update the current auth user object (especially user_metadata)
+   * without waiting for Supabase to emit a new auth event. This prevents
+   * other screens from thinking a different user logged in and resetting UI.
+   */
+  updateUser: (patch: { user_metadata?: Record<string, any> } & Record<string, any>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, profile, loading } = useSupabaseAuth() as { user: any; profile: any; loading: boolean };
+  const {
+    user: baseUser,
+    profile,
+    loading,
+  } = useSupabaseAuth() as { user: any; profile: any; loading: boolean };
+
+  /**
+   * Local, optimistically synced copy of the auth user.
+   * - Follows Supabase auth `user` when it changes id (real login/logout).
+   * - Allows local metadata patches via `updateUser` without waiting on network.
+   */
+  const [localUser, setLocalUser] = React.useState<any | null>(baseUser ?? null);
+
+  // Keep localUser in sync with Supabase auth user while preserving optimistic metadata when id is unchanged.
+  React.useEffect(() => {
+    setLocalUser((prev) => {
+      if (!baseUser) return null;
+      if (!prev || prev.id !== baseUser.id) {
+        // New or different user session – trust Supabase completely.
+        return baseUser;
+      }
+      // Same user id: merge metadata so optimistic updates are not blown away by slower network updates.
+      return {
+        ...baseUser,
+        user_metadata: {
+          ...(baseUser as any)?.user_metadata,
+          ...(prev as any)?.user_metadata,
+        },
+      };
+    });
+  }, [baseUser]);
+
+  const user = localUser ?? baseUser;
 
   // Derived state
   const isAuthenticated = !!user;
@@ -103,11 +141,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     await authLogout();
     setUnreadCount(0);
-    // State updates automatically via listener in useAuth
+    // Clear local optimistic copy; state updates automatically via listener in useAuth
+    setLocalUser(null);
+  };
+
+  const updateUser = (patch: { user_metadata?: Record<string, any> } & Record<string, any>) => {
+    setLocalUser((prev) => {
+      if (!prev) return prev;
+
+      const { user_metadata, ...restPatch } = patch;
+
+      return {
+        ...prev,
+        ...restPatch,
+        user_metadata: {
+          ...(prev as any).user_metadata,
+          ...(user_metadata || {}),
+        },
+      };
+    });
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, role, isLoading: loading, user, profile, login, logout, unreadCount, setUnreadCount }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated,
+        role,
+        isLoading: loading,
+        user,
+        profile,
+        login,
+        logout,
+        unreadCount,
+        setUnreadCount,
+        updateUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

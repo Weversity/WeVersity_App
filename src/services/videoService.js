@@ -113,7 +113,7 @@ export const videoService = {
   fetchShorts: async ({ page = 0, limit = 10 } = {}) => {
     const { data, error } = await supabase
       .from('shorts')
-      .select('*, instructor:profiles(id, first_name, last_name, avatar_url)')
+      .select('*, instructor:profiles(id, first_name, last_name, avatar_url, occupation, biography)')
       .order('created_at', { ascending: false })
       .range(page * limit, (page + 1) * limit - 1);
 
@@ -149,7 +149,7 @@ export const videoService = {
   getShortById: async (id) => {
     const { data, error } = await supabase
       .from('shorts')
-      .select('*, instructor:profiles(id, first_name, last_name, avatar_url)')
+      .select('*, instructor:profiles(id, first_name, last_name, avatar_url, occupation, biography)')
       .eq('id', id)
       .single();
     if (error) throw error;
@@ -314,7 +314,7 @@ export const videoService = {
   fetchComments: async (videoId) => {
     const { data, error } = await supabase
       .from('comments')
-      .select('*, user:profiles(id, first_name, last_name, avatar_url, role)')
+      .select('*, user:profiles(id, first_name, last_name, avatar_url, occupation)')
       .eq('video_id', videoId)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -331,9 +331,21 @@ export const videoService = {
   },
 
   fetchPublicProfile: async (userId) => {
-    const { data: profile, error: pErr } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    // Cache-busting guard: apply an extra non-null filter so the client
+    // cannot short-circuit on stale cached rows.
+    const { data: profile, error: pErr } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .not('id', 'is', null)
+      .single();
     if (pErr) throw pErr;
-    const { data: shorts, error: sErr } = await supabase.from('shorts').select('*').eq('instructor_id', userId).order('created_at', { ascending: false });
+    const { data: shorts, error: sErr } = await supabase
+      .from('shorts')
+      .select('*')
+      .eq('instructor_id', userId)
+      .not('id', 'is', null)
+      .order('created_at', { ascending: false });
     if (sErr) throw sErr;
     const totalLikes = (shorts || []).reduce((sum, item) => sum + (item.likes_count || 0), 0);
     return { profile, shorts, totalLikes };
