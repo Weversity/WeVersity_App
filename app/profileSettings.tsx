@@ -454,78 +454,69 @@ const editProfileStyles = StyleSheet.create({
   },
 });
 
-// Change Password Modal Component
+// Change Password Modal Component (Refactored to Reset Link)
 const ChangePasswordModal = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
-  const [oldPassword, setOldPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showOldPassword, setShowOldPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const userEmail = user?.email || '';
 
-  const handleChangePassword = () => {
-    if (newPassword !== confirmPassword) {
-      alert('New password and confirm password do not match.');
+  const handleSendResetLink = async () => {
+    if (!userEmail) {
+      Alert.alert('Error', 'No email found for this user.');
       return;
     }
-    // In a real app, send data to backend
-    console.log('Change Password:', { oldPassword, newPassword });
-    onClose();
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
+        redirectTo: 'https://weversity.org/reset-password',
+      });
+
+      if (error) throw error;
+
+      Alert.alert('Success', `Password reset link sent to ${userEmail}`);
+      onClose();
+    } catch (error: any) {
+      console.error('Reset Password Error:', error);
+      Alert.alert('Error', error.message || 'Failed to send reset link.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
       <View style={changePasswordStyles.overlay}>
         <View style={changePasswordStyles.modalContent}>
           <TouchableOpacity style={changePasswordStyles.closeButton} onPress={onClose}>
             <Ionicons name="close-circle-outline" size={28} color="#999" />
           </TouchableOpacity>
-          <Text style={changePasswordStyles.modalTitle}>Change Password</Text>
+          <Text style={changePasswordStyles.modalTitle}>Reset Password</Text>
+
+          <Text style={changePasswordStyles.description}>
+            We will send a password reset link to your registered email address. Please follow the link to update your password on our website.
+          </Text>
 
           <View style={changePasswordStyles.inputGroup}>
+            <Ionicons name="mail-outline" size={20} color="#666" style={{ marginRight: 10 }} />
             <TextInput
-              style={changePasswordStyles.input}
-              placeholder="Old Password"
-              value={oldPassword}
-              onChangeText={setOldPassword}
-              secureTextEntry={!showOldPassword}
-              placeholderTextColor="#666"
+              style={[changePasswordStyles.input, { color: '#666' }]}
+              value={userEmail}
+              editable={false}
+              placeholder="Email Address"
             />
-            <TouchableOpacity onPress={() => setShowOldPassword(!showOldPassword)} style={changePasswordStyles.toggleIcon}>
-              <Ionicons name={showOldPassword ? "eye-outline" : "eye-off-outline"} size={22} color="#999" />
-            </TouchableOpacity>
           </View>
 
-          <View style={changePasswordStyles.inputGroup}>
-            <TextInput
-              style={changePasswordStyles.input}
-              placeholder="New Password"
-              value={newPassword}
-              onChangeText={setNewPassword}
-              secureTextEntry={!showNewPassword}
-              placeholderTextColor="#666"
-            />
-            <TouchableOpacity onPress={() => setShowNewPassword(!showNewPassword)} style={changePasswordStyles.toggleIcon}>
-              <Ionicons name={showNewPassword ? "eye-outline" : "eye-off-outline"} size={22} color="#999" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={changePasswordStyles.inputGroup}>
-            <TextInput
-              style={changePasswordStyles.input}
-              placeholder="Confirm New Password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirmPassword}
-              placeholderTextColor="#666"
-            />
-            <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={changePasswordStyles.toggleIcon}>
-              <Ionicons name={showConfirmPassword ? "eye-outline" : "eye-off-outline"} size={22} color="#999" />
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={changePasswordStyles.updateButton} onPress={handleChangePassword}>
-            <Text style={changePasswordStyles.updateButtonText}>Update Password</Text>
+          <TouchableOpacity
+            style={changePasswordStyles.updateButton}
+            onPress={handleSendResetLink}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={changePasswordStyles.updateButtonText}>Send Reset Link</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -562,7 +553,14 @@ const changePasswordStyles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 15,
+  },
+  description: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
     marginBottom: 20,
+    lineHeight: 20,
   },
   inputGroup: {
     flexDirection: 'row',
@@ -570,16 +568,14 @@ const changePasswordStyles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#f2f2f2',
     borderRadius: 10,
-    marginBottom: 15,
+    paddingHorizontal: 15,
+    marginBottom: 20,
   },
   input: {
     flex: 1,
-    padding: 15,
+    paddingVertical: 15,
     fontSize: 16,
     color: '#333',
-  },
-  toggleIcon: {
-    padding: 10,
   },
   updateButton: {
     width: '100%',
@@ -587,7 +583,6 @@ const changePasswordStyles = StyleSheet.create({
     borderRadius: 10,
     padding: 15,
     alignItems: 'center',
-    marginTop: 10,
   },
   updateButtonText: {
     color: '#fff',

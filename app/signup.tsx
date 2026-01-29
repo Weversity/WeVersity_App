@@ -3,15 +3,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SignUpScreen() {
   const router = useRouter();
   const [role, setRole] = useState<'student' | 'instructor'>('student');
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" translucent={true} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -34,7 +33,7 @@ export default function SignUpScreen() {
         onRoleChange={setRole}
         role={role}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
