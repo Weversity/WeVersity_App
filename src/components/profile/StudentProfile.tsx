@@ -8,6 +8,7 @@ import { ActivityIndicator, Animated, Dimensions, Image, Modal, RefreshControl, 
 import NotificationIcon from '../notifications/NotificationIcon';
 
 const { width } = Dimensions.get('window');
+const LIVE_CARD_WIDTH = width * 0.85;
 
 // Mock Data replaced by real data via useEffect
 
@@ -189,17 +190,38 @@ const StudentProfile = () => {
 
   const fetchLiveSessions = async (supabase: any) => {
     if (!user?.id) return;
-    const { data } = await supabase.from('live_sessions').select('id, title, status, started_at, course_id').in('status', ['active', 'live']).order('started_at', { ascending: false }).limit(5);
+    const { data } = await supabase
+      .from('live_sessions')
+      .select(`
+        id, 
+        title, 
+        status, 
+        started_at, 
+        image_url,
+        course_id,
+        course:courses(
+          image_url,
+          instructor:profiles(first_name, last_name)
+        )
+      `)
+      .in('status', ['active', 'live'])
+      .order('started_at', { ascending: false })
+      .limit(5);
+
     if (data && data.length > 0) {
       const processed = await Promise.all(data.map(async (s: any) => {
         const { count } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('course_id', s.course_id);
+
+        const inst = Array.isArray(s.course?.instructor) ? s.course.instructor[0] : s.course?.instructor;
+        const instructorName = inst ? `${inst.first_name || ''} ${inst.last_name || ''}`.trim() : 'Instructor';
+
         return {
           id: s.id,
           title: s.title || 'Live Session',
-          instructor: 'Instructor',
+          instructor: instructorName,
           viewers: count || 0,
           startedAt: s.started_at,
-          image: 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
+          image: s.image_url || s.course?.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
         };
       }));
       setActiveSessions(processed);
@@ -404,38 +426,52 @@ const StudentProfile = () => {
         </View>
 
         {activeSessions.length > 0 ? (
-          activeSessions.map(session => (
-            <View key={session.id} style={styles.liveCard}>
-              <View style={styles.liveImageContainer}>
-                <Image source={{ uri: session.image }} style={styles.liveImage} />
-                <View style={styles.liveBadge}>
-                  <Text style={styles.liveBadgeText}>LIVE</Text>
+          <ScrollView
+            horizontal={activeSessions.length > 1}
+            showsHorizontalScrollIndicator={false}
+            decelerationRate="fast"
+            snapToInterval={activeSessions.length > 1 ? LIVE_CARD_WIDTH + 15 : undefined}
+            contentContainerStyle={activeSessions.length > 1 ? { paddingRight: 20 } : {}}
+          >
+            {activeSessions.map((session, index) => (
+              <View
+                key={session.id}
+                style={[
+                  styles.liveCard,
+                  activeSessions.length > 1 && { width: LIVE_CARD_WIDTH, marginRight: 15 }
+                ]}
+              >
+                <View style={styles.liveImageContainer}>
+                  <Image source={{ uri: session.image }} style={styles.liveImage} />
+                  <View style={styles.liveBadge}>
+                    <Text style={styles.liveBadgeText}>LIVE</Text>
+                  </View>
+                </View>
+                <View style={styles.liveContent}>
+                  <Text style={styles.liveTitle} numberOfLines={1}>{session.title}</Text>
+                  <Text style={styles.liveInstructor}>{session.instructor}</Text>
+
+                  <View style={styles.liveMetaRow}>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="people-outline" size={16} color="#8A2BE2" />
+                      <Text style={styles.metaText}>{session.viewers} Enrolled</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="time-outline" size={16} color="#8A2BE2" />
+                      <Text style={styles.metaText}>{formatTimeAgo(session.startedAt)}</Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.joinSessionButton}
+                    onPress={() => router.push(`/live/${session.id}` as any)}
+                  >
+                    <Text style={styles.joinSessionText}>Join Session</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-              <View style={styles.liveContent}>
-                <Text style={styles.liveTitle} numberOfLines={1}>{session.title}</Text>
-                <Text style={styles.liveInstructor}>{session.instructor}</Text>
-
-                <View style={styles.liveMetaRow}>
-                  <View style={styles.metaItem}>
-                    <Ionicons name="people-outline" size={16} color="#8A2BE2" />
-                    <Text style={styles.metaText}>{session.viewers} Enrolled</Text>
-                  </View>
-                  <View style={styles.metaItem}>
-                    <Ionicons name="time-outline" size={16} color="#8A2BE2" />
-                    <Text style={styles.metaText}>{formatTimeAgo(session.startedAt)}</Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.joinSessionButton}
-                  onPress={() => router.push(`/live/${session.id}` as any)}
-                >
-                  <Text style={styles.joinSessionText}>Join Session</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))
+            ))}
+          </ScrollView>
         ) : (
           <View style={styles.emptyLiveCard}>
             <Ionicons name="videocam-off-outline" size={32} color="#8A2BE2" />

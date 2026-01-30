@@ -3,7 +3,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useState } from 'react';
-import { Animated, Dimensions, Image, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
 import CommentsSheet from './CommentsSheet';
@@ -212,15 +212,10 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     };
 
     const toggleMute = () => {
-        const nextMutedState = !isMuted;
-
-        // 1. Update the local player object immediately for instant sound reaction
         if (player) {
-            player.muted = nextMutedState;
+            player.muted = !isMuted;
         }
-
-        // 2. Update the parent state to sync the UI (Icon/Text) and other items
-        setIsMuted(nextMutedState);
+        setIsMuted(!isMuted);
     };
 
     const handleProfilePress = () => {
@@ -253,17 +248,7 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
         }
     };
 
-    const handleShare = async () => {
-        try {
-            const shareUrl = `https://weversity.org/shorts/${item.id}`;
-            await Share.share({
-                message: `Check out this short on WeVersity: ${shareUrl}`,
-                url: shareUrl, // iOS only
-            });
-        } catch (error) {
-            console.error("Share failed", error);
-        }
-    };
+
 
     return (
         <View style={styles.container}>
@@ -321,20 +306,15 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
                 {isVideo && (
                     <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
                         <View style={styles.iconCircle}>
-                            <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={24} color="white" />
+                            <Ionicons
+                                name={isMuted ? "volume-mute" : "volume-high"}
+                                size={24}
+                                color="white"
+                            />
                         </View>
-                        <Text style={styles.actionText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+                        <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
                     </TouchableOpacity>
                 )}
-
-                {/* Share Button */}
-                <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
-                    <View style={styles.iconCircle}>
-                        <Ionicons name="share-social-outline" size={24} color="white" />
-                    </View>
-                    <Text style={styles.actionText}>Share</Text>
-                </TouchableOpacity>
-
                 {/* Reload / Shuffle Button */}
                 <TouchableOpacity onPress={onRefresh} style={styles.actionButton}>
                     <View style={styles.iconCircle}>
