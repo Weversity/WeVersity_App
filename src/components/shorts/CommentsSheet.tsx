@@ -25,6 +25,7 @@ import { videoService } from '../../services/videoService';
 
 // Use 'screen' to account for translucent bars and prevent layout jumps
 const { height: SCREEN_HEIGHT } = Dimensions.get('screen');
+const EMOJI_PANEL_HEIGHT = 320;
 
 interface UserProfile {
     id: string;
@@ -70,32 +71,36 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-    // Animated value for smooth keyboard transition
+    // Animated value for smooth keyboard/emoji transitions
     const keyboardTranslateY = useRef(new Animated.Value(0)).current;
 
     const inputRef = useRef<TextInput>(null);
     const flatListRef = useRef<FlatList>(null);
 
-    // STRICT: Manual Keyboard Listeners with Transform + Buffer
+    // Manual Keyboard Listeners with Buffer and Toggle Logic
     useEffect(() => {
         const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
         const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
         const onKeyboardShow = (e: any) => {
+            // When keyboard opens, hide emoji picker to prevent overlap
+            setShowEmojiPicker(false);
             Animated.timing(keyboardTranslateY, {
-                // Buffer: Adding 12px extra offset to prevent cut-off at bottom
-                toValue: -e.endCoordinates.height - 12,
+                toValue: -e.endCoordinates.height - 12, // Buffer maintained
                 duration: Platform.OS === 'ios' ? 250 : 150,
                 useNativeDriver: true,
             }).start();
         };
 
         const onKeyboardHide = () => {
-            Animated.timing(keyboardTranslateY, {
-                toValue: 0,
-                duration: Platform.OS === 'ios' ? 250 : 150,
-                useNativeDriver: true,
-            }).start();
+            // FIX: If emoji picker is not opening, reset position to 0
+            if (!showEmojiPicker) {
+                Animated.timing(keyboardTranslateY, {
+                    toValue: 0,
+                    duration: Platform.OS === 'ios' ? 250 : 200,
+                    useNativeDriver: true,
+                }).start();
+            }
         };
 
         const showSubscription = Keyboard.addListener(showEvent, onKeyboardShow);
@@ -105,7 +110,48 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
             showSubscription.remove();
             hideSubscription.remove();
         };
-    }, []);
+    }, [showEmojiPicker]);
+
+    // Transition for Emoji Picker (TikTok style popup)
+    useEffect(() => {
+        if (showEmojiPicker) {
+            Animated.timing(keyboardTranslateY, {
+                toValue: -EMOJI_PANEL_HEIGHT,
+                duration: 250,
+                useNativeDriver: true,
+            }).start();
+        } else {
+            // If showEmojiPicker becomes false and keyboard is NOT visible, reset to 0
+            // This handles closing the picker manually
+            const isKeyboardVisible = Keyboard.isVisible();
+            if (!isKeyboardVisible) {
+                Animated.timing(keyboardTranslateY, {
+                    toValue: 0,
+                    duration: 250,
+                    useNativeDriver: true,
+                }).start();
+            }
+        }
+    }, [showEmojiPicker]);
+
+    // Handle standard input focus (Hide emoji panel)
+    const handleInputFocus = () => {
+        setShowEmojiPicker(false);
+    };
+
+    // Toggle Emoji Panel with state matching animation
+    const toggleEmojiPicker = () => {
+        if (showEmojiPicker) {
+            // Close picker -> opens keyboard
+            inputRef.current?.focus();
+        } else {
+            // Open picker -> dismiss keyboard
+            Keyboard.dismiss();
+            setTimeout(() => {
+                setShowEmojiPicker(true);
+            }, 150);
+        }
+    };
 
     // Restricting PanResponder to handle only
     const panResponder = useRef(
@@ -318,8 +364,8 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
         >
             <View style={styles.overlay}>
                 <TouchableWithoutFeedback onPress={() => {
-                    if (showEmojiPicker) setShowEmojiPicker(false);
-                    else onClose();
+                    setShowEmojiPicker(false);
+                    onClose();
                 }}>
                     <View style={styles.backdrop} />
                 </TouchableWithoutFeedback>
@@ -345,7 +391,6 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
                                 data={comments}
                                 keyExtractor={item => item.id}
                                 renderItem={renderItem}
-                                // Increased paddingBottom to ensure content is scrollable above keyboard/input
                                 contentContainerStyle={[styles.listContent, { flexGrow: 1 }]}
                                 showsVerticalScrollIndicator={false}
                                 keyboardShouldPersistTaps="always"
@@ -360,10 +405,7 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
                         )}
                     </View>
 
-                    {/* 
-                        STRICT FIX: Bottom Section with Transform
-                        We wrap the input and bars in an Animated view to push them up.
-                    */}
+                    {/* Bottom Section with Unified Transform */}
                     <Animated.View style={{ transform: [{ translateY: keyboardTranslateY }] }}>
                         {selectedImage && (
                             <View style={styles.imagePreviewBar}>
@@ -394,15 +436,17 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
                                     onChangeText={setNewComment}
                                     multiline
                                     maxLength={200}
-                                    onFocus={() => setShowEmojiPicker(false)}
+                                    onFocus={handleInputFocus}
                                 />
                                 <View style={styles.inputActions}>
-                                    <TouchableOpacity onPress={() => alert('GIF feature coming soon!')} style={styles.actionIcon}>
-                                        <View style={styles.gifIcon}><Text style={styles.gifText}>GIF</Text></View>
+                                    {/* 1. Gallery Icon */}
+                                    <TouchableOpacity onPress={pickImage} style={styles.actionIcon}>
+                                        <Ionicons name="image-outline" size={24} color="#000" />
                                     </TouchableOpacity>
-                                    <TouchableOpacity onPress={pickImage} style={styles.actionIcon}><Ionicons name="image-outline" size={22} color="#000" /></TouchableOpacity>
-                                    <TouchableOpacity onPress={() => { Keyboard.dismiss(); setShowEmojiPicker(!showEmojiPicker); }} style={styles.actionIcon}>
-                                        <Ionicons name={showEmojiPicker ? "keypad-outline" : "happy-outline"} size={22} color="#000" />
+
+                                    {/* 2. Emoji Icon (Toggle Logic) */}
+                                    <TouchableOpacity onPress={toggleEmojiPicker} style={styles.actionIcon}>
+                                        <Ionicons name={showEmojiPicker ? "keypad-outline" : "happy-outline"} size={26} color="#000" />
                                     </TouchableOpacity>
                                 </View>
                             </View>
@@ -411,19 +455,38 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
                                 disabled={(!newComment.trim() && !selectedImage) || sending}
                                 style={[styles.sendButton, { opacity: (!newComment.trim() && !selectedImage) ? 0.3 : 1 }]}
                             >
-                                <Ionicons name="arrow-up-circle" size={38} color="#8A2BE2" />
+                                <Ionicons name="arrow-up-circle" size={42} color="#8A2BE2" />
                             </TouchableOpacity>
                         </View>
 
+                        {/* TikTok Style Emoji Panel */}
                         {showEmojiPicker && (
                             <View style={styles.emojiPickerContainer}>
                                 <EmojiKeyboard
                                     onEmojiSelected={handleEmojiSelect}
-                                    hideHeader={true}
-                                    categoryPosition="bottom"
+                                    hideHeader={false}
+                                    categoryPosition="top"
                                     enableSearchBar={true}
-                                    emojiSize={24}
-                                    styles={{ container: { backgroundColor: '#fff', height: 300 } }}
+                                    emojiSize={28}
+                                    styles={{
+                                        container: {
+                                            backgroundColor: '#f8f8f8',
+                                            height: EMOJI_PANEL_HEIGHT,
+                                            borderTopLeftRadius: 15,
+                                            borderTopRightRadius: 15,
+                                        },
+                                        header: {
+                                            backgroundColor: '#f8f8f8',
+                                            paddingVertical: 10,
+                                        },
+                                        searchBar: {
+                                            container: {
+                                                backgroundColor: '#eee',
+                                                marginHorizontal: 15,
+                                                borderRadius: 20,
+                                            }
+                                        }
+                                    }}
                                 />
                             </View>
                         )}
@@ -492,7 +555,7 @@ const styles = StyleSheet.create({
     },
     listContent: {
         padding: 16,
-        paddingBottom: 200, // Large padding to ensure comments can be scrolled past the floating input
+        paddingBottom: 350, // Ensures last comment is scrollable above panel
         flexGrow: 1,
     },
     commentItem: {
@@ -632,8 +695,7 @@ const styles = StyleSheet.create({
         alignItems: 'flex-end',
         paddingHorizontal: 15,
         paddingVertical: 12,
-        // Added stylish bottom padding for safe area / edge spacing
-        paddingBottom: 25,
+        paddingBottom: 30, // Stylish margin maintained
         backgroundColor: '#fff',
         borderTopWidth: 0.5,
         borderTopColor: '#f0f0f0',
@@ -645,7 +707,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f5f5f5',
         borderRadius: 25,
         paddingHorizontal: 15,
-        minHeight: 46,
+        minHeight: 48,
         marginRight: 10,
     },
     input: {
@@ -662,21 +724,8 @@ const styles = StyleSheet.create({
     actionIcon: {
         marginLeft: 15,
     },
-    gifIcon: {
-        borderWidth: 1.5,
-        borderColor: '#333',
-        borderRadius: 4,
-        paddingHorizontal: 3,
-        paddingVertical: 1,
-    },
-    gifText: {
-        fontSize: 10,
-        fontWeight: '900',
-        color: '#333',
-    },
     sendButton: {
-        // Aligned with the extra padding
-        marginBottom: Platform.OS === 'ios' ? 0 : 4,
+        marginBottom: 6,
     },
     creatorBadge: {
         fontSize: 11,
@@ -686,8 +735,8 @@ const styles = StyleSheet.create({
         marginBottom: 2,
     },
     emojiPickerContainer: {
-        backgroundColor: '#fff',
+        backgroundColor: '#f8f8f8',
         borderTopWidth: 0.5,
-        borderTopColor: '#f0f0f0',
+        borderTopColor: '#eee',
     },
 });
