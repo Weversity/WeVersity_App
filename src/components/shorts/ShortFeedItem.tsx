@@ -37,6 +37,7 @@ interface ShortFeedItemProps {
     onRefresh: () => void;
     isMuted: boolean;
     setIsMuted: (muted: boolean) => void;
+    onCommentsVisibilityChange?: (visible: boolean) => void;
 }
 
 const getRandomColor = (name: string) => {
@@ -52,7 +53,7 @@ const getInitials = (firstName?: string, lastName?: string) => {
     return ((firstName?.[0] || '') + (lastName?.[0] || '')).toUpperCase() || '?';
 };
 
-export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, setIsMuted }: ShortFeedItemProps) {
+export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, setIsMuted, onCommentsVisibilityChange }: ShortFeedItemProps) {
     const router = useRouter();
     const { user } = useAuth();
     const isFocused = useIsFocused(); // Track screen focus
@@ -69,6 +70,11 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     const [userReaction, setUserReaction] = useState<'like' | null>(null);
 
     const [showComments, setShowComments] = useState(false);
+
+    // Coordinate with parent scroll lock
+    useEffect(() => {
+        onCommentsVisibilityChange?.(showComments);
+    }, [showComments]);
 
     // Animations
     const [likeScale] = useState(new Animated.Value(1));
@@ -261,7 +267,12 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
 
     return (
         <View style={styles.container}>
-            <TouchableOpacity activeOpacity={1} onPress={togglePlay} style={styles.videoContainer}>
+            <TouchableOpacity
+                activeOpacity={1}
+                onPress={togglePlay}
+                style={styles.videoContainer}
+                disabled={showComments}
+            >
                 {isVideo ? (
                     <>
                         <VideoView
@@ -382,6 +393,7 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
             {/* Comments Sheet */}
             <CommentsSheet
                 videoId={item.id}
+                videoOwnerId={item.instructor?.id || item.instructor_id}
                 visible={showComments}
                 onClose={() => setShowComments(false)}
                 currentUser={user}

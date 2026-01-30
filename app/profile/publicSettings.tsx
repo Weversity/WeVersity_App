@@ -9,12 +9,16 @@ import {
     ActivityIndicator,
     Alert,
     Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Platform,
     ScrollView,
     StatusBar,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -226,109 +230,124 @@ export default function PublicSettingsScreen() {
     }
 
     return (
-        <View style={styles.container}>
-            <StatusBar barStyle="light-content" translucent />
-            <Stack.Screen options={{ headerShown: false }} />
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.container}>
+                <StatusBar barStyle="light-content" translucent />
+                <Stack.Screen options={{ headerShown: false }} />
 
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top }]}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#fff" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Settings</Text>
-                <View style={{ width: 44 }} />
-            </View>
+                {/* Header */}
+                <View style={[styles.header, { paddingTop: insets.top }]}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Settings</Text>
+                    <View style={{ width: 44 }} />
+                </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                {/* Photo Section */}
-                <View style={styles.photoSection}>
-                    <TouchableOpacity onPress={handlePickImage} activeOpacity={0.9}>
-                        <View style={styles.avatarWrapper}>
-                            <Image
-                                source={{ uri: newImageUri || avatarUrl || 'https://via.placeholder.com/150' }}
-                                style={styles.avatar}
-                            />
-                            <View style={styles.cameraOverlay}>
-                                <Ionicons name="camera" size={20} color="#fff" />
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                >
+                    <ScrollView
+                        contentContainerStyle={styles.scrollContent}
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {/* Photo Section */}
+                        <View style={styles.photoSection}>
+                            <TouchableOpacity onPress={handlePickImage} activeOpacity={0.9}>
+                                <View style={styles.avatarWrapper}>
+                                    <Image
+                                        source={{ uri: newImageUri || avatarUrl || 'https://via.placeholder.com/150' }}
+                                        style={styles.avatar}
+                                    />
+                                    <View style={styles.cameraOverlay}>
+                                        <Ionicons name="camera" size={20} color="#fff" />
+                                    </View>
+                                </View>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handlePickImage} style={styles.changePhotoButton}>
+                                <Text style={styles.changePhotoText}>Change Photo</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Form Fields */}
+                        <View style={styles.form}>
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>First Name</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={firstName}
+                                    onChangeText={setFirstName}
+                                    placeholder="Enter first name"
+                                    placeholderTextColor="#999"
+                                />
+                            </View>
+
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Last Name</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={lastName}
+                                    onChangeText={setLastName}
+                                    placeholder="Enter last name"
+                                    placeholderTextColor="#999"
+                                />
+                            </View>
+
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Role</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={role}
+                                    onChangeText={setRole}
+                                    placeholder="e.g. Instructor"
+                                    placeholderTextColor="#999"
+                                />
+                            </View>
+
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Bio</Text>
+                                <TextInput
+                                    style={[styles.input, styles.textArea]}
+                                    value={bio}
+                                    onChangeText={setBio}
+                                    placeholder="Tell others about yourself..."
+                                    placeholderTextColor="#999"
+                                    multiline
+                                    numberOfLines={4}
+                                    textAlignVertical="top"
+                                />
                             </View>
                         </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handlePickImage} style={styles.changePhotoButton}>
-                        <Text style={styles.changePhotoText}>Change Photo</Text>
-                    </TouchableOpacity>
-                </View>
 
-                {/* Form Fields */}
-                <View style={styles.form}>
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>First Name</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={firstName}
-                            onChangeText={setFirstName}
-                            placeholder="Enter first name"
-                            placeholderTextColor="#999"
-                        />
-                    </View>
+                        {/* Save Button */}
+                        <TouchableOpacity
+                            style={styles.saveButtonWrapper}
+                            onPress={handleSave}
+                            disabled={saving}
+                        >
+                            <LinearGradient
+                                colors={['#8A2BE2', '#FF007F']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.saveButton}
+                            >
+                                {saving ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                                )}
+                            </LinearGradient>
+                        </TouchableOpacity>
 
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Last Name</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={lastName}
-                            onChangeText={setLastName}
-                            placeholder="Enter last name"
-                            placeholderTextColor="#999"
-                        />
-                    </View>
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Role</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={role}
-                            onChangeText={setRole}
-                            placeholder="e.g. Instructor"
-                            placeholderTextColor="#999"
-                        />
-                    </View>
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Bio</Text>
-                        <TextInput
-                            style={[styles.input, styles.textArea]}
-                            value={bio}
-                            onChangeText={setBio}
-                            placeholder="Tell others about yourself..."
-                            placeholderTextColor="#999"
-                            multiline
-                            numberOfLines={4}
-                            textAlignVertical="top"
-                        />
-                    </View>
-                </View>
-
-                {/* Save Button */}
-                <TouchableOpacity
-                    style={styles.saveButtonWrapper}
-                    onPress={handleSave}
-                    disabled={saving}
-                >
-                    <LinearGradient
-                        colors={['#8A2BE2', '#FF007F']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.saveButton}
-                    >
-                        {saving ? (
-                            <ActivityIndicator color="#fff" />
-                        ) : (
-                            <Text style={styles.saveButtonText}>Save Changes</Text>
-                        )}
-                    </LinearGradient>
-                </TouchableOpacity>
-            </ScrollView>
-        </View>
+                        {/* Extra padding at bottom to ensure scrolling past the last element */}
+                        <View style={{ height: 100 }} />
+                    </ScrollView>
+                </KeyboardAvoidingView>
+            </View>
+        </TouchableWithoutFeedback>
     );
 }
 
@@ -364,7 +383,7 @@ const styles = StyleSheet.create({
         color: '#fff',
     },
     scrollContent: {
-        paddingBottom: 40,
+        paddingBottom: 20,
     },
     photoSection: {
         alignItems: 'center',
@@ -461,3 +480,4 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
 });
+

@@ -312,19 +312,74 @@ export const videoService = {
   },
 
   fetchComments: async (videoId) => {
+    // Fetch all comments (roots and replies) for this video
+    // In a flat list, we'll need to handle the visual indentation in the UI
     const { data, error } = await supabase
       .from('comments')
       .select('*, user:profiles(id, first_name, last_name, avatar_url, occupation)')
       .eq('video_id', videoId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false }); // Newest roots at top
     if (error) throw error;
     return data;
   },
 
-  addComment: async (videoId, userId, content) => {
+  fetchReplies: async (parentId) => {
     const { data, error } = await supabase
       .from('comments')
-      .insert([{ video_id: videoId, user_id: userId, content }])
+      .select('*, user:profiles(id, first_name, last_name, avatar_url, occupation)')
+      .eq('parent_id', parentId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data;
+  },
+
+  uploadCommentImage: async (fileUri) => {
+    try {
+      const uploadPreset = 'weversity_shorts'; // Your preset
+      const data = new FormData();
+
+      // Support for Expo/React Native FormData
+      data.append('file', {
+        uri: fileUri,
+        type: 'image/jpeg',
+        name: 'comment_image.jpg',
+      });
+      data.append('upload_preset', uploadPreset);
+      data.append('resource_type', 'image');
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        {
+          method: 'POST',
+          body: data,
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      const result = await response.json();
+      if (result.secure_url) {
+        return result.secure_url;
+      } else {
+        throw new Error(result.error?.message || 'Cloudinary upload failed');
+      }
+    } catch (error) {
+      console.error('❌ Cloudinary Error:', error.message);
+      throw error;
+    }
+  },
+
+  addComment: async (videoId, userId, content, parentId = null, imageUrl = null) => {
+    const { data, error } = await supabase
+      .from('comments')
+      .insert([{
+        video_id: videoId,
+        user_id: userId,
+        content,
+        parent_id: parentId,
+        image_url: imageUrl
+      }])
       .select('*, user:profiles(id, first_name, last_name, avatar_url)').single();
     if (error) throw error;
     return data;

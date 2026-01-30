@@ -1,13 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Animated,
     Dimensions,
     FlatList,
+    GestureResponderEvent,
     Image,
     Keyboard,
-    KeyboardAvoidingView,
     Modal,
+    PanResponder,
+    PanResponderGestureState,
     Platform,
     StyleSheet,
     Text,
@@ -16,9 +20,11 @@ import {
     TouchableWithoutFeedback,
     View
 } from 'react-native';
+import { EmojiKeyboard } from 'rn-emoji-keyboard';
 import { videoService } from '../../services/videoService';
 
-const { width, height } = Dimensions.get('window');
+// Use 'screen' to account for translucent bars and prevent layout jumps
+const { height: SCREEN_HEIGHT } = Dimensions.get('screen');
 
 interface UserProfile {
     id: string;
@@ -30,18 +36,20 @@ interface UserProfile {
 interface Comment {
     id: string;
     content: string;
+    image_url?: string;
     created_at: string;
     user: UserProfile;
+    parent_id?: string | null;
 }
 
 interface CommentsSheetProps {
     videoId: string;
+    videoOwnerId?: string;
     visible: boolean;
     onClose: () => void;
     currentUser: any;
 }
 
-// Helper for random light background colors
 const getRandomColor = (name: string) => {
     const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB'];
     let hash = 0;
@@ -51,11 +59,91 @@ const getRandomColor = (name: string) => {
     return colors[Math.abs(hash) % colors.length];
 };
 
-export default function CommentsSheet({ videoId, visible, onClose, currentUser }: CommentsSheetProps) {
+export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose, currentUser }: CommentsSheetProps) {
     const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(true);
     const [newComment, setNewComment] = useState('');
     const [sending, setSending] = useState(false);
+
+    // States
+    const [replyingTo, setReplyingTo] = useState<{ id: string, username: string } | null>(null);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+    // Animated value for smooth keyboard transition
+    const keyboardTranslateY = useRef(new Animated.Value(0)).current;
+
+    const inputRef = useRef<TextInput>(null);
+    const flatListRef = useRef<FlatList>(null);
+
+    // STRICT: Manual Keyboard Listeners with Transform + Buffer
+    useEffect(() => {
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+        const onKeyboardShow = (e: any) => {
+            Animated.timing(keyboardTranslateY, {
+                // Buffer: Adding 12px extra offset to prevent cut-off at bottom
+                toValue: -e.endCoordinates.height - 12,
+                duration: Platform.OS === 'ios' ? 250 : 150,
+                useNativeDriver: true,
+            }).start();
+        };
+
+        const onKeyboardHide = () => {
+            Animated.timing(keyboardTranslateY, {
+                toValue: 0,
+                duration: Platform.OS === 'ios' ? 250 : 150,
+                useNativeDriver: true,
+            }).start();
+        };
+
+        const showSubscription = Keyboard.addListener(showEvent, onKeyboardShow);
+        const hideSubscription = Keyboard.addListener(hideEvent, onKeyboardHide);
+
+        return () => {
+            showSubscription.remove();
+            hideSubscription.remove();
+        };
+    }, []);
+
+    // Restricting PanResponder to handle only
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+                return gestureState.dy > 10 && Math.abs(gestureState.dx) < 5;
+            },
+            onPanResponderRelease: (evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+                if (gestureState.dy > 150) {
+                    onClose();
+                }
+            },
+        })
+    ).current;
+
+    const organizeComments = (rawList: Comment[]) => {
+        const roots = rawList.filter(c => !c.parent_id).sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        const replies = rawList.filter(c => c.parent_id);
+        const result: Comment[] = [];
+
+        roots.forEach(root => {
+            result.push(root);
+            const children = replies
+                .filter(r => r.parent_id === root.id)
+                .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+            result.push(...children);
+        });
+
+        const addedIds = new Set(result.map(r => r.id));
+        const orphans = rawList.filter(r => !addedIds.has(r.id));
+        result.push(...orphans);
+
+        return result;
+    };
 
     useEffect(() => {
         if (visible) {
@@ -67,7 +155,7 @@ export default function CommentsSheet({ videoId, visible, onClose, currentUser }
         try {
             setLoading(true);
             const data = await videoService.fetchComments(videoId);
-            setComments(data);
+            setComments(organizeComments(data));
         } catch (error) {
             console.error("Failed to load comments", error);
         } finally {
@@ -75,17 +163,37 @@ export default function CommentsSheet({ videoId, visible, onClose, currentUser }
         }
     };
 
+    const pickImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            alert('Permission Denied: We need gallery permissions to post images.');
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            quality: 0.7,
+        });
+
+        if (!result.canceled) {
+            setSelectedImage(result.assets[0].uri);
+        }
+    };
+
     const handleSend = async () => {
-        if (!newComment.trim() || !currentUser) return;
+        if ((!newComment.trim() && !selectedImage) || !currentUser) return;
 
         const tempId = Date.now().toString();
         const content = newComment.trim();
+        const parentId = replyingTo?.id || null;
 
-        // Optimistic Update
         const optimisticComment: Comment = {
             id: tempId,
             content: content,
+            image_url: selectedImage || undefined,
             created_at: new Date().toISOString(),
+            parent_id: parentId,
             user: {
                 id: currentUser.id,
                 first_name: currentUser.user_metadata?.first_name || 'Me',
@@ -94,14 +202,47 @@ export default function CommentsSheet({ videoId, visible, onClose, currentUser }
             }
         };
 
-        setComments([optimisticComment, ...comments]);
+        setComments(prev => {
+            if (parentId) {
+                const parentIndex = prev.findIndex(c => c.id === parentId);
+                if (parentIndex !== -1) {
+                    const newComments = [...prev];
+                    let insertionIndex = parentIndex + 1;
+                    while (insertionIndex < newComments.length && newComments[insertionIndex].parent_id === parentId) {
+                        insertionIndex++;
+                    }
+                    newComments.splice(insertionIndex, 0, optimisticComment);
+                    setTimeout(() => {
+                        flatListRef.current?.scrollToIndex({
+                            index: insertionIndex,
+                            animated: true,
+                            viewPosition: 0.5
+                        });
+                    }, 100);
+                    return newComments;
+                }
+            }
+            return [optimisticComment, ...prev];
+        });
+
         setNewComment('');
+        const imgToUpload = selectedImage;
+        setSelectedImage(null);
+        setReplyingTo(null);
+        setShowEmojiPicker(false);
         setSending(true);
         Keyboard.dismiss();
 
         try {
-            await videoService.addComment(videoId, currentUser.id, content);
-            // Optionally fetch again to ensure consistency
+            let uploadedUrl = null;
+            if (imgToUpload) {
+                uploadedUrl = await videoService.uploadCommentImage(imgToUpload);
+            }
+            // @ts-ignore
+            const savedComment = await videoService.addComment(videoId, currentUser.id, content, parentId, uploadedUrl);
+            if (savedComment) {
+                setComments(prev => prev.map(c => c.id === tempId ? savedComment : c));
+            }
         } catch (error) {
             console.error("Failed to post comment", error);
             setComments(prev => prev.filter(c => c.id !== tempId));
@@ -111,41 +252,61 @@ export default function CommentsSheet({ videoId, visible, onClose, currentUser }
         }
     };
 
-    const renderAvatar = (user: UserProfile) => {
-        if (user.avatar_url) {
-            return (
-                <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
-            );
-        }
+    const handleEmojiSelect = (emoji: any) => {
+        setNewComment(prev => prev + emoji.emoji);
+    };
 
+    const handleReply = (commentId: string, username: string, index: number) => {
+        setReplyingTo({ id: commentId, username: username });
+        setTimeout(() => {
+            inputRef.current?.focus();
+            if (flatListRef.current && index !== undefined) {
+                flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+            }
+        }, 100);
+    };
+
+    const renderAvatar = (user: UserProfile, isReply: boolean = false) => {
+        const avatarStyle = isReply ? styles.avatarImageSmall : styles.avatarImage;
+        const fallbackStyle = isReply ? styles.avatarFallbackSmall : styles.avatarFallback;
+        const initialStyle = isReply ? styles.avatarInitialSmall : styles.avatarInitial;
+
+        if (user.avatar_url) {
+            return <Image source={{ uri: user.avatar_url }} style={avatarStyle} />;
+        }
         const initial = ((user.first_name?.[0] || '') + (user.last_name?.[0] || '')).toUpperCase() || '?';
         const backgroundColor = getRandomColor(user.first_name || 'User');
-
         return (
-            <View style={[styles.avatarFallback, { backgroundColor }]}>
-                <Text style={styles.avatarInitial}>{initial}</Text>
+            <View style={[fallbackStyle, { backgroundColor }]}>
+                <Text style={initialStyle}>{initial}</Text>
             </View>
         );
     };
 
-    const renderItem = ({ item }: { item: Comment }) => (
-        <View style={styles.commentItem}>
-            <View style={styles.avatarContainer}>
-                {renderAvatar(item.user)}
-            </View>
-            <View style={styles.commentContent}>
-                <Text style={styles.username}>
-                    {item.user.first_name} {item.user.last_name}
-                </Text>
-                <Text style={styles.commentText}>{item.content}</Text>
-                <View style={styles.commentMeta}>
-                    <Text style={styles.timeAgo}>
-                        {new Date(item.created_at).toLocaleDateString()}
-                    </Text>
+    const renderItem = ({ item, index }: { item: Comment, index: number }) => {
+        const isReply = !!item.parent_id;
+        return (
+            <View style={[styles.commentItem, isReply && styles.replyIndentation]}>
+                <View style={styles.avatarContainer}>{renderAvatar(item.user, isReply)}</View>
+                <View style={styles.commentContent}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.username}>{item.user.first_name} {item.user.last_name}</Text>
+                        {item.user.id === videoOwnerId && <Text style={styles.creatorBadge}> · Creator</Text>}
+                    </View>
+                    {item.content ? <Text style={styles.commentText}>{item.content}</Text> : null}
+                    {item.image_url && <Image source={{ uri: item.image_url }} style={styles.commentImage} resizeMode="cover" />}
+                    <View style={styles.commentMeta}>
+                        <Text style={styles.timeAgo}>{new Date(item.created_at).toLocaleDateString()}</Text>
+                        {!isReply && (
+                            <TouchableOpacity onPress={() => handleReply(item.id, `${item.user.first_name} ${item.user.last_name}`, index)}>
+                                <Text style={styles.replyText}>Reply</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
                 </View>
             </View>
-        </View>
-    );
+        );
+    };
 
     return (
         <Modal
@@ -153,17 +314,21 @@ export default function CommentsSheet({ videoId, visible, onClose, currentUser }
             transparent={true}
             visible={visible}
             onRequestClose={onClose}
+            statusBarTranslucent={true}
         >
             <View style={styles.overlay}>
-                <TouchableWithoutFeedback onPress={onClose}>
+                <TouchableWithoutFeedback onPress={() => {
+                    if (showEmojiPicker) setShowEmojiPicker(false);
+                    else onClose();
+                }}>
                     <View style={styles.backdrop} />
                 </TouchableWithoutFeedback>
 
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                    style={styles.sheetContainer}
-                >
-                    {/* Header */}
+                <View style={styles.sheetContainer}>
+                    <View {...panResponder.panHandlers} style={styles.dragHandleContainer}>
+                        <View style={styles.dragHandle} />
+                    </View>
+
                     <View style={styles.header}>
                         <Text style={styles.headerTitle}>{comments.length} comments</Text>
                         <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -171,47 +336,99 @@ export default function CommentsSheet({ videoId, visible, onClose, currentUser }
                         </TouchableOpacity>
                     </View>
 
-                    {/* Comments List */}
-                    {loading ? (
-                        <View style={styles.loadingContainer}>
-                            <ActivityIndicator color="#8A2BE2" />
-                        </View>
-                    ) : (
-                        <FlatList
-                            data={comments}
-                            keyExtractor={item => item.id}
-                            renderItem={renderItem}
-                            contentContainerStyle={styles.listContent}
-                            showsVerticalScrollIndicator={false}
-                            ListEmptyComponent={
-                                <Text style={styles.emptyText}>Be the first to comment!</Text>
-                            }
-                        />
-                    )}
-
-                    {/* Input Area */}
-                    <View style={styles.inputContainer}>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Add comment..."
-                            placeholderTextColor="#888"
-                            value={newComment}
-                            onChangeText={setNewComment}
-                            multiline
-                            maxLength={200}
-                        />
-                        <TouchableOpacity
-                            onPress={handleSend}
-                            disabled={!newComment.trim() || sending}
-                            style={[
-                                styles.sendButton,
-                                { opacity: !newComment.trim() ? 0.5 : 1 }
-                            ]}
-                        >
-                            <Ionicons name="arrow-up-circle" size={34} color="#8A2BE2" />
-                        </TouchableOpacity>
+                    <View style={{ flex: 1 }} pointerEvents="auto">
+                        {loading ? (
+                            <View style={styles.loadingContainer}><ActivityIndicator color="#8A2BE2" /></View>
+                        ) : (
+                            <FlatList
+                                ref={flatListRef}
+                                data={comments}
+                                keyExtractor={item => item.id}
+                                renderItem={renderItem}
+                                // Increased paddingBottom to ensure content is scrollable above keyboard/input
+                                contentContainerStyle={[styles.listContent, { flexGrow: 1 }]}
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="always"
+                                nestedScrollEnabled={true}
+                                ListEmptyComponent={
+                                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 }}>
+                                        <Text style={styles.emptyText}>Be the first to comment!</Text>
+                                    </View>
+                                }
+                                onScrollToIndexFailed={() => { }}
+                            />
+                        )}
                     </View>
-                </KeyboardAvoidingView>
+
+                    {/* 
+                        STRICT FIX: Bottom Section with Transform
+                        We wrap the input and bars in an Animated view to push them up.
+                    */}
+                    <Animated.View style={{ transform: [{ translateY: keyboardTranslateY }] }}>
+                        {selectedImage && (
+                            <View style={styles.imagePreviewBar}>
+                                <View style={styles.previewThumbnailContainer}>
+                                    <Image source={{ uri: selectedImage }} style={styles.previewThumbnail} />
+                                    <TouchableOpacity style={styles.removeImageButton} onPress={() => setSelectedImage(null)}>
+                                        <Ionicons name="close-circle" size={20} color="#fff" />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
+
+                        {replyingTo && (
+                            <View style={styles.replyBar}>
+                                <Text style={styles.replyingToText}>Replying to @{replyingTo.username}</Text>
+                                <TouchableOpacity onPress={() => setReplyingTo(null)}><Ionicons name="close-circle" size={20} color="#666" /></TouchableOpacity>
+                            </View>
+                        )}
+
+                        <View style={styles.outerInputContainer}>
+                            <View style={styles.inputWrapper}>
+                                <TextInput
+                                    ref={inputRef}
+                                    style={styles.input}
+                                    placeholder={replyingTo ? `Reply to ${replyingTo.username}...` : "Add comment..."}
+                                    placeholderTextColor="#888"
+                                    value={newComment}
+                                    onChangeText={setNewComment}
+                                    multiline
+                                    maxLength={200}
+                                    onFocus={() => setShowEmojiPicker(false)}
+                                />
+                                <View style={styles.inputActions}>
+                                    <TouchableOpacity onPress={() => alert('GIF feature coming soon!')} style={styles.actionIcon}>
+                                        <View style={styles.gifIcon}><Text style={styles.gifText}>GIF</Text></View>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={pickImage} style={styles.actionIcon}><Ionicons name="image-outline" size={22} color="#000" /></TouchableOpacity>
+                                    <TouchableOpacity onPress={() => { Keyboard.dismiss(); setShowEmojiPicker(!showEmojiPicker); }} style={styles.actionIcon}>
+                                        <Ionicons name={showEmojiPicker ? "keypad-outline" : "happy-outline"} size={22} color="#000" />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                            <TouchableOpacity
+                                onPress={handleSend}
+                                disabled={(!newComment.trim() && !selectedImage) || sending}
+                                style={[styles.sendButton, { opacity: (!newComment.trim() && !selectedImage) ? 0.3 : 1 }]}
+                            >
+                                <Ionicons name="arrow-up-circle" size={38} color="#8A2BE2" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {showEmojiPicker && (
+                            <View style={styles.emojiPickerContainer}>
+                                <EmojiKeyboard
+                                    onEmojiSelected={handleEmojiSelect}
+                                    hideHeader={true}
+                                    categoryPosition="bottom"
+                                    enableSearchBar={true}
+                                    emojiSize={24}
+                                    styles={{ container: { backgroundColor: '#fff', height: 300 } }}
+                                />
+                            </View>
+                        )}
+                    </Animated.View>
+                </View>
             </View>
         </Modal>
     );
@@ -227,19 +444,33 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     sheetContainer: {
-        height: height * 0.7,
+        height: SCREEN_HEIGHT * 0.8,
         backgroundColor: '#fff',
-        borderTopLeftRadius: 15,
-        borderTopRightRadius: 15,
+        borderTopLeftRadius: 25,
+        borderTopRightRadius: 25,
+        zIndex: 999,
+        elevation: 10,
         overflow: 'hidden',
+    },
+    dragHandleContainer: {
+        paddingVertical: 12,
+        alignItems: 'center',
+        backgroundColor: '#fff',
+    },
+    dragHandle: {
+        width: 40,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: '#eee',
     },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 15,
+        paddingHorizontal: 15,
+        paddingBottom: 15,
         borderBottomWidth: 0.5,
-        borderBottomColor: '#eee',
+        borderBottomColor: '#f0f0f0',
     },
     headerTitle: {
         fontSize: 14,
@@ -251,7 +482,7 @@ const styles = StyleSheet.create({
     closeButton: {
         position: 'absolute',
         right: 15,
-        top: 15,
+        top: 0,
         zIndex: 10,
     },
     loadingContainer: {
@@ -261,31 +492,59 @@ const styles = StyleSheet.create({
     },
     listContent: {
         padding: 16,
+        paddingBottom: 200, // Large padding to ensure comments can be scrolled past the floating input
+        flexGrow: 1,
     },
     commentItem: {
         flexDirection: 'row',
         marginBottom: 20,
     },
+    replyIndentation: {
+        marginLeft: 20,
+        marginBottom: 15,
+        borderLeftWidth: 1.5,
+        borderLeftColor: '#f0f0f0',
+        paddingLeft: 12,
+        marginTop: -5,
+    },
     avatarContainer: {
         marginRight: 10,
     },
     avatarImage: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#ccc',
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: '#f0f0f0',
+    },
+    avatarImageSmall: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#f0f0f0',
     },
     avatarFallback: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    avatarFallbackSmall: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
     },
     avatarInitial: {
         color: '#fff',
         fontWeight: 'bold',
-        fontSize: 14,
+        fontSize: 13,
+    },
+    avatarInitialSmall: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 10,
     },
     commentContent: {
         flex: 1,
@@ -293,15 +552,23 @@ const styles = StyleSheet.create({
     },
     username: {
         fontSize: 12,
-        fontWeight: '600',
-        color: '#666',
+        fontWeight: '700',
+        color: '#111',
         marginBottom: 2,
     },
     commentText: {
         fontSize: 14,
-        color: '#333',
+        color: '#222',
         marginBottom: 4,
         lineHeight: 18,
+    },
+    commentImage: {
+        width: '100%',
+        height: 200,
+        borderRadius: 12,
+        marginTop: 6,
+        marginBottom: 8,
+        backgroundColor: '#f8f8f8',
     },
     commentMeta: {
         flexDirection: 'row',
@@ -309,43 +576,118 @@ const styles = StyleSheet.create({
     },
     timeAgo: {
         fontSize: 12,
-        color: '#999',
+        color: '#888',
     },
     replyText: {
         fontSize: 12,
-        color: '#666',
-        fontWeight: '600',
-    },
-    likeContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 20,
+        color: '#888',
+        fontWeight: '700',
     },
     emptyText: {
         textAlign: 'center',
         marginTop: 50,
-        color: '#888',
+        color: '#999',
     },
-    inputContainer: {
+    imagePreviewBar: {
+        paddingHorizontal: 15,
+        paddingVertical: 10,
+        backgroundColor: '#fff',
+        borderTopWidth: 0.5,
+        borderTopColor: '#f0f0f0',
+    },
+    previewThumbnailContainer: {
+        width: 60,
+        height: 60,
+        position: 'relative',
+    },
+    previewThumbnail: {
+        width: 60,
+        height: 60,
+        borderRadius: 8,
+    },
+    removeImageButton: {
+        position: 'absolute',
+        top: -8,
+        right: -8,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        borderRadius: 10,
+    },
+    replyBar: {
         flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
+        backgroundColor: '#fff',
+        paddingHorizontal: 15,
+        paddingVertical: 8,
+        borderTopWidth: 0.5,
+        borderTopColor: '#f0f0f0',
+    },
+    replyingToText: {
+        fontSize: 12,
+        color: '#333',
+        fontWeight: '500',
+    },
+    outerInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
         paddingHorizontal: 15,
         paddingVertical: 12,
+        // Added stylish bottom padding for safe area / edge spacing
+        paddingBottom: 25,
         backgroundColor: '#fff',
-        paddingBottom: Platform.OS === 'ios' ? 30 : 15,
+        borderTopWidth: 0.5,
+        borderTopColor: '#f0f0f0',
+    },
+    inputWrapper: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f5f5f5',
+        borderRadius: 25,
+        paddingHorizontal: 15,
+        minHeight: 46,
+        marginRight: 10,
     },
     input: {
         flex: 1,
-        backgroundColor: '#F5F5F7',
-        borderRadius: 25,
-        paddingHorizontal: 18,
-        paddingVertical: 10,
-        maxHeight: 100,
         fontSize: 15,
-        color: '#000',
-        marginRight: 8,
+        color: '#111',
+        paddingVertical: 10,
+        maxHeight: 120,
+    },
+    inputActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    actionIcon: {
+        marginLeft: 15,
+    },
+    gifIcon: {
+        borderWidth: 1.5,
+        borderColor: '#333',
+        borderRadius: 4,
+        paddingHorizontal: 3,
+        paddingVertical: 1,
+    },
+    gifText: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: '#333',
     },
     sendButton: {
-        padding: 2,
+        // Aligned with the extra padding
+        marginBottom: Platform.OS === 'ios' ? 0 : 4,
+    },
+    creatorBadge: {
+        fontSize: 11,
+        color: '#8A2BE2',
+        fontWeight: 'bold',
+        marginLeft: 4,
+        marginBottom: 2,
+    },
+    emojiPickerContainer: {
+        backgroundColor: '#fff',
+        borderTopWidth: 0.5,
+        borderTopColor: '#f0f0f0',
     },
 });

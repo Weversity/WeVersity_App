@@ -27,6 +27,7 @@ export default function ShortsFeed() {
     // Track which item is currently in view to only play that video
     const [currentVisibleIndex, setCurrentVisibleIndex] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
+    const [isCommentsVisible, setIsCommentsVisible] = useState(false);
 
 
     // Safe try-catch for tab bar height in case it's used outside nav context temporarily
@@ -116,6 +117,7 @@ export default function ShortsFeed() {
                     onRefresh={() => loadShorts(true)}
                     isMuted={isMuted}
                     setIsMuted={setIsMuted}
+                    onCommentsVisibilityChange={setIsCommentsVisible}
                 />
             </View>
         );
@@ -139,6 +141,7 @@ export default function ShortsFeed() {
                 renderItem={renderItem}
                 keyExtractor={(item) => item.id}
                 pagingEnabled
+                scrollEnabled={!isCommentsVisible}
                 showsVerticalScrollIndicator={false}
                 snapToInterval={ITEM_HEIGHT}
                 snapToAlignment="start"
@@ -152,7 +155,8 @@ export default function ShortsFeed() {
                     offset: ITEM_HEIGHT * index,
                     index,
                 })}
-                removeClippedSubviews={true}
+                removeClippedSubviews={false}
+                keyboardShouldPersistTaps="handled"
                 initialNumToRender={2}
                 maxToRenderPerBatch={2}
                 windowSize={3}
