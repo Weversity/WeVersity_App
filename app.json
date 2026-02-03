@@ -2,7 +2,7 @@
   "expo": {
     "name": "weversity-expo",
     "slug": "weversity-expo",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/adaptive-icon.png",
     "scheme": "weversityexpo",
@@ -20,6 +20,7 @@
       ]
     },
     "android": {
+      "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
