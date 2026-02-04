@@ -80,12 +80,11 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
     try {
       const data = await liveSessionService.fetchActiveLiveSessions();
       setSessions(data);
-      // Notify parent about course count (active sessions)
-      if (onCoursesLoaded) {
-        onCoursesLoaded(data.length);
-      }
     } catch (error) {
       console.error('Failed to fetch live sessions:', error);
+      if (onCoursesLoaded) {
+        onCoursesLoaded(0);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -123,18 +122,10 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
     loadSessions();
   }, [loadSessions]);
 
-  // Filter sessions based on search query AND specialized status logic
+  // Filter sessions based on search query AND strictly 'live' status
   const filteredSessions = useMemo(() => {
-    const now = new Date();
-
-    // First, apply the "live" or "upcoming but passed time" logic
-    const validSessions = sessions.filter(session => {
-      if (session.status === 'live') return true;
-      if (session.status === 'upcoming' && session.scheduled_at) {
-        return now >= new Date(session.scheduled_at);
-      }
-      return false;
-    });
+    // Strictly include only sessions where status is 'live'
+    const validSessions = sessions.filter(session => session.status === 'live');
 
     if (!searchQuery.trim()) {
       return validSessions;
@@ -151,6 +142,13 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
       return title.includes(query) || instructorName.includes(query) || category.includes(query);
     });
   }, [sessions, searchQuery]);
+
+  // Sync count with parent component
+  useEffect(() => {
+    if (onCoursesLoaded) {
+      onCoursesLoaded(filteredSessions.length);
+    }
+  }, [filteredSessions.length, onCoursesLoaded]);
 
   const renderItem = useCallback(({ item }: { item: any }) => (
     <CourseItem item={item} />

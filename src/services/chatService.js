@@ -103,24 +103,40 @@ export const chatService = {
 
     // Subscribe to real-time updates for a specific group
     subscribeToConversation(id, type = 'conversation', callback) {
-        // type is ignored now, we purely use group_id for chat_messages filtering
+        // Listen for all changes (INSERT, UPDATE, DELETE) for this group
         const channel = supabase
             .channel(`group:${id}`)
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT',
+                    event: '*', // Listen for all events
                     schema: 'public',
                     table: 'chat_messages',
                     filter: `group_id=eq.${id}`
                 },
                 (payload) => {
-                    callback(payload.new);
+                    callback(payload);
                 }
             )
             .subscribe();
 
         return channel;
+    },
+
+    // Delete a message
+    async deleteMessage(messageId) {
+        try {
+            const { error } = await supabase
+                .from('chat_messages')
+                .delete()
+                .eq('id', messageId);
+
+            if (error) throw error;
+            return true;
+        } catch (error) {
+            console.error('Error in deleteMessage:', error.message);
+            throw error;
+        }
     },
 
     // Send a message to a specific group

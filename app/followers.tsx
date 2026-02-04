@@ -165,29 +165,43 @@ export default function FollowersScreen() {
       <FlatList
         data={filteredMentors}
         keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.instructorItem}
-            onPress={() => router.push({ pathname: '/viewProfile/[id]', params: { id: item.following_id } })}
-          >
-            <Image
-              source={{ uri: item.instructor?.avatar_url || 'https://via.placeholder.com/150' }}
-              style={styles.avatar}
-            />
-            <View style={styles.instructorInfo}>
-              <Text style={styles.instructorName}>
-                {item.instructor?.first_name} {item.instructor?.last_name}
-              </Text>
-              <Text style={styles.instructorSpecialty}>Instructor</Text>
-            </View>
+        renderItem={({ item }) => {
+          const instructor = Array.isArray(item.instructor) ? item.instructor[0] : item.instructor;
+          const firstName = instructor?.first_name || '';
+          const lastName = instructor?.last_name || '';
+          const initials = `${firstName[0] || ''}${lastName[0] || ''}`.toUpperCase() || '?';
+          const avatarUrl = instructor?.avatar_url;
+
+          return (
             <TouchableOpacity
-              style={styles.unfollowButton}
-              onPress={() => handleUnfollow(item.following_id)}
+              style={styles.instructorItem}
+              onPress={() => router.push({ pathname: '/viewProfile/[id]', params: { id: item.following_id } })}
             >
-              <Text style={styles.unfollowButtonText}>Unfollow</Text>
+              {avatarUrl && avatarUrl.trim() !== '' && avatarUrl.startsWith('http') ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <View style={styles.initialsAvatar}>
+                  <Text style={styles.initialsText}>{initials}</Text>
+                </View>
+              )}
+              <View style={styles.instructorInfo}>
+                <Text style={styles.instructorName}>
+                  {firstName} {lastName}
+                </Text>
+                <Text style={styles.instructorSpecialty}>Instructor</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.unfollowButton}
+                onPress={() => handleUnfollow(item.following_id)}
+              >
+                <Text style={styles.unfollowButtonText}>Unfollow</Text>
+              </TouchableOpacity>
             </TouchableOpacity>
-          </TouchableOpacity>
-        )}
+          );
+        }}
         contentContainerStyle={styles.listContainer}
         refreshing={loading}
         onRefresh={fetchFollowedMentors}
@@ -302,12 +316,28 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     marginRight: 15,
     borderWidth: 2,
     borderColor: '#8A2BE2',
+  },
+  initialsAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F3E5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+    borderWidth: 2,
+    borderColor: '#8A2BE2',
+  },
+  initialsText: {
+    color: '#8A2BE2',
+    fontWeight: 'bold',
+    fontSize: 20,
   },
   instructorInfo: {
     flex: 1,

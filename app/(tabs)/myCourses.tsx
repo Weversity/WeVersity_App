@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -77,6 +77,19 @@ export default function MyCoursesScreen() {
 
   const filterAnimation = useRef(new Animated.Value(0)).current;
 
+  // Debounce Search
+  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 500);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchQuery]);
+
   const {
     data,
     fetchNextPage,
@@ -85,10 +98,21 @@ export default function MyCoursesScreen() {
     isLoading,
     refetch,
   } = useInfiniteQuery({
-    queryKey: ['courses', activeTab],
+    queryKey: ['courses', activeTab, debouncedSearch, selectedFilterCategory, selectedRating],
     queryFn: async ({ pageParam = 0 }) => {
       try {
-        const data = await courseService.fetchPublishedCourses(pageParam, 10);
+        let type = null;
+        if (activeTab === 'Skills Courses') type = 'Skill';
+        else if (activeTab === 'Technical Courses') type = 'Technical';
+
+        const data = await courseService.fetchPublishedCourses(
+          pageParam,
+          10,
+          type,
+          debouncedSearch,
+          selectedFilterCategory,
+          selectedRating
+        );
         return (data || []).map(c => ({
           ...c,
           is_free: c.price === 0
@@ -102,7 +126,7 @@ export default function MyCoursesScreen() {
       return lastPage.length === 10 ? allPages.length : undefined;
     },
     initialPageParam: 0,
-    enabled: !searchQuery && selectedFilterCategory === 'All' && selectedRating === null,
+    // Enabled always to ensure search works
   });
 
   const courses = useMemo(() => {
@@ -166,45 +190,14 @@ export default function MyCoursesScreen() {
   const filteredCourses = useMemo(() => {
     let currentCourses = courses;
 
-    // Tab Filtering Logic
-    if (activeTab === 'Skills Courses') {
-      const skillsKeywords = ['Marketing', 'Content', 'Design', 'Writing', 'Management', 'Sales'];
-      currentCourses = currentCourses.filter(c => {
-        const title = (c.title || '').toLowerCase();
-        const categories = (c.categories || '').toLowerCase();
-        const matchesCategory = categories.includes('skills');
-        const matchesTitle = skillsKeywords.some(kw => title.includes(kw.toLowerCase()));
-        return matchesCategory || matchesTitle;
-      });
-    } else if (activeTab === 'Technical Courses') {
-      const techKeywords = ['Web', 'App', 'HTML', 'WordPress', 'CSS', 'JS', 'Coding', 'Graphic Design', 'Shopify', 'SEO', 'eCommerce'];
-      currentCourses = currentCourses.filter(c => {
-        const title = (c.title || '').toLowerCase();
-        return techKeywords.some(kw => title.includes(kw.toLowerCase()));
-      });
-    }
+    // Server-side filtering by tab is already handled by useInfiniteQuery's fetch
+    // No additional filtering needed here for tabs except 'All' if we were doing mixed logic
+    // But since useInfiniteQuery refetch on activeTab change, currentCourses is already correct.
 
-    if (searchQuery) {
-      const lower = searchQuery.toLowerCase();
-      currentCourses = currentCourses.filter(c => {
-        const instructor = Array.isArray(c.instructor) ? c.instructor[0] : c.instructor;
-        return (c.title || '').toLowerCase().includes(lower) ||
-          (instructor?.first_name || '').toLowerCase().includes(lower);
-      });
-    }
+    // Server-side filtering handles activeTab (type), search, categories, and ratings.
+    // Client-side filtering removed as requested.
 
-    if (selectedFilterCategory !== 'All') {
-      currentCourses = currentCourses.filter(c => {
-        const cat = c.categories || '';
-        return cat.includes(selectedFilterCategory);
-      });
-    }
-
-    if (selectedRating !== null) {
-      currentCourses = currentCourses.filter(c => Math.floor(c.avg_rating || 0) >= selectedRating);
-    }
-
-    return currentCourses;
+    return courses;
   }, [searchQuery, selectedFilterCategory, selectedRating, courses, activeTab]);
 
   // Animation handlers
@@ -219,6 +212,10 @@ export default function MyCoursesScreen() {
   const resetFilters = () => {
     setSelectedFilterCategory('All');
     setSelectedRating(null);
+    // hideFilter(); // Optional: Close modal on reset (user didn't specify, but often good UX) 
+    // keeping open to let them hit Filter button or just see reset state. 
+    // Wait, user asked: "Make sure the 'Filter' button in the modal actually triggers the query by closing the modal"
+    // The reset logic itself triggers the query because of the queryKey dependency.
   };
   const applyFilters = () => hideFilter();
 
@@ -286,7 +283,7 @@ export default function MyCoursesScreen() {
             ) : null
           )}
           onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage && !searchQuery && selectedFilterCategory === 'All' && selectedRating === null) {
+            if (hasNextPage && !isFetchingNextPage && selectedFilterCategory === 'All' && selectedRating === null) {
               fetchNextPage();
             }
           }}
@@ -364,7 +361,7 @@ export default function MyCoursesScreen() {
             <Text style={styles.filterHeaderTitle}>Filter</Text>
             <Text style={styles.sectionTitle}>Most Demanded Courses</Text>
             <View style={styles.chipsContainer}>
-              {['Web Development', 'App Development', 'UI/UX Design', 'Digital Marketing', 'Graphic Design', 'E-Commerce'].map(cat => (
+              {['AI Mastery', 'Graphic Design', 'Handmade Crafts', 'YouTube & Marketing', 'Shopify & E-Commerce', 'Video Editing'].map(cat => (
                 <TouchableOpacity
                   key={cat}
                   style={[styles.chip, selectedFilterCategory === cat && styles.chipActive]}

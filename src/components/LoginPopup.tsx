@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Dimensions,
   Image,
@@ -17,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import AuthForm from './AuthForm';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -139,6 +142,64 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     router.push('/privacy-policy');
   };
 
+  useEffect(() => {
+    // Check if running in Expo Go
+    const isExpoGo = Constants.appOwnership === 'expo';
+
+    if (!isExpoGo) {
+      try {
+        const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+        GoogleSignin.configure({
+          webClientId: '636424335937-7l9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
+        });
+      } catch (e) {
+        console.warn('GoogleSignin.configure failed:', e);
+      }
+    }
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    // Check if running in Expo Go
+    if (Constants.appOwnership === 'expo') {
+      Alert.alert(
+        'Development Build Required',
+        'Google Login requires a development build. It will not work in the standard Expo Go app. Use "npx expo run:android" to test locally.'
+      );
+      return;
+    }
+
+    try {
+      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+
+      if (userInfo && userInfo.data && userInfo.data.idToken) {
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: userInfo.data.idToken,
+        });
+
+        if (error) {
+          console.error('Supabase Google Sign-In Error:', error.message);
+          throw error;
+        }
+
+        if (data.session) {
+          closeSheet();
+          // Optional: You can navigate here if needed, but closeSheet usually suffices if listeners are active.
+        }
+      } else {
+        throw new Error('No ID token present from Google Sign-In!');
+      }
+    } catch (error: any) {
+      console.error('Full Google Sign-In Flow Error:', error);
+      // Detailed error logging as requested
+      if (error.code) {
+        console.error('Error Code:', error.code);
+      }
+    }
+  };
+
   const renderSocialLogins = () => (
     <View style={{ flex: 1 }}>
       <View style={styles.topContent}>
@@ -146,7 +207,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
           <Ionicons name="person-outline" size={24} color="black" style={styles.buttonIcon} />
           <Text style={styles.buttonText}>Continue with Email or Phone</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.button}>
+        <TouchableOpacity style={styles.button} onPress={handleGoogleLogin}>
           <Image
             source={{ uri: 'https://developers.google.com/identity/images/g-logo.png' }}
             style={[styles.buttonIcon, { width: 24, height: 24 }]}

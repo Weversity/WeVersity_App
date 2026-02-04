@@ -1,16 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function TermsOfService() {
     const router = useRouter();
 
     return (
-        <SafeAreaView style={styles.container}>
+        <View style={styles.container}>
+            <StatusBar barStyle="light-content" />
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#333" />
+                    <Ionicons name="arrow-back" size={24} color="#fff" />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Terms of Service</Text>
             </View>
@@ -99,7 +100,7 @@ export default function TermsOfService() {
                 </View>
 
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -111,19 +112,21 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-        backgroundColor: '#fff',
+        paddingTop: 50, // Added padding for status bar area
+        paddingBottom: 16,
+        paddingHorizontal: 16,
+        backgroundColor: '#8A2BE2', // Purple Header
     },
     backButton: {
         padding: 8,
         marginRight: 8,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: 8,
     },
     headerTitle: {
         fontSize: 20,
         fontWeight: 'bold',
-        color: '#333',
+        color: '#fff',
     },
     content: {
         padding: 20,

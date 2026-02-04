@@ -151,6 +151,14 @@ const SpotlightCard = memo(({ item, onNotify }: { item: any; onNotify: (item: an
                             <View style={styles.webinarBadge}>
                                 <Text style={styles.devBadgeText}>WEBINAR</Text>
                             </View>
+
+                            <TouchableOpacity
+                                style={styles.spotlightNotifyButton}
+                                onPress={() => onNotify(item)}
+                            >
+                                <Ionicons name="notifications" size={12} color="#fff" style={{ marginRight: 4 }} />
+                                <Text style={styles.notifyButtonText}>Notify Me</Text>
+                            </TouchableOpacity>
                         </View>
 
                         <Text style={styles.spotlightTitleText} numberOfLines={2}>{title}</Text>
@@ -180,9 +188,9 @@ const SpotlightCard = memo(({ item, onNotify }: { item: any; onNotify: (item: an
                     {/* Instructor Info */}
                     <View style={styles.spotlightInstructorRow}>
                         <Image source={{ uri: instructorPicture }} style={styles.instrAvatar} />
-                        <View>
+                        <View style={styles.instructorTextContainer}>
                             <Text style={styles.instrNameSmall}>INSTRUCTOR</Text>
-                            <Text style={styles.instrNameMain}>{instructorName}</Text>
+                            <Text style={styles.instrNameMain} numberOfLines={2}>{instructorName}</Text>
                         </View>
                     </View>
                 </View>
@@ -467,7 +475,17 @@ const styles = StyleSheet.create({
     categoryBadgeRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
         marginBottom: 8,
+    },
+    spotlightNotifyButton: {
+        backgroundColor: '#8A2BE2', // Changed to Main Purple
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
     },
     webinarBadge: {
         backgroundColor: '#4E55FF',
@@ -487,7 +505,7 @@ const styles = StyleSheet.create({
         lineHeight: 28,
     },
     spotlightBottomRow: {
-        padding: 16,
+        padding: 20, // Increased padding for consistency
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -551,11 +569,17 @@ const styles = StyleSheet.create({
         fontSize: 9,
         color: '#999',
         fontWeight: 'bold',
+        marginBottom: 2, // Added margin for spacing
+    },
+    instructorTextContainer: {
+        flex: 1,
+        paddingRight: 8, // Ensure it doesn't touch the edge
     },
     instrNameMain: {
         fontSize: 13,
         color: '#1a1a1a',
         fontWeight: 'bold',
+        flexWrap: 'wrap', // Ensure long names wrap
     },
     // List Header
     resultsHeader: {
@@ -672,7 +696,7 @@ const styles = StyleSheet.create({
         color: '#666',
     },
     notifyButtonStyle: {
-        backgroundColor: '#4E55FF',
+        backgroundColor: '#8A2BE2', // Updated to Primary Purple
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,

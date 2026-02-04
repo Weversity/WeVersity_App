@@ -7,17 +7,63 @@ if (!supabaseUrl) {
 }
 
 export const courseService = {
-    // Fetch all published courses (Paginated)
-    async fetchPublishedCourses(page = 0, pageSize = 10) {
+    // Fetch all published courses (Paginated) with optional type filtering, search, category, and rating
+    /**
+     * @param {number} page
+     * @param {number} pageSize
+     * @param {string|null} type
+     * @param {string} search
+     * @param {string} category
+     * @param {number|null} rating
+     */
+    async fetchPublishedCourses(page = 0, pageSize = 10, type = null, search = '', category = 'All', rating = null) {
         try {
             const from = page * pageSize;
             const to = from + pageSize - 1;
 
             // 1. Fetch courses with limited columns for performance
-            const { data: courses, error } = await supabase
+            let query = supabase
                 .from('courses')
-                .select('id, title, image_url, price, categories, instructor:profiles(first_name, last_name)')
-                .eq('is_published', true)
+                .select('id, title, image_url, price, categories, type, rating, instructor:profiles(first_name, last_name)')
+                .eq('is_published', true);
+
+            // Apply type filtering if provided ('Skill' or 'Technical')
+            if (type) {
+                query = query.eq('type', type);
+            }
+
+            // Apply search filtering if provided
+            if (search && search.trim() !== '') {
+                query = query.ilike('title', `%${search}%`);
+            }
+
+            // Apply category filtering if provided
+            if (category && category !== 'All') {
+                let searchTerm = category;
+
+                // Smart Mapping: Map display names to broader keywords
+                if (category === 'AI Mastery') searchTerm = 'AI';
+                else if (category === 'Graphic Design') searchTerm = 'Graphic,Design';
+                else if (category === 'Handmade Crafts') searchTerm = 'Craft,Handmade,Making';
+                else if (category === 'YouTube & Marketing') searchTerm = 'YouTube,Marketing';
+                else if (category === 'Shopify & E-Commerce') searchTerm = 'Shopify,E-Commerce,Ecommerce';
+                else if (category === 'Video Editing') searchTerm = 'Video,Editing';
+
+                // Construct OR filter for Title OR Categories
+                // Example: .or('title.ilike.%AI%,categories.ilike.%AI%')
+                const keywords = searchTerm.split(',');
+                const conditions = keywords.map(k => `title.ilike.%${k.trim()}%,categories.ilike.%${k.trim()}%`).join(',');
+
+                query = query.or(conditions);
+            }
+
+            // Apply rating filtering if provided
+            if (rating !== null) {
+                // Assuming 'rating' column exists as discussed
+                query = query.gte('rating', rating);
+            }
+
+            const { data: courses, error } = await query
                 .order('created_at', { ascending: false })
                 .range(from, to);
 

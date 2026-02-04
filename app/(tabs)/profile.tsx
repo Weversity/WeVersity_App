@@ -8,7 +8,7 @@ import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StatusBar, StyleSheet, View } from 'react-native';
 
-export default function ProfileScreen() {
+function ProfileScreen() {
   const { isAuthenticated, role, isLoading, logout } = useAuth();
   const [showPopup, setShowPopup] = useState(false);
   const params = useLocalSearchParams();
@@ -80,3 +80,5 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 });
+
+export default ProfileScreen;

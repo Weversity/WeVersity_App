@@ -1,17 +1,20 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Clipboard,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -143,6 +146,10 @@ export default function ChatScreen() {
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [infoVisible, setInfoVisible] = useState(false);
 
+  // Message Options State
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [optionsVisible, setOptionsVisible] = useState(false);
+
   // Fetch data
   useEffect(() => {
     const loadChatData = async () => {
@@ -184,25 +191,25 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!id) return;
 
-    const subscription = chatService.subscribeToConversation(id as string, 'group', (newMessage: Message) => {
-      setMessages(prevMessages => {
-        // 1. If ID already exists, ignore
-        if (prevMessages.some(msg => msg.id === newMessage.id)) {
-          return prevMessages;
-        }
+    const subscription = chatService.subscribeToConversation(id as string, 'group', (payload: any) => {
+      const { event, new: newMessage, old: oldMessage } = payload;
 
-        // 2. If it's a message from the current user, it might be the "real" version of a temp message
-        // However, since we don't have a reliable way to link them here without matching content,
-        // we'll rely on handleSend's replacement logic. 
-        // A simple check: if we have temp messages and this looks like one of them (same content),
-        // we could replace it, but let's stick to the user's requested filter logic for stability.
+      if (event === 'INSERT') {
+        setMessages(prevMessages => {
+          // 1. If ID already exists, ignore
+          if (prevMessages.some(msg => msg.id === newMessage.id)) {
+            return prevMessages;
+          }
 
-        const combined = [...prevMessages, newMessage];
-        return combined.filter((msg, index, self) =>
-          index === self.findIndex((m) => m.id === msg.id)
-        );
-      });
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+          const combined = [...prevMessages, newMessage];
+          return combined.filter((msg, index, self) =>
+            index === self.findIndex((m) => m.id === msg.id)
+          );
+        });
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      } else if (event === 'DELETE') {
+        setMessages(prev => prev.filter(msg => msg.id !== oldMessage.id));
+      }
     });
 
     return () => {
@@ -285,6 +292,35 @@ export default function ChatScreen() {
     }
   };
 
+  const handleOpenMenu = async (message: Message) => {
+    const isMyMessage = user && message.sender_id === user.id;
+    if (!isMyMessage) return;
+
+    // Trigger Medium Haptic Feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    setSelectedMessage(message);
+    setOptionsVisible(true);
+  };
+
+  const handleCopy = (content: string) => {
+    Clipboard.setString(content);
+    setOptionsVisible(false);
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    // Optimistic UI Update
+    setMessages(prev => prev.filter(msg => msg.id !== messageId));
+    setOptionsVisible(false);
+
+    try {
+      await chatService.deleteMessage(messageId);
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      Alert.alert('Error', 'Failed to delete message.');
+    }
+  };
+
   const handleLeaveGroup = async () => {
     if (!user || !id) return;
 
@@ -313,30 +349,52 @@ export default function ChatScreen() {
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isMyMessage = user && item.sender_id === user.id;
+    const isSelected = selectedMessage?.id === item.id && optionsVisible;
 
     // Check if content is an image URL (simple check)
     const isImage = item.content && (item.content.match(/\.(jpeg|jpg|gif|png|webp)$/i) || item.content.includes('supabase.co/storage/v1/object/public/chat-attachments'));
     const isVideo = item.content && (item.content.match(/\.(mp4|mov|m4v)$/i) || (item.content.includes('chat-attachments') && item.content.includes('video')));
 
     return (
-      <View style={[styles.messageBubble, isMyMessage ? styles.myMessage : styles.theirMessage]}>
-        {isImage ? (
-          <Image
-            source={{ uri: item.content }}
-            style={{ width: 200, height: 200, borderRadius: 10 }}
-            resizeMode="cover"
-          />
-        ) : isVideo ? (
-          <View style={{ width: 200, height: 120, borderRadius: 10, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
-            <Ionicons name="play-circle" size={50} color="#fff" />
-            <Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video Attachment</Text>
-          </View>
-        ) : (
-          <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.theirMessageText]}>
-            {item.content}
-          </Text>
-        )}
-      </View>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => handleOpenMenu(item)}
+        style={[
+          styles.messageBubble,
+          isMyMessage ? styles.myMessage : styles.theirMessage,
+          isSelected && styles.selectedBubble
+        ]}
+      >
+        <View style={styles.messageContentContainer}>
+          {isImage ? (
+            <Image
+              source={{ uri: item.content }}
+              style={{ width: 200, height: 200, borderRadius: 10 }}
+              resizeMode="cover"
+            />
+          ) : isVideo ? (
+            <View style={{ width: 200, height: 120, borderRadius: 10, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="play-circle" size={50} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video Attachment</Text>
+            </View>
+          ) : (
+            <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.theirMessageText]}>
+              {item.content}
+            </Text>
+          )}
+
+          {isMyMessage && (
+            <View style={styles.messageStatusContainer}>
+              <Ionicons
+                name="chevron-down"
+                size={12}
+                color={isMyMessage ? "rgba(255,255,255,0.5)" : "#CCC"}
+                style={{ marginLeft: 4 }}
+              />
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -385,7 +443,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -401,34 +459,36 @@ export default function ChatScreen() {
           />
         )}
 
-        <View style={styles.inputContainer}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={pickImage}
-            disabled={isUploading}
-          >
-            {isUploading ? (
-              <ActivityIndicator size="small" color="#8A2BE2" />
-            ) : (
-              <Ionicons name="add" size={28} color="#555" />
-            )}
-          </TouchableOpacity>
-          <TextInput
-            style={styles.textInput}
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder="Type a message..."
-            placeholderTextColor="#999"
-            multiline
-            editable={!isUploading}
-          />
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={handleSend}
-            disabled={isUploading || inputText.trim().length === 0}
-          >
-            <Ionicons name="send" size={24} color={isUploading || inputText.trim().length === 0 ? "#CCC" : "#8A2BE2"} />
-          </TouchableOpacity>
+        <View style={styles.inputWrapper}>
+          <View style={styles.inputContainer}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={pickImage}
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                <ActivityIndicator size="small" color="#8A2BE2" />
+              ) : (
+                <Ionicons name="add" size={28} color="#555" />
+              )}
+            </TouchableOpacity>
+            <TextInput
+              style={styles.textInput}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Type a message..."
+              placeholderTextColor="#999"
+              multiline
+              editable={!isUploading}
+            />
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={handleSend}
+              disabled={isUploading || inputText.trim().length === 0}
+            >
+              <Ionicons name="send" size={24} color={isUploading || inputText.trim().length === 0 ? "#CCC" : "#8A2BE2"} />
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
 
@@ -439,6 +499,39 @@ export default function ChatScreen() {
         members={members}
         onLeave={handleLeaveGroup}
       />
+
+      {/* Message Options Bottom Sheet */}
+      <Modal
+        visible={optionsVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setOptionsVisible(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setOptionsVisible(false)}
+        >
+          <View style={styles.actionSheetContainer}>
+            <View style={styles.actionSheetHandle} />
+
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={() => selectedMessage && handleCopy(selectedMessage.content)}
+            >
+              <Ionicons name="copy-outline" size={22} color="#555" />
+              <Text style={styles.actionText}>Copy Text</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionItem, styles.deleteAction]}
+              onPress={() => selectedMessage && handleDeleteMessage(selectedMessage.id)}
+            >
+              <Ionicons name="trash-outline" size={22} color="#FF4444" />
+              <Text style={[styles.actionText, styles.deleteText]}>Delete Message</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -706,6 +799,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 8,
     maxWidth: '80%',
+    position: 'relative',
+  },
+  selectedBubble: {
+    backgroundColor: '#9D50EE', // Slightly lighter highlight for my message
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   myMessage: {
     backgroundColor: '#8A2BE2', // Purple for my messages
@@ -719,6 +818,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
+  messageContentContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  messageStatusContainer: {
+    alignSelf: 'flex-end',
+    marginBottom: -2,
+  },
   messageText: {
     fontSize: 16,
   },
@@ -728,26 +835,77 @@ const styles = StyleSheet.create({
   theirMessageText: {
     color: '#333', // Dark text for their messages
   },
+  inputWrapper: {
+    backgroundColor: '#8A2BE2', // Purple Bottom Area
+    paddingBottom: Platform.OS === 'ios' ? 30 : 10,
+    marginBottom: -1,
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#EAEAEA',
+    borderRadius: 30,
+    margin: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   textInput: {
     flex: 1,
     minHeight: 40,
     maxHeight: 120,
-    backgroundColor: '#F4F7FC',
+    backgroundColor: '#fff',
     borderRadius: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     fontSize: 16,
-    marginHorizontal: 8,
+    marginHorizontal: 5,
   },
   iconButton: {
-    padding: 5,
+    padding: 8,
+  },
+  // Action Sheet
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  actionSheetContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    paddingHorizontal: 20,
+  },
+  actionSheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#DDD',
+    borderRadius: 2.5,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  actionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  actionText: {
+    fontSize: 17,
+    color: '#333',
+    marginLeft: 15,
+    fontWeight: '500',
+  },
+  deleteAction: {
+    borderBottomWidth: 0, // Last item
+  },
+  deleteText: {
+    color: '#FF4444',
   },
 });
