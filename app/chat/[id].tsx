@@ -138,6 +138,7 @@ export default function ChatScreen() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
+  const [inputHeight, setInputHeight] = useState(40);
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -442,22 +443,24 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        style={styles.keyboardAvoidingView}
+        keyboardVerticalOffset={0}
       >
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#8A2BE2" />
-          </View>
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            renderItem={renderMessage}
-            keyExtractor={(item, index) => item.id ? item.id.toString() : `index-${index}-${Date.now()}`}
-            contentContainerStyle={styles.listContent}
-          />
-        )}
+        <View style={styles.chatBody}>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#8A2BE2" />
+            </View>
+          ) : (
+            <FlatList
+              ref={flatListRef}
+              data={messages}
+              renderItem={renderMessage}
+              keyExtractor={(item, index) => item.id ? item.id.toString() : `index-${index}-${Date.now()}`}
+              contentContainerStyle={styles.listContent}
+            />
+          )}
+        </View>
 
         <View style={styles.inputWrapper}>
           <View style={styles.inputContainer}>
@@ -473,13 +476,15 @@ export default function ChatScreen() {
               )}
             </TouchableOpacity>
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { height: Math.max(40, inputHeight) }]}
               value={inputText}
               onChangeText={setInputText}
               placeholder="Type a message..."
               placeholderTextColor="#999"
               multiline
               editable={!isUploading}
+              onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
+              onBlur={() => setInputHeight(40)}
             />
             <TouchableOpacity
               style={styles.iconButton}
@@ -541,7 +546,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#8A2BE2', // Solid Purple for System Area
   },
-  container: {
+  keyboardAvoidingView: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  chatBody: {
     flex: 1,
     backgroundColor: '#F4F7FC',
   },
@@ -791,7 +800,7 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    paddingBottom: 20,
+    paddingBottom: 0,
   },
   messageBubble: {
     paddingVertical: 10,

@@ -190,6 +190,7 @@ export default function CourseDetailsScreen() {
     const [isEnrolled, setIsEnrolled] = useState(false);
     const [progress, setProgress] = useState(0);
     const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
+    const [enrollmentLoading, setEnrollmentLoading] = useState(false);
 
     // 1. Fetch Metadata (Fast)
     const { data: fullCourseData, isLoading: isQueryLoading, error: queryError } = useQuery({
@@ -448,6 +449,8 @@ export default function CourseDetailsScreen() {
     useEffect(() => {
         if (course && course.lessonCount > 0 && completedLessonIds.length > 0) {
             setProgress(Math.round((completedLessonIds.length / course.lessonCount) * 100));
+        } else {
+            setProgress(0);
         }
     }, [course, completedLessonIds]);
 
@@ -459,9 +462,36 @@ export default function CourseDetailsScreen() {
         }
 
         try {
+            setEnrollmentLoading(true);
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                router.push(`/learning/${course.id}` as any);
+                // Insert enrollment record
+                const { error: insertError } = await supabase
+                    .from('enrollments')
+                    .insert([
+                        {
+                            student_id: user.id,
+                            course_id: course.id,
+                            status: 'active',
+                            completed_lessons: []
+                        }
+                    ]);
+
+                if (insertError) {
+                    // Check if already enrolled to avoid duplicates causing error
+                    if (insertError.code === '23505') { // Unique constraint violation
+                        setIsEnrolled(true);
+                        router.push(`/learning/${course.id}` as any);
+                    } else {
+                        Alert.alert("Enrollment Failed", "Could not enroll in this course. Please try again.");
+                    }
+                } else {
+                    setIsEnrolled(true);
+                    setCompletedLessonIds([]);
+                    setProgress(0);
+                    router.push(`/learning/${course.id}` as any);
+                }
+
             } else {
                 Alert.alert(
                     "Login Required",
@@ -474,7 +504,9 @@ export default function CourseDetailsScreen() {
             }
         } catch (err) {
             console.error("Enrollment error:", err);
-            router.push(`/learning/${course.id}` as any);
+            Alert.alert("Error", "An unexpected error occurred.");
+        } finally {
+            setEnrollmentLoading(false);
         }
     };
 
@@ -499,11 +531,6 @@ export default function CourseDetailsScreen() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
                 <View style={styles.header}>
                     <Image source={{ uri: course.image }} style={styles.headerImg} />
-                    <View style={styles.playOverlay}>
-                        <View style={styles.playCircle}>
-                            <Ionicons name="play" size={30} color="#8A2BE2" />
-                        </View>
-                    </View>
                 </View>
 
                 <View style={styles.body}>
@@ -556,8 +583,13 @@ export default function CourseDetailsScreen() {
                 <TouchableOpacity
                     style={[styles.enrollBtn, isEnrolled && styles.continueBtn]}
                     onPress={handleEnroll}
+                    disabled={enrollmentLoading}
                 >
-                    <Text style={styles.enrollBtnText}>{isEnrolled ? "Continue Learning" : "Enroll Now"}</Text>
+                    {enrollmentLoading ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <Text style={styles.enrollBtnText}>{isEnrolled ? "Continue Learning" : "Enroll Now"}</Text>
+                    )}
                 </TouchableOpacity>
             </View>
         </View>
@@ -580,17 +612,13 @@ const AboutTab = ({ course, isLoading }: { course: MappedCourse; isLoading: bool
             return;
         }
 
-        console.log('DEBUG: Processing learning points...');
-
         // 1. Priority: Use database column if it exists and has data
         if (course.what_you_will_learn && Array.isArray(course.what_you_will_learn) && course.what_you_will_learn.length > 0) {
-            console.log('DEBUG: Using database what_you_will_learn column');
             setExtractedPoints(course.what_you_will_learn);
             return;
         }
 
         // 2. Fallback: Extraction from description
-        console.log('DEBUG: Column empty, falling back to extraction from description');
         let pointsArray: string[] = [];
 
         // Step A: HTML <li> tags check
@@ -843,8 +871,6 @@ const styles = StyleSheet.create({
     backBtn: { backgroundColor: '#8A2BE2', padding: 10, borderRadius: 5 },
     header: { height: 250 },
     headerImg: { width: '100%', height: '100%' },
-    playOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
-    playCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.9)', justifyContent: 'center', alignItems: 'center' },
     body: { padding: 20, backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, marginTop: -30 },
     title: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: 15, marginBottom: 15 },

@@ -307,7 +307,6 @@ const ContentRenderer = ({
             if (!isQuizStarted) {
                 return (
                     <View style={styles.quizStartContainer}>
-                        <Text style={styles.quizTag}>QUIZ</Text>
                         <Text style={styles.quizMainTitle}>{lesson.title}</Text>
                         <View style={styles.divider} />
 
@@ -346,6 +345,7 @@ const ContentRenderer = ({
             return (
                 <View style={styles.quizActiveContainer}>
                     <View style={styles.quizActiveHeader}>
+                        <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 5 }}>{lesson.title}</Text>
                         <Text style={styles.questionCounter}>Question: <Text style={{ fontWeight: 'bold' }}>{currentQuestionIndex + 1}/{lesson.questions?.length}</Text></Text>
                     </View>
 
@@ -655,10 +655,17 @@ export default function LearningPlayerScreen() {
     const currentLesson = getCurrentLesson();
 
     const handleStartQuiz = () => {
-        setIsQuizStarted(true);
-        setCurrentQuestionIndex(0);
-        setSelectedAnswers({});
-        setQuizResult(null);
+        const lesson = getCurrentLesson();
+        if (lesson && lesson.questions) {
+            router.push({
+                pathname: "/quiz",
+                params: {
+                    courseId: id,
+                    lessonTitle: lesson.title,
+                    questions: JSON.stringify(lesson.questions)
+                }
+            });
+        }
     };
 
     const handleOptionSelect = (index: number) => {
