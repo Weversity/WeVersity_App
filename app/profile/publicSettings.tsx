@@ -1,4 +1,5 @@
 import { useAuth } from '@/src/context/AuthContext';
+// @ts-ignore
 import { supabase } from '@/src/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,9 +11,6 @@ import {
     Alert,
     Image,
     Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
     StatusBar,
     StyleSheet,
     Text,
@@ -21,6 +19,7 @@ import {
     TouchableWithoutFeedback,
     View
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function PublicSettingsScreen() {
@@ -244,108 +243,108 @@ export default function PublicSettingsScreen() {
                     <View style={{ width: 44 }} />
                 </View>
 
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                <KeyboardAwareScrollView
+                    enableOnAndroid={true}
+                    extraScrollHeight={130}
+                    keyboardShouldPersistTaps="always"
                     style={{ flex: 1 }}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                    contentContainerStyle={[styles.scrollContent, { flexGrow: 1 }]}
+                    showsVerticalScrollIndicator={false}
                 >
-                    <ScrollView
-                        contentContainerStyle={styles.scrollContent}
-                        keyboardShouldPersistTaps="handled"
-                        showsVerticalScrollIndicator={false}
-                    >
-                        {/* Photo Section */}
-                        <View style={styles.photoSection}>
-                            <TouchableOpacity onPress={handlePickImage} activeOpacity={0.9}>
-                                <View style={styles.avatarWrapper}>
-                                    <Image
-                                        source={{ uri: newImageUri || avatarUrl || 'https://via.placeholder.com/150' }}
-                                        style={styles.avatar}
-                                    />
-                                    <View style={styles.cameraOverlay}>
-                                        <Ionicons name="camera" size={20} color="#fff" />
-                                    </View>
+                    {/* Photo Section */}
+                    <View style={styles.photoSection}>
+                        <TouchableOpacity onPress={handlePickImage} activeOpacity={0.9}>
+                            <View style={styles.avatarWrapper}>
+                                <Image
+                                    source={{ uri: newImageUri || avatarUrl || 'https://via.placeholder.com/150' }}
+                                    style={styles.avatar}
+                                />
+                                <View style={styles.cameraOverlay}>
+                                    <Ionicons name="camera" size={20} color="#fff" />
                                 </View>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handlePickImage} style={styles.changePhotoButton}>
-                                <Text style={styles.changePhotoText}>Change Photo</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Form Fields */}
-                        <View style={styles.form}>
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.label}>First Name</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    value={firstName}
-                                    onChangeText={setFirstName}
-                                    placeholder="Enter first name"
-                                    placeholderTextColor="#999"
-                                />
                             </View>
-
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Last Name</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    value={lastName}
-                                    onChangeText={setLastName}
-                                    placeholder="Enter last name"
-                                    placeholderTextColor="#999"
-                                />
-                            </View>
-
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Role</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    value={role}
-                                    onChangeText={setRole}
-                                    placeholder="e.g. Instructor"
-                                    placeholderTextColor="#999"
-                                />
-                            </View>
-
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Bio</Text>
-                                <TextInput
-                                    style={[styles.input, styles.textArea]}
-                                    value={bio}
-                                    onChangeText={setBio}
-                                    placeholder="Tell others about yourself..."
-                                    placeholderTextColor="#999"
-                                    multiline
-                                    numberOfLines={4}
-                                    textAlignVertical="top"
-                                />
-                            </View>
-                        </View>
-
-                        {/* Save Button */}
-                        <TouchableOpacity
-                            style={styles.saveButtonWrapper}
-                            onPress={handleSave}
-                            disabled={saving}
-                        >
-                            <LinearGradient
-                                colors={['#8A2BE2', '#FF007F']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.saveButton}
-                            >
-                                {saving ? (
-                                    <ActivityIndicator color="#fff" />
-                                ) : (
-                                    <Text style={styles.saveButtonText}>Save Changes</Text>
-                                )}
-                            </LinearGradient>
                         </TouchableOpacity>
+                        <TouchableOpacity onPress={handlePickImage} style={styles.changePhotoButton}>
+                            <Text style={styles.changePhotoText}>Change Photo</Text>
+                        </TouchableOpacity>
+                    </View>
 
-                        {/* Extra padding at bottom to ensure scrolling past the last element */}
-                        <View style={{ height: 100 }} />
-                    </ScrollView>
-                </KeyboardAvoidingView>
+                    {/* Form Fields */}
+                    <View style={styles.form}>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>First Name</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={firstName}
+                                onChangeText={setFirstName}
+                                placeholder="Enter first name"
+                                placeholderTextColor="#999"
+                            />
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Last Name</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={lastName}
+                                onChangeText={setLastName}
+                                placeholder="Enter last name"
+                                placeholderTextColor="#999"
+                            />
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Role</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={role}
+                                onChangeText={setRole}
+                                placeholder="e.g. Instructor"
+                                placeholderTextColor="#999"
+                            />
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Bio</Text>
+                            <TextInput
+                                style={[styles.input, styles.textArea]}
+                                value={bio}
+                                onChangeText={setBio}
+                                placeholder="Tell others about yourself..."
+                                placeholderTextColor="#999"
+                                multiline
+                                numberOfLines={4}
+                                textAlignVertical="top"
+                            />
+                        </View>
+                    </View>
+
+                    {/* Bottom spacer for scroll room */}
+                    <View style={{ height: 120 }} />
+                </KeyboardAwareScrollView>
+
+                {/* Save Button - Fixed Footer */}
+                <View style={[styles.saveButtonWrapper, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                    <TouchableOpacity
+                        onPress={handleSave}
+                        disabled={saving}
+                        activeOpacity={0.8}
+                        style={{ overflow: 'hidden', borderRadius: 28 }}
+                    >
+                        <LinearGradient
+                            colors={['#8A2BE2', '#FF007F']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={styles.saveButton}
+                        >
+                            {saving ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                <Text style={styles.saveButtonText}>Save Changes</Text>
+                            )}
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
             </View>
         </TouchableWithoutFeedback>
     );
@@ -460,8 +459,11 @@ const styles = StyleSheet.create({
         paddingBottom: 16,
     },
     saveButtonWrapper: {
-        marginHorizontal: 24,
-        marginTop: 20,
+        paddingHorizontal: 24,
+        paddingTop: 10,
+        backgroundColor: '#fff',
+        borderTopWidth: 1,
+        borderTopColor: '#f0f0f0',
     },
     saveButton: {
         height: 56,

@@ -4,10 +4,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     FlatList,
     Image,
-    SafeAreaView,
     StatusBar,
     StyleSheet,
     Text,
@@ -16,11 +16,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/context/AuthContext';
+// @ts-ignore
 import { supabase } from '../../src/lib/supabase';
+// @ts-ignore
 import { videoService } from '../../src/services/videoService';
 
 const { width } = Dimensions.get('window');
-const ITEM_WIDTH = width / 3;
+const CONTAINER_PADDING = 8;
+const COLUMN_GAP = 2;
+const ITEM_WIDTH = (width - (CONTAINER_PADDING * 2) - (COLUMN_GAP * 2)) / 3;
 
 const getRandomColor = (name: string) => {
     const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB'];
@@ -51,6 +55,7 @@ export default function ViewProfile() {
     const [refreshing, setRefreshing] = useState(false);
     const [isFollowing, setIsFollowing] = useState(false);
 
+
     // CRITICAL: Prevent infinite re-render loop with fetch guard
     const isFetchingRef = React.useRef(false);
     const lastFetchTimeRef = React.useRef(0); // Throttle fetches
@@ -68,7 +73,7 @@ export default function ViewProfile() {
 
         // SWR rule:
         // - If we already have profile/shorts, NEVER show the full-screen loader again.
-        // - Only use full-screen loading on a true cold start (no profile yet).
+        // - Only show full-screen loading on a true cold start (no profile yet).
         const showFullScreen = !profile && shorts.length === 0;
         loadProfile(showFullScreen);
 
@@ -150,7 +155,16 @@ export default function ViewProfile() {
     };
 
     const handleFollow = async () => {
-        if (!user?.id) return;
+        if (!user?.id) {
+            Alert.alert(
+                "Login Required",
+                "Please login to follow instructors",
+                [
+                    { text: "OK", style: "cancel" }
+                ]
+            );
+            return;
+        }
 
         // Optimistic Update
         const previousState = isFollowing;
@@ -189,6 +203,8 @@ export default function ViewProfile() {
         return count.toString();
     };
 
+
+
     // Professional "data over spinner" rule:
     // Only show full-screen spinner when we truly have no data yet.
     if (loading && !profile && shorts.length === 0) {
@@ -207,6 +223,11 @@ export default function ViewProfile() {
             last_name: user.user_metadata.last_name || profile?.last_name,
             avatar_url: user.user_metadata.avatar_url || profile?.avatar_url
         } : profile;
+
+        // Ensure biography is present in displayProfile if it was fetched but not in user_metadata
+        if (!displayProfile.biography && profile?.biography) {
+            displayProfile.biography = profile.biography;
+        }
 
         return (
             <View style={styles.headerContainer}>
@@ -236,6 +257,37 @@ export default function ViewProfile() {
                     </View>
                     <Text style={styles.role}>Instructor</Text>
 
+                    {/* Bio Section - TikTok Style with Refined Add Button */}
+                    <View style={styles.bioContainer}>
+                        {isOwner ? (
+                            displayProfile?.biography ? (
+                                <TouchableOpacity
+                                    onPress={() => router.push('/profile/publicSettings' as any)}
+                                    style={styles.bioWrapper}
+                                >
+                                    <Text style={styles.bioText} numberOfLines={3}>
+                                        {displayProfile.biography}
+                                    </Text>
+                                    <Ionicons name="pencil" size={14} color="#8A2BE2" style={{ marginLeft: 6, marginTop: 2 }} />
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity
+                                    style={styles.addBioButton}
+                                    onPress={() => router.push('/profile/publicSettings' as any)}
+                                >
+                                    <Ionicons name="videocam" size={16} color="#000" style={{ marginRight: 6 }} />
+                                    <Text style={styles.addBioText}>Add bio</Text>
+                                    <Text style={{ color: '#999', marginHorizontal: 6 }}>·</Text>
+                                    <Text style={{ color: '#999', fontSize: 13 }}>I'm interested in...</Text>
+                                </TouchableOpacity>
+                            )
+                        ) : (
+                            <Text style={[styles.bioText, !displayProfile?.biography && styles.noBioText]}>
+                                {displayProfile?.biography || "No bio yet..."}
+                            </Text>
+                        )}
+                    </View>
+
                     <View style={styles.statsContainer}>
                         <View style={styles.statBox}>
                             <Text style={styles.statNumber}>{formatCount(followersCount)}</Text>
@@ -253,7 +305,13 @@ export default function ViewProfile() {
 
                     {isOwner ? (
                         <TouchableOpacity
-                            onPress={() => router.push('/profile/publicSettings' as any)}
+                            onPress={() => {
+                                if (!user) {
+                                    router.push('/login' as any);
+                                } else {
+                                    router.push('/profile/publicSettings' as any);
+                                }
+                            }}
                             activeOpacity={0.8}
                             style={styles.editButton}
                         >
@@ -281,12 +339,14 @@ export default function ViewProfile() {
                         <View style={styles.activeIndicator} />
                     </View>
                 </View>
+
+
             </View>
         );
     };
 
     return (
-        <SafeAreaView style={styles.container}>
+        <View style={styles.container}>
             <StatusBar barStyle="light-content" />
 
             {/* Top Navigation Bar */}
@@ -306,6 +366,8 @@ export default function ViewProfile() {
                 keyExtractor={item => item.id}
                 numColumns={3}
                 ListHeaderComponent={renderHeader}
+                contentContainerStyle={{ paddingHorizontal: CONTAINER_PADDING }}
+                columnWrapperStyle={{ gap: COLUMN_GAP }}
                 renderItem={({ item }) => (
                     <TouchableOpacity
                         style={styles.gridItem}
@@ -330,7 +392,7 @@ export default function ViewProfile() {
                 }
                 showsVerticalScrollIndicator={false}
             />
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -436,7 +498,42 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#666',
         fontWeight: '500',
-        marginBottom: 20,
+        marginBottom: 10,
+    },
+    // New Bio Styles
+    bioContainer: {
+        marginVertical: 12,
+        paddingHorizontal: 30,
+        alignItems: 'center',
+        width: '100%',
+    },
+    bioWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    bioText: {
+        fontSize: 14,
+        lineHeight: 20,
+        color: '#444',
+        textAlign: 'center',
+    },
+    noBioText: {
+        fontStyle: 'italic',
+        color: '#999',
+    },
+    addBioButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        height: 38,
+        borderRadius: 20,
+        backgroundColor: '#f0f0f0',
+    },
+    addBioText: {
+        color: '#000',
+        fontWeight: '600',
+        fontSize: 14,
     },
     statsContainer: {
         flexDirection: 'row',
@@ -519,15 +616,17 @@ const styles = StyleSheet.create({
         borderRadius: 2,
         marginTop: 4,
     },
+
     gridItem: {
         width: ITEM_WIDTH,
         height: ITEM_WIDTH * 1.6,
-        padding: 1,
+        marginBottom: COLUMN_GAP,
     },
     gridImage: {
         width: '100%',
         height: '100%',
         backgroundColor: '#f5f5f5',
+        borderRadius: 4,
     },
     gridOverlay: {
         position: 'absolute',

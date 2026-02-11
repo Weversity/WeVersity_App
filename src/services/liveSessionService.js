@@ -43,26 +43,8 @@ export const liveSessionService = {
         try {
             const { data, error } = await supabase
                 .from('live_sessions')
-                .select(`
-                  id,
-                  status,
-                  scheduled_at,
-                  google_meet_url,
-                  course_id,
-                  course:courses(
-                    id,
-                    title,
-                    image_url,
-                    categories,
-                    instructor:profiles(
-                      id,
-                      first_name,
-                      last_name,
-                      avatar_url
-                    )
-                  )
-                `)
-                .in('status', ['live', 'upcoming']);
+                .select('*, instructor:profiles!instructor_id(first_name, last_name, avatar_url), course:courses(title, image_url, categories)')
+                .eq('status', 'live');
 
             if (error) {
                 console.error('Error in fetchActiveLiveSessions:', error.message);

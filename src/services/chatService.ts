@@ -8,7 +8,7 @@ if (!supabaseUrl) {
 export const chatService = {
     // Fetch inbox conversations (chat groups)
     // Note: Instructors fetch created groups; Students fetch groups they are members of.
-    async fetchInboxConversations(currentUserId, role = 'student') {
+    async fetchInboxConversations(currentUserId: string, role: string = 'student'): Promise<any[]> {
         try {
             let groups = [];
 
@@ -59,14 +59,14 @@ export const chatService = {
                 };
             });
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in fetchInboxConversations:', error.message);
             throw error;
         }
     },
 
     // Subscribe to real-time chat (global updates)
-    subscribeToGlobalChat(callback) {
+    subscribeToGlobalChat(callback: (payload: any) => void) {
         const channel = supabase
             .channel('global-chat-updates')
             .on(
@@ -82,7 +82,7 @@ export const chatService = {
     },
 
     // Fetch messages for a specific group using group_id
-    async fetchConversationMessages(groupId) {
+    async fetchConversationMessages(groupId: string): Promise<any[]> {
         try {
             const { data, error } = await supabase
                 .from('chat_messages')
@@ -95,14 +95,14 @@ export const chatService = {
 
             if (error) throw error;
             return data || [];
-        } catch (error) {
-            console.error('Error in fetchConversationMessages:', error.message);
+        } catch (error: any) {
+            console.error('Error: ', error.message);
             throw error;
         }
     },
 
     // Subscribe to real-time updates for a specific group
-    subscribeToConversation(id, type = 'conversation', callback) {
+    subscribeToConversation(id: string, type: string = 'conversation', callback: (payload: any) => void) {
         // Listen for all changes (INSERT, UPDATE, DELETE) for this group
         const channel = supabase
             .channel(`group:${id}`)
@@ -124,7 +124,7 @@ export const chatService = {
     },
 
     // Delete a message
-    async deleteMessage(messageId) {
+    async deleteMessage(messageId: string): Promise<boolean> {
         try {
             const { error } = await supabase
                 .from('chat_messages')
@@ -133,14 +133,14 @@ export const chatService = {
 
             if (error) throw error;
             return true;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in deleteMessage:', error.message);
             throw error;
         }
     },
 
     // Send a message to a specific group
-    async sendConversationMessage(groupId, senderId, content) {
+    async sendConversationMessage(groupId: string, senderId: string, content: string): Promise<any> {
         try {
             const { data, error } = await supabase
                 .from('chat_messages')
@@ -153,14 +153,14 @@ export const chatService = {
 
             if (error) throw error;
             return data[0];
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in sendConversationMessage:', error.message);
             throw error;
         }
     },
 
     // Fetch specific group details
-    async fetchGroupDetails(groupId) {
+    async fetchGroupDetails(groupId: string): Promise<any> {
         try {
             const { data, error } = await supabase
                 .from('chat_groups')
@@ -176,14 +176,14 @@ export const chatService = {
                 name: data.courses?.title || data.name || 'Community Chat',
                 image: data.courses?.image_url || data.image || null
             };
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in fetchGroupDetails:', error.message);
             return null;
         }
     },
 
     // Fetch members of a group
-    async fetchGroupMembers(groupId) {
+    async fetchGroupMembers(groupId: string): Promise<any[]> {
         try {
             const { data, error } = await supabase
                 .from('group_members')
@@ -203,14 +203,14 @@ export const chatService = {
                 avatar: member.profile?.avatar_url,
                 joined_at: member.joined_at
             }));
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in fetchGroupMembers:', error.message);
             return [];
         }
     },
 
     // Leave a group
-    async leaveGroup(groupId, userId) {
+    async leaveGroup(groupId: string, userId: string): Promise<boolean> {
         try {
             const { error } = await supabase
                 .from('group_members')
@@ -220,7 +220,7 @@ export const chatService = {
 
             if (error) throw error;
             return true;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in leaveGroup:', error.message);
             return false;
         }
@@ -228,7 +228,7 @@ export const chatService = {
 
     // Fetch chat partner profile info 
     // (Used in ChatScreen, though for Groups it might be less relevant, kept for compatibility)
-    async fetchChatPartner(userId) {
+    async fetchChatPartner(userId: string): Promise<any> {
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -238,74 +238,76 @@ export const chatService = {
 
             if (error) throw error;
             return data;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in fetchChatPartner:', error.message);
             return null;
         }
     },
 
-    // Upload attachment (image/video) to chat-attachments bucket
-    async uploadAttachment(uri) {
+    // Upload attachment (image/video) to Cloudinary
+    async uploadAttachment(uri: string): Promise<string | null> {
         try {
             if (!uri) return null;
 
-            // 1. Normalize URI (Ensure file:// prefix for Android)
-            const normalizedUri = uri.startsWith('file://') ? uri : `file://${uri}`;
-            console.log('Final URI:', normalizedUri);
-            console.log('Sending to Bucket: chat-attachments');
+            // 1. Normalize URI for Android (FormData expects file:// for local files)
+            const normalizedUri = uri.startsWith('content://') || uri.startsWith('file://')
+                ? uri
+                : `file://${uri}`;
+
+            console.log('Starting upload for URI (Cloudinary):', normalizedUri);
 
             // 2. Get filename and extension
-            const fileExt = normalizedUri.split('.').pop()?.toLowerCase() || 'jpg';
+            const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
             const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-            const filePath = `uploads/${fileName}`;
 
-            // 3. Convert URI to ArrayBuffer (More stable than Blob for Supabase on Android)
-            const arrayBuffer = await new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.onload = function () {
-                    if (xhr.status === 200 || xhr.status === 0) { // 0 for local files
-                        resolve(xhr.response);
-                    } else {
-                        reject(new Error(`XHR failed with status ${xhr.status}`));
-                    }
-                };
-                xhr.onerror = function (e) {
-                    console.error('XMLHttpRequest error:', e);
-                    reject(new TypeError("Network request failed during XHR"));
-                };
-                xhr.responseType = "arraybuffer";
-                xhr.open("GET", normalizedUri, true);
-                xhr.send(null);
+            // 3. Determine resource type (image vs video)
+            const isVideo = uri.toLowerCase().match(/\.(mp4|mov|m4v)$/i);
+            const resourceType = isVideo ? 'video' : 'image';
+            const mimeType = isVideo ? `video/${fileExt}` : `image/${fileExt}`;
+
+            // 4. Create FormData
+            const formData = new FormData();
+            formData.append('file', {
+                uri: normalizedUri,
+                name: fileName,
+                type: mimeType,
+            } as any);
+            formData.append('upload_preset', 'weversity_unsigned');
+
+            const cloudName = 'dn93gd6yw';
+            const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
+
+            console.log(`Uploading to ${uploadUrl}`);
+
+            // 5. Upload to Cloudinary
+            const response = await fetch(uploadUrl, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'multipart/form-data',
+                },
             });
 
-            // 4. Determine Content Type
-            const isVideo = normalizedUri.toLowerCase().match(/\.(mp4|mov|m4v)$/i);
-            const contentType = isVideo ? `video/${fileExt}` : `image/${fileExt}`;
-            console.log('Detected Content-Type:', contentType);
+            const data = await response.json();
 
-            // 5. Upload to 'chat-attachments' bucket
-            const { data, error } = await supabase.storage
-                .from('chat-attachments')
-                .upload(filePath, arrayBuffer, {
-                    contentType: contentType,
-                    upsert: true
-                });
-
-            if (error) {
-                console.error('Supabase Storage Error:', error);
-                throw error;
+            if (data.error) {
+                console.error('Cloudinary Error:', data.error);
+                throw new Error(data.error.message);
             }
 
-            // 6. Get Public URL
-            const { data: { publicUrl } } = supabase.storage
-                .from('chat-attachments')
-                .getPublicUrl(filePath);
+            if (!data.secure_url) {
+                throw new Error('No secure_url returned from Cloudinary');
+            }
 
-            console.log('Upload successful. Public URL:', publicUrl);
-            return publicUrl;
-        } catch (error) {
+            console.log('Upload successful. Cloudinary URL:', data.secure_url);
+            return data.secure_url;
+
+        } catch (error: any) {
             console.error('Error in uploadAttachment:', error.message);
-            throw error;
+            return null;
         }
     }
+
+
 };

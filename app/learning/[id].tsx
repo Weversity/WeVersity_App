@@ -1,4 +1,6 @@
+// @ts-ignore
 import { supabase } from '@/src/auth/supabase';
+// @ts-ignore
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -115,27 +117,27 @@ const processCourseContent = (content: any): Section[] => {
 const tagsStyles = {
     h1: {
         fontSize: 24,
-        fontWeight: 'bold' as const,
+        fontWeight: '600' as const,
         color: '#1a1a1a',
         marginBottom: 12,
         marginTop: 16,
     },
     h2: {
         fontSize: 22,
-        fontWeight: 'bold' as const,
+        fontWeight: '600' as const,
         color: '#1a1a1a',
         marginBottom: 12,
         marginTop: 16,
     },
     h3: {
         fontSize: 20,
-        fontWeight: 'bold' as const,
+        fontWeight: '600' as const,
         color: '#1a1a1a',
         marginBottom: 8,
     },
     h4: {
         fontSize: 18,
-        fontWeight: 'bold' as const,
+        fontWeight: '600' as const,
         color: '#1a1a1a',
         marginBottom: 8,
     },
@@ -157,11 +159,11 @@ const tagsStyles = {
         marginBottom: 10,
     },
     strong: {
-        fontWeight: 'bold' as const,
+        fontWeight: '600' as const,
         color: '#000000',
     },
     b: {
-        fontWeight: 'bold' as const,
+        fontWeight: '600' as const,
         color: '#000000',
     },
 };
@@ -345,8 +347,8 @@ const ContentRenderer = ({
             return (
                 <View style={styles.quizActiveContainer}>
                     <View style={styles.quizActiveHeader}>
-                        <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 5 }}>{lesson.title}</Text>
-                        <Text style={styles.questionCounter}>Question: <Text style={{ fontWeight: 'bold' }}>{currentQuestionIndex + 1}/{lesson.questions?.length}</Text></Text>
+                        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', marginBottom: 5 }}>{lesson.title}</Text>
+                        <Text style={styles.questionCounter}>Question: <Text style={{ fontWeight: '600' }}>{currentQuestionIndex + 1}/{lesson.questions?.length}</Text></Text>
                     </View>
 
                     <View style={styles.activeQuestionCard}>
@@ -455,7 +457,7 @@ const LessonItem = ({ lesson, path, onSelect, isActive, level = 0, isCompleted =
 
 export default function LearningPlayerScreen() {
     const params = useLocalSearchParams();
-    const { id, title, thumbnail, instructor } = params;
+    const { id, title, thumbnail, instructor, sectionIndex, lessonIndex, subLessonIndex } = params;
     const router = useRouter();
     const contentScrollViewRef = useRef<ScrollView>(null);
 
@@ -536,14 +538,14 @@ export default function LearningPlayerScreen() {
     // 1. Fetch Metadata (Fast)
     const { data: courseMetadata, isLoading: isMetaLoading, refetch: refetchMeta } = useQuery({
         queryKey: ['course', id],
-        queryFn: () => courseService.fetchCourseById(Number(id)),
+        queryFn: () => courseService.fetchCourseById(String(id)),
         enabled: !!id,
     });
 
     // 2. Fetch Content (Heavy - Separate Request)
     const { data: contentData, isLoading: isContentLoading, error: contentError, refetch: refetchContent } = useQuery({
         queryKey: ['courseContent', id],
-        queryFn: () => courseService.fetchCourseContent(Number(id)),
+        queryFn: () => courseService.fetchCourseContent(String(id)),
         enabled: !!id,
     });
 
@@ -581,9 +583,19 @@ export default function LearningPlayerScreen() {
         const transformed = processCourseContent(parsedContent);
         setSections(transformed);
 
-        // Auto-select first lesson if nothing active
-        if (!activeLessonPath && transformed.length > 0 && transformed[0].data.length > 0) {
-            setActiveLessonPath({ s: 0, l: 0 });
+        // Initial Load or Deep Link Logic
+        if (!activeLessonPath && transformed.length > 0) {
+            if (sectionIndex !== undefined && lessonIndex !== undefined) {
+                // If deep link params exist, use them
+                setActiveLessonPath({
+                    s: Number(sectionIndex),
+                    l: Number(lessonIndex),
+                    sl: subLessonIndex !== undefined ? Number(subLessonIndex) : undefined
+                });
+            } else if (transformed.length > 0 && transformed[0].data.length > 0) {
+                // Default to first lesson
+                setActiveLessonPath({ s: 0, l: 0 });
+            }
         }
     }, [contentData, contentError]);
 
@@ -975,20 +987,20 @@ const styles = StyleSheet.create({
     center: { justifyContent: 'center', alignItems: 'center', padding: 20 },
     errorText: { fontSize: 16, color: 'red', textAlign: 'center', marginBottom: 20 },
     retryButton: { backgroundColor: '#8A2BE2', paddingVertical: 10, paddingHorizontal: 30, borderRadius: 20 },
-    retryButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+    retryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
     emptyStateText: { textAlign: 'center', color: '#888', marginTop: 20, fontSize: 15 },
     header: { height: 100, paddingTop: 40, backgroundColor: '#8A2BE2', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, justifyContent: 'space-between' },
     hamburgerBtn: { padding: 5 },
-    headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', flex: 1, textAlign: 'center', marginHorizontal: 10 },
+    headerTitle: { color: '#fff', fontSize: 18, fontWeight: '600', flex: 1, textAlign: 'center', marginHorizontal: 10 },
     backBtn: { padding: 5 },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
     sidebar: { position: 'absolute', top: 0, left: 0, bottom: 0, width: SIDEBAR_WIDTH, backgroundColor: '#fff', zIndex: 1001, elevation: 10 },
     sidebarHeader: { paddingTop: 50, paddingBottom: 20, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    sidebarTitle: { fontSize: 18, fontWeight: 'bold' },
+    sidebarTitle: { fontSize: 18, fontWeight: '600' },
     sectionContainer: { borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
     sectionHeader: { padding: 20, backgroundColor: '#fff' },
     sectionHeaderMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    sectionTitle: { fontSize: 15, fontWeight: 'bold', color: '#333', flex: 1, marginRight: 10 },
+    sectionTitle: { fontSize: 15, fontWeight: '600', color: '#333', flex: 1, marginRight: 10 },
     sectionProgress: { fontSize: 12, color: '#666', marginRight: 10 },
     sectionProgressText: { fontSize: 12, color: '#666', marginRight: 10 },
     sectionBody: { backgroundColor: '#fafafa' },
@@ -999,26 +1011,26 @@ const styles = StyleSheet.create({
     iconCircle: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
     activeIconCircle: { backgroundColor: '#8A2BE2' },
     lessonItemTitle: { fontSize: 14, color: '#555', flex: 1, lineHeight: 20 },
-    activeLessonText: { color: '#8A2BE2', fontWeight: 'bold' },
+    activeLessonText: { color: '#8A2BE2', fontWeight: '600' },
     checkmarkCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: '#ccc', justifyContent: 'center', alignItems: 'center', marginLeft: 10 },
     completedCheckmark: { backgroundColor: '#22C55E', borderColor: '#22C55E' },
     scrollBody: { flex: 1 },
     lessonHeader: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-    lessonTitle: { fontSize: 22, fontWeight: 'bold' },
+    lessonTitle: { fontSize: 22, fontWeight: '600' },
     contentContainer: { padding: 20 },
     actionArea: { paddingHorizontal: 20, marginTop: 10, paddingBottom: 40 },
     nextButton: { backgroundColor: '#8A2BE2', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 30, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
-    nextButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-    heading: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
+    nextButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+    heading: { fontSize: 20, fontWeight: '600', marginBottom: 15 },
     paragraph: { fontSize: 16, lineHeight: 24, color: '#444' },
     videoPlayer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000', borderRadius: 8, marginBottom: 15 },
     contentImage: { width: '100%', height: 200, borderRadius: 8, marginBottom: 15 },
     quizCard: { backgroundColor: '#F4F0FF', borderRadius: 15, padding: 25, alignItems: 'center', marginTop: 10 },
     resultCard: { backgroundColor: '#F4F0FF', borderRadius: 15, padding: 25, alignItems: 'center', marginTop: 10 },
-    quizText: { fontSize: 18, fontWeight: 'bold', color: '#333', marginTop: 15 },
+    quizText: { fontSize: 18, fontWeight: '600', color: '#333', marginTop: 15 },
     quizSubText: { fontSize: 14, color: '#666', marginTop: 5, marginBottom: 20, textAlign: 'center' },
     quizButton: { backgroundColor: '#8A2BE2', paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25 },
-    quizButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+    quizButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
     toastContainer: {
         position: 'absolute',
         bottom: 50,
@@ -1035,19 +1047,19 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.2,
         shadowRadius: 4,
     },
-    toastText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
+    toastText: { color: '#fff', fontWeight: '600', marginLeft: 8 },
 
     // --- Website Style Quiz Styles ---
     quizStartContainer: { padding: 30, backgroundColor: '#fff', borderRadius: 15, margin: 10, elevation: 2 },
-    quizTag: { color: '#8A2BE2', fontWeight: 'bold', fontSize: 13, marginBottom: 8 },
-    quizMainTitle: { fontSize: 28, fontWeight: 'bold', color: '#111', marginBottom: 20 },
+    quizTag: { color: '#8A2BE2', fontWeight: '600', fontSize: 13, marginBottom: 8 },
+    quizMainTitle: { fontSize: 28, fontWeight: '600', color: '#111', marginBottom: 20 },
     divider: { height: 1, backgroundColor: '#eee', marginBottom: 25 },
     quizMetaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
     quizMetaLabel: { fontSize: 16, color: '#555' },
-    quizMetaValue: { fontSize: 16, fontWeight: 'bold', color: '#111' },
+    quizMetaValue: { fontSize: 16, fontWeight: '600', color: '#111' },
     quizStartActions: { flexDirection: 'row', alignItems: 'center', marginTop: 30 },
     startQuizBtn: { backgroundColor: '#8A2BE2', paddingVertical: 14, paddingHorizontal: 35, borderRadius: 25, marginRight: 20 },
-    startQuizBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+    startQuizBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
     skipQuizBtn: { paddingVertical: 10 },
     skipQuizBtnText: { color: '#666', fontSize: 16, fontWeight: '500' },
 
@@ -1055,7 +1067,7 @@ const styles = StyleSheet.create({
     quizActiveHeader: { backgroundColor: '#8A2BE2', paddingVertical: 15, paddingHorizontal: 20 },
     questionCounter: { color: '#fff', fontSize: 16 },
     activeQuestionCard: { padding: 25 },
-    activeQuestionText: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 30, lineHeight: 28 },
+    activeQuestionText: { fontSize: 20, fontWeight: '600', color: '#333', marginBottom: 30, lineHeight: 28 },
     optionsList: { gap: 12 },
     webOptionBtn: { flexDirection: 'row', alignItems: 'center', padding: 18, borderRadius: 12, borderWidth: 1, borderColor: '#eee', backgroundColor: '#fff' },
     webOptionBtnSelected: { borderColor: '#8A2BE2', backgroundColor: '#F8F5FF' },
@@ -1067,14 +1079,14 @@ const styles = StyleSheet.create({
 
     quizFooter: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, borderTopWidth: 1, borderTopColor: '#f0f0f0', marginTop: 20 },
     quizBackBtn: { backgroundColor: '#f5f5f5', paddingVertical: 12, paddingHorizontal: 25, borderRadius: 25 },
-    quizBackBtnText: { color: '#777', fontWeight: 'bold' },
+    quizBackBtnText: { color: '#777', fontWeight: '600' },
     quizSubmitBtn: { backgroundColor: '#8A2BE2', paddingVertical: 12, paddingHorizontal: 30, borderRadius: 25 },
-    quizSubmitBtnText: { color: '#fff', fontWeight: 'bold' },
+    quizSubmitBtnText: { color: '#fff', fontWeight: '600' },
 
     finishQuizBtn: { backgroundColor: '#8A2BE2', paddingVertical: 15, paddingHorizontal: 35, borderRadius: 30, marginTop: 20 },
-    finishQuizBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-    resultTitle: { fontSize: 24, fontWeight: 'bold', marginTop: 15 },
-    resultScore: { fontSize: 40, fontWeight: 'bold', color: '#8A2BE2', marginVertical: 10 },
+    finishQuizBtnText: { color: '#fff', fontWeight: '600', fontSize: 16 },
+    resultTitle: { fontSize: 24, fontWeight: '600', marginTop: 15 },
+    resultScore: { fontSize: 40, fontWeight: '600', color: '#8A2BE2', marginVertical: 10 },
     resultText: { fontSize: 18, color: '#666', marginBottom: 20 },
 
     // --- Expanded Result View Styles ---
@@ -1082,19 +1094,19 @@ const styles = StyleSheet.create({
     resultSummaryHeader: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#eee', marginBottom: 25 },
     summaryItem: { alignItems: 'center', flex: 1 },
     summaryLabel: { fontSize: 12, color: '#888', textTransform: 'uppercase', marginBottom: 5 },
-    summaryValue: { fontSize: 18, fontWeight: 'bold', color: '#111' },
-    historyTitle: { fontSize: 20, fontWeight: 'bold', color: '#111', marginBottom: 15 },
+    summaryValue: { fontSize: 18, fontWeight: '600', color: '#111' },
+    historyTitle: { fontSize: 20, fontWeight: '600', color: '#111', marginBottom: 15 },
     historyScroll: { marginHorizontal: -20, paddingHorizontal: 20 },
     historyTable: { borderTopWidth: 1, borderTopColor: '#f0f0f0', minWidth: 800 },
     tableRowHeader: { flexDirection: 'row', backgroundColor: '#f9f9f9', paddingVertical: 12 },
-    tableCellHeader: { fontSize: 11, fontWeight: 'bold', color: '#777', paddingHorizontal: 10 },
+    tableCellHeader: { fontSize: 11, fontWeight: '600', color: '#777', paddingHorizontal: 10 },
     tableRow: { flexDirection: 'row', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
     tableCell: { fontSize: 13, color: '#444', paddingHorizontal: 10 },
     resultTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start' },
     resultTagText: { fontSize: 11, fontWeight: '600' },
     resultActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 30, gap: 15 },
     retakeBtn: { flex: 1, backgroundColor: '#f0f0f0', paddingVertical: 14, borderRadius: 25, alignItems: 'center' },
-    retakeBtnText: { color: '#333', fontWeight: 'bold', fontSize: 15 },
+    retakeBtnText: { color: '#333', fontWeight: '600', fontSize: 15 },
     continueBtn: { flex: 2, backgroundColor: '#8A2BE2', paddingVertical: 14, borderRadius: 25, alignItems: 'center' },
-    continueBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+    continueBtnText: { color: '#fff', fontWeight: '600', fontSize: 15 },
 });

@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { liveSessionService } from '../services/liveSessionService';
 import NotificationPopup from './NotificationPopup';
 
@@ -118,7 +120,7 @@ const useCountdown = (targetDate: string) => {
 };
 
 // Spotlight Card Component (Featured Soonest Class)
-const SpotlightCard = memo(({ item, onNotify }: { item: any; onNotify: (item: any) => void }) => {
+const SpotlightCard = memo(({ item, onNotify, isInterested }: { item: any; onNotify: (item: any) => void; isInterested: boolean }) => {
     const course = getCourseData(item);
     const title = course?.title || 'Master Class';
     const courseImage = course?.image_url || course?.thumbnail || course?.cover_image || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop';
@@ -153,11 +155,12 @@ const SpotlightCard = memo(({ item, onNotify }: { item: any; onNotify: (item: an
                             </View>
 
                             <TouchableOpacity
-                                style={styles.spotlightNotifyButton}
+                                style={[styles.spotlightNotifyButton, isInterested && styles.disabledButton]}
                                 onPress={() => onNotify(item)}
+                                disabled={isInterested}
                             >
-                                <Ionicons name="notifications" size={12} color="#fff" style={{ marginRight: 4 }} />
-                                <Text style={styles.notifyButtonText}>Notify Me</Text>
+                                <Ionicons name={isInterested ? "checkmark-circle" : "notifications"} size={12} color="#fff" style={{ marginRight: 4 }} />
+                                <Text style={styles.notifyButtonText}>{isInterested ? 'Interested' : 'Notify Me'}</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -217,7 +220,7 @@ const getTimeUntil = (dateString: string) => {
 };
 
 // Horizontal Card Component (Regular List)
-const SessionItem = memo(({ item, onNotify }: { item: any; onNotify: (item: any) => void }) => {
+const SessionItem = memo(({ item, onNotify, isInterested }: { item: any; onNotify: (item: any) => void; isInterested: boolean }) => {
     const course = getCourseData(item);
     const title = course?.title || 'Upcoming Class';
     const courseImage = course?.image_url || course?.thumbnail || course?.cover_image || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop';
@@ -262,9 +265,13 @@ const SessionItem = memo(({ item, onNotify }: { item: any; onNotify: (item: any)
                     <Text style={styles.instrName}>{instructorName}</Text>
                 </View>
 
-                <TouchableOpacity style={styles.notifyButtonStyle} onPress={() => onNotify(item)}>
-                    <Ionicons name="notifications" size={14} color="#fff" style={{ marginRight: 4 }} />
-                    <Text style={styles.notifyButtonText}>Notify Me</Text>
+                <TouchableOpacity
+                    style={[styles.notifyButtonStyle, isInterested && styles.disabledButton]}
+                    onPress={() => onNotify(item)}
+                    disabled={isInterested}
+                >
+                    <Ionicons name={isInterested ? "checkmark-circle" : "notifications"} size={14} color="#fff" style={{ marginRight: 4 }} />
+                    <Text style={styles.notifyButtonText}>{isInterested ? 'Interested' : 'Notify Me'}</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -272,11 +279,14 @@ const SessionItem = memo(({ item, onNotify }: { item: any; onNotify: (item: any)
 });
 
 const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
+    const { user } = useAuth();
     const [sessions, setSessions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [selectedSession, setSelectedSession] = useState<any | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
+    const [interestedIds, setInterestedIds] = useState<Set<string>>(new Set());
+    const [notifying, setNotifying] = useState(false);
 
     const loadData = useCallback(async () => {
         try {
@@ -285,13 +295,25 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
                 parseUtcDate(a.scheduled_at).getTime() - parseUtcDate(b.scheduled_at).getTime()
             );
             setSessions(sorted);
+
+            // Fetch user's existing interests
+            if (user) {
+                const { data: interests, error } = await supabase
+                    .from('session_interests')
+                    .select('session_id')
+                    .eq('user_id', user.id);
+
+                if (!error && interests) {
+                    setInterestedIds(new Set(interests.map(i => i.session_id)));
+                }
+            }
         } catch (error) {
             console.error('Error loading upcoming classes:', error);
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
-    }, []);
+    }, [user]);
 
     useEffect(() => {
         loadData();
@@ -327,9 +349,45 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
     }, [filteredSessions]);
 
     const handleNotify = useCallback((item: any) => {
+        if (!user) {
+            Alert.alert("Login Required", "Please log in to set reminders for classes.");
+            return;
+        }
         setSelectedSession(item);
         setModalVisible(true);
-    }, []);
+    }, [user]);
+
+    const handleConfirmNotify = async () => {
+        if (!user || !selectedSession || notifying) return;
+
+        setNotifying(true);
+        try {
+            const { error } = await supabase
+                .from('session_interests')
+                .insert([
+                    { user_id: user.id, session_id: selectedSession.id }
+                ]);
+
+            if (error) {
+                if (error.code === '23505') { // Duplicate key error
+                    setInterestedIds(prev => new Set(prev).add(selectedSession.id));
+                    Alert.alert("Already Set", "You are already interested in this class!");
+                } else {
+                    throw error;
+                }
+            } else {
+                setInterestedIds(prev => new Set(prev).add(selectedSession.id));
+                Alert.alert("Reminder Set!", "We will notify you 15 minutes before the class starts.");
+            }
+        } catch (error: any) {
+            console.error('Error setting interest:', error);
+            Alert.alert("Error", "Failed to set reminder. Please try again.");
+        } finally {
+            setNotifying(false);
+            setModalVisible(false);
+            setSelectedSession(null);
+        }
+    };
 
     const handleCloseModal = () => {
         setModalVisible(false);
@@ -350,11 +408,21 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
             <FlatList
                 data={listData}
                 keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => <SessionItem item={item} onNotify={handleNotify} />}
+                renderItem={({ item }) => (
+                    <SessionItem
+                        item={item}
+                        onNotify={handleNotify}
+                        isInterested={interestedIds.has(item.id)}
+                    />
+                )}
                 ListHeaderComponent={
                     <>
                         {spotlightClass && (
-                            <SpotlightCard item={spotlightClass} onNotify={handleNotify} />
+                            <SpotlightCard
+                                item={spotlightClass}
+                                onNotify={handleNotify}
+                                isInterested={interestedIds.has(spotlightClass.id)}
+                            />
                         )}
                         <View style={styles.resultsHeader}>
                             <Text style={styles.upcomingListTitle}>Upcoming Events</Text>
@@ -380,10 +448,7 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
                 <NotificationPopup
                     visible={modalVisible}
                     onClose={handleCloseModal}
-                    onNotify={() => {
-                        Alert.alert("Success", "We'll notify you when the class starts!");
-                        handleCloseModal();
-                    }}
+                    onNotify={handleConfirmNotify}
                     courseTitle={getCourseData(selectedSession)?.title || 'Class'}
                 />
             )}
@@ -713,6 +778,10 @@ const styles = StyleSheet.create({
         color: '#999',
         marginTop: 15,
         textAlign: 'center',
+    },
+    disabledButton: {
+        backgroundColor: '#ccc',
+        opacity: 0.8,
     }
 });
 

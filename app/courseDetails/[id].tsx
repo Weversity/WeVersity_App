@@ -1,13 +1,16 @@
+
 import { supabase } from '@/src/auth/supabase';
+import AccessDeniedModal from '@/src/components/AccessDeniedModal';
+import { useAuth } from '@/src/context/AuthContext';
 import { courseService } from '@/src/services/courseService';
+import { Course, Lesson, LessonType, Review, Section } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     Image,
     ScrollView,
     StyleSheet,
@@ -16,123 +19,208 @@ import {
     View
 } from 'react-native';
 
-const { width } = Dimensions.get('window');
-
-type LessonType = 'video' | 'quiz' | 'article';
-
-interface Lesson {
-    title: string;
-    type: LessonType;
-    duration?: string;
-    content?: string;
-    image?: string;
-    questions?: any[];
-    video_url?: string;
-    video_link?: string;
-    lessons?: Lesson[];
-    isCompleted?: boolean;
+// Local search params type for this screen
+interface CourseDetailsParams extends Record<string, string | string[] | undefined> {
+    id: string;
+    title?: string;
+    thumbnail?: string;
+    instructor?: string;
+    categories?: string;
+    price?: string;
+    rating?: string;
+    reviewCount?: string;
 }
 
-interface Section {
-    title: string;
-    data: Lesson[];
-    isExpanded?: boolean;
-}
+// -----------------------------------------------------------------------------
+// Robust Parsing Helpers (Ultra-Flexible)
+// -----------------------------------------------------------------------------
 
-interface Review {
-    id: any;
-    rating: number;
-    content: string;
-    created_at: string;
-    user: {
-        name: string;
-        avatar: string;
-        initials: string;
-    };
-}
-
-interface MappedCourse {
-    id: any;
-    title: string;
-    categories: string;
-    is_free: boolean;
-    image: string;
-    price: string;
-    description: string;
-    sections: Section[];
-    instructor: string;
-    instructorAvatar?: string;
-    instructorInitials?: string;
-    rating: number;
-    reviews: Review[];
-    reviewCount: number;
-    students: number;
-    lessonCount: number;
-    duration: string;
-    tools?: any[];
-    course_content?: any;
-    what_you_will_learn?: string[] | null;
-}
+/**
+ * Helper to find a value from multiple potential key names.
+ * Scans object keys to match any of the provided candidates.
+ */
+const findKey = (obj: any, keys: string[]): any => {
+    if (!obj || typeof obj !== 'object') return undefined;
+    for (const key of keys) {
+        if (obj[key] !== undefined && obj[key] !== null) {
+            return obj[key];
+        }
+    }
+    return undefined;
+};
 
 const getLessonType = (lesson: any): LessonType => {
-    if (lesson.type) return lesson.type;
-    const subItems = lesson.lessons || lesson.children || lesson.data || lesson.items;
-    if (subItems && Array.isArray(subItems) && subItems.length > 0) return 'article';
+    // 1. Explicit Type Check
+    const explicitType = findKey(lesson, ['type', 'lesson_type', 'category', 'post_type']);
+    if (explicitType) {
+        const lower = String(explicitType).toLowerCase();
+        if (['video', 'movie', 'film', 'mp4'].some(s => lower.includes(s))) return 'video';
+        if (['quiz', 'test', 'exam', 'assessment'].some(s => lower.includes(s))) return 'quiz';
+        if (['article', 'text', 'reading', 'note', 'document'].some(s => lower.includes(s))) return 'article';
+    }
 
-    const content = lesson.video_url || lesson.video_link || lesson.content;
+    // 2. Smart URL/Content Detection
+    const content = findKey(lesson, ['video_url', 'video_link', 'url', 'file', 'link', 'bg_video', 'src', 'source']);
+
     if (typeof content === 'string') {
         const lowerContent = content.toLowerCase();
-        if (lowerContent.includes('.mp4') ||
+        // Check for common video extensions or provider URLs
+        if (
+            lowerContent.includes('.mp4') ||
+            lowerContent.includes('.mov') ||
+            lowerContent.includes('.m3u8') ||
+            lowerContent.includes('.avi') ||
+            lowerContent.includes('.webm') ||
             lowerContent.includes('youtube.com') ||
             lowerContent.includes('youtu.be') ||
             lowerContent.includes('vimeo.com') ||
-            lowerContent.startsWith('http')) {
+            lowerContent.includes('cloudinary.com') ||
+            lowerContent.includes('wistia.com') ||
+            (lesson.video_url && typeof lesson.video_url === 'string')
+        ) {
             return 'video';
         }
     }
 
-    if (lesson.questions && Array.isArray(lesson.questions) && lesson.questions.length > 0) return 'quiz';
+    // 3. Quiz Detection
+    const questions = findKey(lesson, ['questions', 'quiz_questions', 'items', 'options']);
+    // 'items' check is risky as it might be children, so validation is needed
+    if (questions && Array.isArray(questions) && questions.length > 0) {
+        // Deep check: do items look like questions?
+        const firstQ = questions[0];
+        if (firstQ && (firstQ.question || firstQ.options || firstQ.correct_answer || firstQ.answers)) {
+            return 'quiz';
+        }
+    }
+
     return 'article';
+};
+
+/**
+ * Recursive Lesson Processor
+ * Deeply searches for children and flattens/maps them.
+ */
+const processLesson = (lessonData: any, level: number = 0): Lesson => {
+    // 1. Handle simple string case
+    if (typeof lessonData !== 'object' || lessonData === null) {
+        return {
+            id: `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            title: String(lessonData),
+            type: 'article',
+            duration: '',
+            is_free: false,
+        };
+    }
+
+    // 2. Extract Fields (Deep Search)
+    const title = findKey(lessonData, ['title', 'name', 'label', 'header', 'caption']) || `Lesson`;
+    const rawId = findKey(lessonData, ['id', '_id', 'lesson_id', 'uuid', 'ID']);
+    const id = rawId !== undefined ? rawId : `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const duration = findKey(lessonData, ['duration', 'time', 'length', 'runtime']);
+    const isFree = findKey(lessonData, ['is_free', 'free', 'preview', 'is_preview']);
+    const content = findKey(lessonData, ['content', 'description', 'html', 'body', 'text']);
+    const videoUrl = findKey(lessonData, ['video_url', 'url', 'video_link', 'file', 'link', 'bg_video']);
+
+    // 3. Determine Type
+    let type = getLessonType(lessonData);
+
+    // 4. Recursive Children Check (Deep & Wide)
+    // Check ALL possible keys for children
+    const childrenKeys = ['items', 'lessons', 'children', 'sub_lessons', 'data', 'contents', 'child_items', 'modules', 'topics', 'sections', 'chapters'];
+    const childrenRaw = findKey(lessonData, childrenKeys);
+
+    let validChildren: Lesson[] = [];
+    if (childrenRaw && Array.isArray(childrenRaw) && childrenRaw.length > 0) {
+        validChildren = childrenRaw.map((child: any) => processLesson(child, level + 1));
+    }
+
+    return {
+        id: id,
+        title: String(title),
+        type,
+        duration: duration ? String(duration) : undefined,
+        content: content ? String(content) : undefined,
+        video_url: videoUrl ? String(videoUrl) : undefined,
+        is_free: !!isFree,
+        lessons: validChildren.length > 0 ? validChildren : undefined,
+        ...lessonData
+    };
 };
 
 const processCourseContent = (content: any): Section[] => {
     if (!content) return [];
 
-    const processLesson = (lessonData: any): Lesson => {
-        const lesson = typeof lessonData === 'object' ? lessonData : { title: String(lessonData) };
-        const processedLesson: Lesson = {
-            ...lesson,
-            type: getLessonType(lesson),
-        };
-        const subItems = lesson.lessons || lesson.children || lesson.data || lesson.items;
-        if (subItems && Array.isArray(subItems)) {
-            processedLesson.lessons = subItems.map(processLesson);
-        }
-        return processedLesson;
-    };
+    console.log('[Parser] STARTING PARSE. Root Type:', Array.isArray(content) ? 'Array' : typeof content);
+    if (typeof content === 'object' && !Array.isArray(content)) {
+        console.log('[Parser] Root Keys:', Object.keys(content));
+    }
 
     let rawSections: any[] = [];
+
+    // 1. Normalize to Array of Sections
     if (Array.isArray(content)) {
         rawSections = content;
     } else if (typeof content === 'object') {
-        rawSections = content.sections || content.data || Object.values(content);
+        const potentialArray = findKey(content, ['sections', 'modules', 'weeks', 'chapters', 'data', 'items', 'contents', 'course_content']);
+        if (potentialArray && Array.isArray(potentialArray)) {
+            rawSections = potentialArray;
+        } else {
+            // Fallback: values of object
+            const values = Object.values(content);
+            // If values look like objects, treat as potential sections
+            if (values.length > 0 && typeof values[0] === 'object') {
+                rawSections = values;
+            } else {
+                // Last resort: content itself is a single section?
+                rawSections = [content];
+            }
+        }
     }
 
-    if (!Array.isArray(rawSections)) return [];
+    if (!Array.isArray(rawSections)) {
+        console.warn('[Parser] Failed to extract sections array.');
+        return [];
+    }
+
+    console.log(`[Parser] Found ${rawSections.length} potential sections.`);
 
     return rawSections.map((sectionData: any, index: number) => {
-        let title = sectionData.title || sectionData.name || `Section ${index + 1}`;
-        let lessons = [];
+        if (!sectionData) return { title: `Section ${index + 1}`, data: [], isExpanded: false };
 
-        if (Array.isArray(sectionData)) {
-            lessons = sectionData;
-        } else if (typeof sectionData === 'object') {
-            lessons = sectionData.lessons || sectionData.data || sectionData.items || [];
+        console.log(`[Parser] Processing Section ${index + 1} Keys:`, Object.keys(sectionData));
+
+        // Section Title
+        let title = findKey(sectionData, ['title', 'name', 'label', 'section_title', 'module_title', 'header']) || `Section ${index + 1}`;
+
+        // Items (Lessons) Array - Deep Search
+        const lessonsRaw = findKey(sectionData, ['items', 'lessons', 'data', 'contents', 'child_items', 'topics', 'lectures', 'sub_items', 'sections', 'modules', 'chapters']);
+
+        let processedLessons: Lesson[] = [];
+
+        if (lessonsRaw && Array.isArray(lessonsRaw)) {
+            // Standard Case: Found an array of lessons
+            processedLessons = lessonsRaw.map((l: any) => processLesson(l, 0));
+        } else if (Array.isArray(sectionData)) {
+            // "Empty" Section Case: The section itself is just an array of items (no wrapper object)
+            // Or the 'content' was an array of arrays?
+            processedLessons = sectionData.map((l: any) => processLesson(l, 0));
+        } else {
+            // Fallback Case: Section object has no clear children array.
+            // Does it look like a lesson itself?
+            const potentialType = getLessonType(sectionData);
+            const hasVideo = !!findKey(sectionData, ['video_url', 'url', 'video_link']);
+
+            if (potentialType !== 'article' || hasVideo) {
+                console.log(`[Parser] Section "${title}" looks like a lesson. Promoting.`);
+                processedLessons = [processLesson(sectionData, 0)];
+            }
         }
 
+        console.log(`[Parser] Section "${title}": Parsed ${processedLessons.length} items`);
+
         return {
-            title,
-            data: Array.isArray(lessons) ? lessons.map(processLesson) : [],
+            title: String(title),
+            data: processedLessons, // UI always uses 'data'
             isExpanded: index === 0,
         };
     });
@@ -154,13 +242,14 @@ const CourseDetailsStackOptions = ({ title }: { title: string | undefined }) => 
 });
 
 export default function CourseDetailsScreen() {
-    const params = useLocalSearchParams();
+    const params = useLocalSearchParams() as unknown as CourseDetailsParams;
     const { id, title, thumbnail, instructor, categories, price, rating, reviewCount } = params;
     const router = useRouter();
+    const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<'About' | 'Lessons' | 'Reviews'>('About');
 
     // Use params as initial course state for instant rendering
-    const [course, setCourse] = useState<MappedCourse | null>(() => {
+    const [course, setCourse] = useState<Course | null>(() => {
         if (!id || !title) return null;
         return {
             id: id,
@@ -183,88 +272,71 @@ export default function CourseDetailsScreen() {
         };
     });
 
-    const [loading, setLoading] = useState(!course); // Only show initial loading if no metadata
+    const [loading, setLoading] = useState(!course);
     const [error, setError] = useState<string | null>(null);
 
     // Enrollment and Progress States
     const [isEnrolled, setIsEnrolled] = useState(false);
     const [progress, setProgress] = useState(0);
     const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
+
+    // Access Denied Modal State
+    const [isAccessDeniedVisible, setIsAccessDeniedVisible] = useState(false);
     const [enrollmentLoading, setEnrollmentLoading] = useState(false);
 
-    // 1. Fetch Metadata (Fast)
-    const { data: fullCourseData, isLoading: isQueryLoading, error: queryError } = useQuery({
+    // 1. Fetch Metadata
+    const { data: fullCourseData, isLoading: isQueryLoading } = useQuery({
         queryKey: ['course', id],
-        queryFn: () => courseService.fetchCourseById(Number(id)),
+        queryFn: () => courseService.fetchCourseById(String(id)),
         enabled: !!id,
     });
 
-    // 2. Fetch Content (Heavy - Separate Request) - MATCHING LEARNING SCREEN LOGIC
-    const { data: contentData, isLoading: isContentLoading, error: contentError } = useQuery({
+    // 2. Fetch Content
+    const { data: contentData, isLoading: isContentLoading } = useQuery({
         queryKey: ['courseContent', id],
-        queryFn: () => courseService.fetchCourseContent(Number(id)),
+        queryFn: () => courseService.fetchFullCurriculum(id),
         enabled: !!id,
+        staleTime: 1000 * 60 * 30, // 30 mins cached
     });
+
+    // MEMOIZED CALCULATION: Process content and stats
+    const processedContent = useMemo(() => {
+        let contentToProcess = contentData;
+
+        // If contentData is null (empty relational result), we don't have a fallback anymore
+        // since we're using the relational model and course_content is null by definition.
+
+        let transformedSections: Section[] = [];
+        let lessonCount = 0;
+        let durationStr = "0 lessons";
+
+        if (contentToProcess && Array.isArray(contentToProcess)) {
+            // The relational fetch already returns a normalized Section[] format
+            transformedSections = contentToProcess;
+
+            // Calculate total lessons
+            transformedSections.forEach(section => {
+                lessonCount += section.data?.length || 0;
+            });
+
+            durationStr = `${lessonCount} ${lessonCount === 1 ? 'lesson' : 'lessons'}`;
+        }
+
+        return { contentToProcess, transformedSections, lessonCount, durationStr };
+    }, [contentData]);
 
     useEffect(() => {
         const processData = async () => {
-            // We need at least one source of data: either fresh full data, fresh content, or existing state
-            if (!fullCourseData && !contentData && !course) return;
+            // Use local log to track execution
+            console.log('[CourseDetails] processData triggering. ID:', id, {
+                hasContent: !!contentData
+            });
+
+            const { contentToProcess, transformedSections, lessonCount, durationStr } = processedContent;
+
+            if (!fullCourseData && !course && transformedSections.length === 0) return;
 
             try {
-                // 1. DETERMINE CONTENT SOURCE
-                let contentToProcess = contentData;
-                if (!contentToProcess && fullCourseData) {
-                    contentToProcess = (fullCourseData as any).course_content;
-                }
-
-                if (typeof contentToProcess === 'string') {
-                    try {
-                        contentToProcess = JSON.parse(contentToProcess);
-                    } catch (e) {
-                        console.warn("Could not parse course_content string", e);
-                    }
-                }
-
-                let transformedSections: Section[] = course?.sections || [];
-                let lessonCount = course?.lessonCount || 0;
-                let durationStr = course?.duration || '...';
-
-                if (contentToProcess) {
-                    transformedSections = processCourseContent(contentToProcess);
-                    let totalL = 0;
-                    let totalMin = 0;
-                    const traverseStats = (lessons: Lesson[]) => {
-                        lessons.forEach(l => {
-                            totalL++;
-                            if (l.duration) {
-                                const dStr = String(l.duration).toLowerCase();
-                                let mins = 0;
-                                const hMatch = dStr.match(/(\d+)\s*h/);
-                                const mMatch = dStr.match(/(\d+)\s*m/);
-                                const bareMatch = dStr.match(/^(\d+)(\s*mins?)?$/);
-                                if (hMatch) mins += parseInt(hMatch[1]) * 60;
-                                if (mMatch) mins += parseInt(mMatch[1]);
-                                if (bareMatch && !hMatch && !mMatch) mins += parseInt(bareMatch[1]);
-                                totalMin += mins;
-                            }
-                            if (l.lessons && Array.isArray(l.lessons)) traverseStats(l.lessons);
-                        });
-                    };
-                    transformedSections.forEach(s => traverseStats(s.data));
-                    lessonCount = totalL;
-
-                    if (totalMin > 0) {
-                        const h = Math.floor(totalMin / 60);
-                        const m = totalMin % 60;
-                        durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}`.trim() : `${m}m`;
-                    } else if (lessonCount > 0) {
-                        const estMin = lessonCount * 5;
-                        const h = Math.floor(estMin / 60);
-                        const m = estMin % 60;
-                        durationStr = h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''} (Est.)`.trim() : `${m}m (Est.)`;
-                    }
-                }
 
                 // 2. DETERMINE METADATA SOURCE
                 let finalStudentCount = course?.students || 0;
@@ -280,9 +352,11 @@ export default function CourseDetailsScreen() {
                 let tools = course?.tools || [];
                 let categoryDisplay = course?.categories || 'General';
                 let whatWillILearn: string[] | null = null;
+                let image = course?.image || (thumbnail as string);
 
                 if (fullCourseData) {
                     const data = fullCourseData;
+                    if (data.title) image = data.thumbnail || data.image || image; // Update image if available
                     currentDescription = data.description || '';
                     priceDisplay = (data as any).price || 'Free';
                     tools = (data as any).tools || [];
@@ -327,7 +401,7 @@ export default function CourseDetailsScreen() {
 
                         reviewsCount = reviewsRaw?.length || 0;
                         if (reviewsCount > 0) {
-                            const sum = reviewsRaw!.reduce((acc, r: any) => acc + (r.rating || 0), 0);
+                            const sum = reviewsRaw!.reduce((acc: any, r: any) => acc + (r.rating || 0), 0);
                             calculatedAvgRating = sum / reviewsCount;
 
                             const studentIds = Array.from(new Set(reviewsRaw!.map((r: any) => r.student_id).filter(Boolean)));
@@ -339,7 +413,7 @@ export default function CourseDetailsScreen() {
                                     .select('id, first_name, last_name, avatar_url')
                                     .in('id', studentIds);
 
-                                profilesData?.forEach(p => {
+                                profilesData?.forEach((p: any) => {
                                     profileMap[p.id] = p;
                                 });
                             }
@@ -389,25 +463,36 @@ export default function CourseDetailsScreen() {
                         what_you_will_learn: null,
                     };
 
-                    return {
-                        ...base,
-                        description: currentDescription,
-                        sections: transformedSections,
-                        instructor: instructorName,
-                        instructorAvatar,
-                        instructorInitials,
-                        rating: calculatedAvgRating,
-                        reviews: mappedReviews,
-                        reviewCount: reviewsCount,
-                        students: finalStudentCount,
-                        lessonCount,
-                        duration: durationStr,
-                        tools,
-                        categories: categoryDisplay,
-                        price: priceDisplay,
-                        course_content: contentToProcess,
-                        what_you_will_learn: whatWillILearn
-                    };
+                    const sectionsChanged = JSON.stringify(prev?.sections) !== JSON.stringify(transformedSections);
+                    const reviewsChanged = prev?.reviews.length !== mappedReviews.length;
+
+                    // Force update if we have new sections and previous were empty
+                    const robustSections = transformedSections.length > 0 ? transformedSections : base.sections;
+
+                    if (!prev || sectionsChanged || reviewsChanged) {
+                        return {
+                            ...base,
+                            image: image || base.image,
+                            title: fullCourseData?.title || base.title,
+                            description: currentDescription,
+                            sections: robustSections,
+                            instructor: instructorName,
+                            instructorAvatar,
+                            instructorInitials,
+                            rating: calculatedAvgRating,
+                            reviews: mappedReviews,
+                            reviewCount: reviewsCount,
+                            students: finalStudentCount,
+                            lessonCount: lessonCount > 0 ? lessonCount : base.lessonCount,
+                            duration: durationStr !== '...' ? durationStr : base.duration,
+                            tools,
+                            categories: categoryDisplay,
+                            price: priceDisplay,
+                            course_content: contentToProcess,
+                            what_you_will_learn: whatWillILearn
+                        };
+                    }
+                    return prev;
                 });
             } catch (err: any) {
                 console.error("Critical error in processData:", err);
@@ -420,7 +505,8 @@ export default function CourseDetailsScreen() {
         };
 
         processData();
-    }, [fullCourseData, contentData]);
+        // Add id, fullCourseData, contentData, and parsed result as dependencies
+    }, [fullCourseData, contentData, processedContent, id]);
 
     useEffect(() => {
         const fetchEnrollment = async () => {
@@ -452,65 +538,90 @@ export default function CourseDetailsScreen() {
         } else {
             setProgress(0);
         }
-    }, [course, completedLessonIds]);
+    }, [course?.lessonCount, completedLessonIds]);
 
-    const handleEnroll = async () => {
+    const handleEnroll = useCallback(async (sIdx?: number, lIdx?: number, slIdx?: number) => {
         if (!course?.id) return;
-        if (isEnrolled) {
-            router.push(`/learning/${course.id}` as any);
-            return;
-        }
 
-        try {
-            setEnrollmentLoading(true);
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                // Insert enrollment record
-                const { error: insertError } = await supabase
-                    .from('enrollments')
-                    .insert([
-                        {
-                            student_id: user.id,
-                            course_id: course.id,
-                            status: 'active',
-                            completed_lessons: []
-                        }
-                    ]);
+        if (isEnrolled && user) {
+            router.push({
+                pathname: `/learning/${course.id}`,
+                params: {
+                    sectionIndex: sIdx !== undefined ? sIdx : 0,
+                    lessonIndex: lIdx !== undefined ? lIdx : 0,
+                    subLessonIndex: slIdx !== undefined ? slIdx : undefined
+                }
+            } as any);
+        } else {
+            // trying to access lesson without being enrolled
+            if (sIdx !== undefined) {
+                setIsAccessDeniedVisible(true);
+            } else {
+                // Main Enroll Button
+                if (!user) {
+                    Alert.alert(
+                        "Login Required",
+                        "Please login to enroll and start learning this course.",
+                        [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Login", onPress: () => router.push('/profile' as any) }
+                        ]
+                    );
+                    return;
+                }
 
-                if (insertError) {
-                    // Check if already enrolled to avoid duplicates causing error
-                    if (insertError.code === '23505') { // Unique constraint violation
+                try {
+                    setEnrollmentLoading(true);
+
+                    // Check if already enrolled to avoid unique constraint error
+                    const { data: existingEnrollment } = await supabase
+                        .from('enrollments')
+                        .select('id')
+                        .eq('student_id', user.id)
+                        .eq('course_id', course.id)
+                        .maybeSingle();
+
+                    if (existingEnrollment) {
                         setIsEnrolled(true);
                         router.push(`/learning/${course.id}` as any);
-                    } else {
-                        Alert.alert("Enrollment Failed", "Could not enroll in this course. Please try again.");
+                        return;
                     }
-                } else {
+
+                    const { error } = await supabase
+                        .from('enrollments')
+                        .insert([
+                            {
+                                student_id: user.id,
+                                course_id: course.id,
+                                enrolled_at: new Date().toISOString(),
+                                completed_lessons: []
+                            }
+                        ]);
+
+                    if (error) throw error;
+
                     setIsEnrolled(true);
                     setCompletedLessonIds([]);
                     setProgress(0);
+                    // Open first lesson by default on fresh enroll
                     router.push(`/learning/${course.id}` as any);
-                }
 
-            } else {
-                Alert.alert(
-                    "Login Required",
-                    "Please login to enroll and start learning this course.",
-                    [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Login", onPress: () => router.push('/profile' as any) }
-                    ]
-                );
+                } catch (error) {
+                    console.error("Enrollment failed:", error);
+                    Alert.alert("Error", "Failed to enroll in course. Please try again.");
+                } finally {
+                    setEnrollmentLoading(false);
+                }
             }
-        } catch (err) {
-            console.error("Enrollment error:", err);
-            Alert.alert("Error", "An unexpected error occurred.");
-        } finally {
-            setEnrollmentLoading(false);
         }
+    }, [course?.id, isEnrolled, user, router]);
+
+    const handleModalEnroll = () => {
+        setIsAccessDeniedVisible(false);
+        handleEnroll();
     };
 
-    if (loading) return (
+    if (loading || (isContentLoading && (!course?.sections || course.sections.length === 0))) return (
         <View style={styles.center}>
             <ActivityIndicator size="large" color="#8A2BE2" />
         </View>
@@ -531,6 +642,9 @@ export default function CourseDetailsScreen() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
                 <View style={styles.header}>
                     <Image source={{ uri: course.image }} style={styles.headerImg} />
+                    <TouchableOpacity style={styles.backButtonFloating} onPress={() => router.back()}>
+                        <Ionicons name="chevron-back" size={24} color="#fff" />
+                    </TouchableOpacity>
                 </View>
 
                 <View style={styles.body}>
@@ -561,11 +675,18 @@ export default function CourseDetailsScreen() {
 
                     <View style={styles.tabContent}>
                         {activeTab === 'About' && <AboutTab course={course} isLoading={isQueryLoading} />}
-                        {activeTab === 'Lessons' && <LessonsTab sections={course.sections} isEnrolled={isEnrolled} completedIds={completedLessonIds} onLessonPress={handleEnroll} isLoading={isContentLoading} />}
+                        {activeTab === 'Lessons' && <LessonsTab sections={course.sections || []} isEnrolled={isEnrolled} completedIds={completedLessonIds} onLessonPress={handleEnroll} isLoading={isContentLoading} />}
                         {activeTab === 'Reviews' && <ReviewsTab course={course} isLoading={isQueryLoading} />}
                     </View>
                 </View>
             </ScrollView>
+
+            {/* Access Denied Modal */}
+            <AccessDeniedModal
+                visible={isAccessDeniedVisible}
+                onClose={() => setIsAccessDeniedVisible(false)}
+                onEnroll={handleModalEnroll}
+            />
 
             <View style={styles.footer}>
                 {isEnrolled && (
@@ -582,7 +703,7 @@ export default function CourseDetailsScreen() {
                 )}
                 <TouchableOpacity
                     style={[styles.enrollBtn, isEnrolled && styles.continueBtn]}
-                    onPress={handleEnroll}
+                    onPress={() => handleEnroll()}
                     disabled={enrollmentLoading}
                 >
                     {enrollmentLoading ? (
@@ -603,7 +724,7 @@ const StatItem = ({ icon, label }: { icon: any, label: string }) => (
     </View>
 );
 
-const AboutTab = ({ course, isLoading }: { course: MappedCourse; isLoading: boolean }) => {
+const AboutTab = ({ course, isLoading }: { course: Course; isLoading: boolean }) => {
     const [extractedPoints, setExtractedPoints] = useState<string[]>([]);
 
     useEffect(() => {
@@ -698,14 +819,96 @@ const getPathKey = (s: number, l: number, sl?: number) => {
     return sl !== undefined ? `s-${s}-l-${l}-sl-${sl}` : `s-${s}-l-${l}`;
 };
 
-const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress, isLoading }: { sections: Section[], isEnrolled: boolean, completedIds: string[], onLessonPress: () => void, isLoading: boolean }) => {
-    const [localSections, setLocalSections] = useState(sections);
+// Optimized Lesson Item Component
+const LessonItem = React.memo(({
+    lesson,
+    sIdx,
+    lIdx,
+    level = 0,
+    isEnrolled,
+    completedIds,
+    onPress
+}: {
+    lesson: Lesson,
+    sIdx: number,
+    lIdx: number,
+    level?: number,
+    isEnrolled: boolean,
+    completedIds: string[],
+    onPress: (sIdx: number, lIdx: number, slIdx?: number) => void
+}) => {
+    const getIcon = () => {
+        if (lesson.type === 'quiz') return 'help-circle';
+        if (lesson.type === 'video') return 'play-circle';
+        return 'document-text';
+    };
 
+    const currentPathKey = getPathKey(sIdx, lIdx);
+    const isLessonCompleted = completedIds.includes(currentPathKey);
+    const trailingIcon = isEnrolled
+        ? (isLessonCompleted ? "checkmark-circle" : "play-circle")
+        : "lock-closed";
+    const iconColor = isLessonCompleted ? "#4CAF50" : (isEnrolled ? "#8A2BE2" : "#ccc");
+    const hasSub = lesson.lessons && lesson.lessons.length > 0;
+
+    return (
+        <View>
+            <TouchableOpacity style={[styles.lessonRow, { paddingLeft: 15 + level * 15 }]} onPress={() => onPress(sIdx, lIdx)}>
+                <View style={styles.iconCircle}>
+                    <Ionicons name={getIcon()} size={16} color="#8A2BE2" />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.lessonTitle}>{lesson.title}</Text>
+                    {lesson.duration && <Text style={styles.lessonDur}>{lesson.duration}</Text>}
+                </View>
+                <Ionicons name={trailingIcon} size={18} color={iconColor} />
+            </TouchableOpacity>
+
+            {hasSub && lesson.lessons && lesson.lessons.map((sl, sli) => {
+                const subPathKey = getPathKey(sIdx, lIdx, sli);
+                const isSubCompleted = completedIds.includes(subPathKey);
+                const subTrailingIcon = isEnrolled ? (isSubCompleted ? "checkmark-circle" : "play-circle") : "lock-closed";
+                const subIconColor = isSubCompleted ? "#4CAF50" : (isEnrolled ? "#8A2BE2" : "#ccc");
+
+                return (
+                    <TouchableOpacity key={`${lIdx}-${sli}`} style={[styles.lessonRow, { paddingLeft: 30 + level * 15 }]} onPress={() => onPress(sIdx, lIdx, sli)}>
+                        <View style={styles.iconCircle}>
+                            <Ionicons name={getIcon()} size={14} color="#8A2BE2" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.lessonTitle}>{sl.title}</Text>
+                            {sl.duration && <Text style={styles.lessonDur}>{sl.duration}</Text>}
+                        </View>
+                        <Ionicons name={subTrailingIcon} size={18} color={subIconColor} />
+                    </TouchableOpacity>
+                );
+            })}
+        </View>
+    );
+});
+
+const LessonsTab = React.memo(({ sections, isEnrolled, completedIds, onLessonPress, isLoading }: { sections: Section[]; isEnrolled: boolean; completedIds: string[]; onLessonPress: (sIdx: number, lIdx: number, slIdx?: number) => void; isLoading: boolean }) => {
+    // Local state for expanded sections
+    const [expandedSections, setExpandedSections] = useState<Record<number, boolean>>({});
+
+    // Initialize expanded sections when sections change (expand first one)
     useEffect(() => {
-        setLocalSections(sections);
+        if (sections && sections.length > 0) {
+            setExpandedSections(prev => ({
+                ...prev,
+                0: true
+            }));
+        }
     }, [sections]);
 
-    if (isLoading) {
+    const toggle = useCallback((i: number) => {
+        setExpandedSections(prev => ({
+            ...prev,
+            [i]: !prev[i]
+        }));
+    }, []);
+
+    if (isLoading && (!sections || sections.length === 0)) {
         return (
             <View style={styles.tabCenter}>
                 <ActivityIndicator size="small" color="#8A2BE2" />
@@ -714,97 +917,48 @@ const LessonsTab = ({ sections, isEnrolled, completedIds, onLessonPress, isLoadi
         );
     }
 
-    if (!localSections || localSections.length === 0) {
+    if (!sections || sections.length === 0) {
         return (
             <View style={{ padding: 20, alignItems: 'center' }}>
                 <Ionicons name="documents-outline" size={48} color="#ccc" />
-                <Text style={{ color: '#666', marginTop: 10, textAlign: 'center' }}>No lessons available for this course yet.</Text>
+                <Text style={{ color: '#666', marginTop: 10, textAlign: 'center' }}>Lessons coming soon</Text>
             </View>
         );
     }
 
-    const toggle = (i: number) => {
-        const newSections = [...localSections];
-        newSections[i].isExpanded = !newSections[i].isExpanded;
-        setLocalSections(newSections);
-    };
-
-    const renderLessons = (lessons: Lesson[], sectionIndex: number, level = 0) => {
-        return lessons.map((l, li) => {
-            const getIcon = () => {
-                if (l.type === 'quiz') return 'help-circle';
-                if (l.type === 'video') return 'play-circle';
-                return 'document-text';
-            };
-
-            const currentPathKey = getPathKey(sectionIndex, li);
-            const isLessonCompleted = completedIds.includes(currentPathKey);
-            const trailingIcon = isEnrolled
-                ? (isLessonCompleted ? "checkmark-circle" : "play-circle")
-                : "lock-closed";
-            const iconColor = isLessonCompleted ? "#4CAF50" : (isEnrolled ? "#8A2BE2" : "#ccc");
-
-            const hasSub = l.lessons && l.lessons.length > 0;
-
-            return (
-                <View key={li}>
-                    <TouchableOpacity style={[styles.lessonRow, { paddingLeft: 15 + level * 15 }]} onPress={onLessonPress}>
-                        <View style={styles.iconCircle}>
-                            <Ionicons name={getIcon()} size={16} color="#8A2BE2" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.lessonTitle}>{l.title}</Text>
-                            {l.duration && <Text style={styles.lessonDur}>{l.duration}</Text>}
-                        </View>
-                        <Ionicons name={trailingIcon} size={18} color={iconColor} />
-                    </TouchableOpacity>
-                    {hasSub && l.lessons && l.lessons.map((sl, sli) => {
-                        const subPathKey = getPathKey(sectionIndex, li, sli);
-                        const isSubCompleted = completedIds.includes(subPathKey);
-                        const subTrailingIcon = isEnrolled ? (isSubCompleted ? "checkmark-circle" : "play-circle") : "lock-closed";
-                        const subIconColor = isSubCompleted ? "#4CAF50" : (isEnrolled ? "#8A2BE2" : "#ccc");
-
-                        return (
-                            <TouchableOpacity key={`${li}-${sli}`} style={[styles.lessonRow, { paddingLeft: 30 + level * 15 }]} onPress={onLessonPress}>
-                                <View style={styles.iconCircle}>
-                                    <Ionicons name={getIcon()} size={14} color="#8A2BE2" />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.lessonTitle}>{sl.title}</Text>
-                                    {sl.duration && <Text style={styles.lessonDur}>{sl.duration}</Text>}
-                                </View>
-                                <Ionicons name={subTrailingIcon} size={18} color={subIconColor} />
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-            );
-        });
-    };
-
     return (
         <View>
-            {localSections.map((sec, i) => (
+            {sections.map((sec, i) => (
                 <View key={i} style={styles.accContainer}>
                     <TouchableOpacity style={styles.accHeader} onPress={() => toggle(i)}>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.accTitle}>{sec.title}</Text>
                             <Text style={styles.accSub}>{sec.data.length} Lessons</Text>
                         </View>
-                        <Ionicons name={sec.isExpanded ? "chevron-up" : "chevron-down"} size={20} color="#333" />
+                        <Ionicons name={expandedSections[i] ? "chevron-up" : "chevron-down"} size={20} color="#333" />
                     </TouchableOpacity>
-                    {sec.isExpanded && (
+                    {expandedSections[i] && (
                         <View style={styles.accContent}>
-                            {renderLessons(sec.data, i)}
+                            {sec.data.map((l: Lesson, li: number) => (
+                                <LessonItem
+                                    key={li}
+                                    lesson={l}
+                                    sIdx={i}
+                                    lIdx={li}
+                                    isEnrolled={isEnrolled}
+                                    completedIds={completedIds}
+                                    onPress={onLessonPress}
+                                />
+                            ))}
                         </View>
                     )}
                 </View>
             ))}
         </View>
     );
-};
+});
 
-const ReviewsTab = ({ course, isLoading }: { course: MappedCourse; isLoading: boolean }) => {
+const ReviewsTab = ({ course, isLoading }: { course: Course; isLoading: boolean }) => {
     const renderStars = (rating: number) => {
         return (
             <View style={styles.starsRow}>
@@ -838,7 +992,7 @@ const ReviewsTab = ({ course, isLoading }: { course: MappedCourse; isLoading: bo
                     <ActivityIndicator size="small" color="#8A2BE2" />
                     <Text style={styles.loadingText}>Loading reviews...</Text>
                 </View>
-            ) : course.reviews.length > 0 ? course.reviews.map((r, i) => (
+            ) : course.reviews.length > 0 ? course.reviews.map((r: Review, i: number) => (
                 <View key={i} style={styles.reviewCard}>
                     {r.user.avatar ? (
                         <Image
@@ -871,6 +1025,15 @@ const styles = StyleSheet.create({
     backBtn: { backgroundColor: '#8A2BE2', padding: 10, borderRadius: 5 },
     header: { height: 250 },
     headerImg: { width: '100%', height: '100%' },
+    backButtonFloating: {
+        position: 'absolute',
+        top: 40,
+        left: 16,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        borderRadius: 20,
+        padding: 8,
+        zIndex: 10,
+    },
     body: { padding: 20, backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, marginTop: -30 },
     title: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: 15, marginBottom: 15 },

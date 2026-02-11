@@ -119,6 +119,9 @@ const StudentProfile = () => {
   const [isLoadingInstructors, setIsLoadingInstructors] = useState(true);
   const [recentCourses, setRecentCourses] = useState<any[]>([]);
   const [isLoadingRecent, setIsLoadingRecent] = useState(true);
+  const [isInitialLiveLoading, setIsInitialLiveLoading] = useState(true);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [currentOffset, setCurrentOffset] = useState(0);
 
   // Create animated value for pulse effect
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -176,7 +179,23 @@ const StudentProfile = () => {
 
 
 
-  // 3. Fetch Data & Subscribe (Optimized with separate functions)
+  const handleScrollNext = () => {
+    if (!scrollViewRef.current) return;
+    const nextOffset = currentOffset + LIVE_CARD_WIDTH + 15;
+    const maxOffset = (activeSessions.length - 1) * (LIVE_CARD_WIDTH + 15);
+
+    if (nextOffset <= maxOffset + 5) { // Small buffer
+      scrollViewRef.current.scrollTo({ x: nextOffset, animated: true });
+      setCurrentOffset(nextOffset);
+    }
+  };
+
+  const handleScrollBack = () => {
+    if (!scrollViewRef.current) return;
+    const nextOffset = Math.max(0, currentOffset - (LIVE_CARD_WIDTH + 15));
+    scrollViewRef.current.scrollTo({ x: nextOffset, animated: true });
+    setCurrentOffset(nextOffset);
+  };
   const isFetchingRef = useRef(false);
   const debounceTimerRef = useRef<any>(null);
 
@@ -189,44 +208,78 @@ const StudentProfile = () => {
   };
 
   const fetchLiveSessions = async (supabase: any) => {
-    if (!user?.id) return;
-    const { data } = await supabase
-      .from('live_sessions')
-      .select(`
-        id, 
-        title, 
-        status, 
-        started_at, 
-        image_url,
-        course_id,
-        course:courses(
-          image_url,
-          instructor:profiles(first_name, last_name)
-        )
-      `)
-      .in('status', ['active', 'live'])
-      .order('started_at', { ascending: false })
-      .limit(5);
+    if (!user?.id) {
+      console.log('DEBUG DASHBOARD: No user ID, skipping fetch.');
+      return;
+    }
 
-    if (data && data.length > 0) {
-      const processed = await Promise.all(data.map(async (s: any) => {
-        const { count } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('course_id', s.course_id);
+    try {
+      const { data, error } = await supabase
+        .from('live_sessions')
+        .select('*, instructor:profiles!instructor_id(first_name, last_name, avatar_url), course:courses(title, image_url, categories)')
+        .in('status', ['live', 'upcoming', 'Live', 'Upcoming'])
+        .order('scheduled_at', { ascending: true });
 
-        const inst = Array.isArray(s.course?.instructor) ? s.course.instructor[0] : s.course?.instructor;
-        const instructorName = inst ? `${inst.first_name || ''} ${inst.last_name || ''}`.trim() : 'Instructor';
+      console.log('DEBUG DASHBOARD: Raw Supabase Data:', data);
 
-        return {
-          id: s.id,
-          title: s.title || 'Live Session',
-          instructor: instructorName,
-          viewers: count || 0,
-          startedAt: s.started_at,
-          image: s.image_url || s.course?.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
-        };
-      }));
-      setActiveSessions(processed);
-    } else {
-      setActiveSessions([]);
+      if (error) {
+        console.error('DEBUG DASHBOARD: Error fetching:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const nowTs = new Date().getTime();
+        const fiveMinutesInMs = 5 * 60 * 1000;
+        const todayDate = new Date().toDateString();
+
+        // EXACT Visibility Logic from LivePage
+        const filteredSessionsRows = data.filter((session: any) => {
+          const status = (session.status || '').toLowerCase();
+
+          // Show if live
+          if (status === 'live' || status === 'active') return true;
+
+          // If upcoming, show if starting soon or passed today (Matching LivePage)
+          if (status === 'upcoming') {
+            if (!session.scheduled_at) return false;
+
+            const scheduledTime = new Date(session.scheduled_at).getTime();
+            const scheduledDate = new Date(session.scheduled_at).toDateString();
+
+            const isSoonOrPassed = scheduledTime <= (nowTs + fiveMinutesInMs);
+            const isToday = scheduledDate === todayDate;
+
+            return isSoonOrPassed && isToday;
+          }
+
+          return false;
+        });
+
+        console.log('DEBUG DASHBOARD: Filtered Sessions:', filteredSessionsRows);
+
+        const processed = await Promise.all(filteredSessionsRows.map(async (s: any) => {
+          // Safe mapping with null fallbacks (Requested by User)
+          const course = s.course || {};
+          const instructor = s.instructor || {};
+          const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() || 'Instructor';
+
+          return {
+            id: s.id,
+            title: s.title || course.title || 'Live Session',
+            instructor: instructorName,
+            viewers: 0,
+            startedAt: s.started_at || s.scheduled_at,
+            image: s.image_url || course.image_url || 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?q=80&w=2070&auto=format&fit=crop',
+          };
+        }));
+        setActiveSessions(processed);
+      } else {
+        setActiveSessions([]);
+      }
+    } catch (err) {
+      console.error('DEBUG DASHBOARD: Catch Error:', err);
+    } finally {
+      setIsInitialLiveLoading(false);
     }
   };
 
@@ -407,38 +460,70 @@ const StudentProfile = () => {
         </LinearGradient>
 
         {/* Live Now Section */}
-        <View style={styles.sectionHeader}>
-          {activeSessions.length > 0 && (
-            <Animated.View
-              style={[
-                styles.redDot,
-                {
-                  transform: [{ scale: pulseAnim }],
-                  opacity: pulseAnim.interpolate({
-                    inputRange: [1, 1.2],
-                    outputRange: [1, 0.6]
-                  })
-                }
-              ]}
-            />
+        <View style={[styles.sectionHeader, { justifyContent: 'space-between' }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {activeSessions.length > 0 && (
+              <Animated.View
+                style={[
+                  styles.redDot,
+                  {
+                    transform: [{ scale: pulseAnim }],
+                    opacity: pulseAnim.interpolate({
+                      inputRange: [1, 1.2],
+                      outputRange: [1, 0.6]
+                    })
+                  }
+                ]}
+              />
+            )}
+            <Text style={styles.liveNowText}>Live Now</Text>
+          </View>
+
+          {activeSessions.length > 1 && (
+            <View style={styles.sliderNavRow}>
+              <TouchableOpacity
+                style={styles.navCircle}
+                onPress={handleScrollBack}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-back" size={18} color="#8A2BE2" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.navCircle}
+                onPress={handleScrollNext}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-forward" size={18} color="#8A2BE2" />
+              </TouchableOpacity>
+            </View>
           )}
-          <Text style={styles.liveNowText}>Live Now</Text>
         </View>
 
-        {activeSessions.length > 0 ? (
+        {isInitialLiveLoading ? (
+          <View style={[styles.emptyLiveCard, { borderStyle: 'solid' }]}>
+            <ActivityIndicator size="large" color="#8A2BE2" />
+            <Text style={[styles.emptyLiveText, { marginTop: 10 }]}>Loading live sessions...</Text>
+          </View>
+        ) : activeSessions.length > 0 ? (
           <ScrollView
+            ref={scrollViewRef}
             horizontal={activeSessions.length > 1}
             showsHorizontalScrollIndicator={false}
             decelerationRate="fast"
             snapToInterval={activeSessions.length > 1 ? LIVE_CARD_WIDTH + 15 : undefined}
+            snapToAlignment="start"
             contentContainerStyle={activeSessions.length > 1 ? { paddingRight: 20 } : {}}
+            onMomentumScrollEnd={(e) => setCurrentOffset(e.nativeEvent.contentOffset.x)}
+            scrollEventThrottle={16}
           >
             {activeSessions.map((session, index) => (
               <View
                 key={session.id}
                 style={[
                   styles.liveCard,
-                  activeSessions.length > 1 && { width: LIVE_CARD_WIDTH, marginRight: 15 }
+                  activeSessions.length > 1
+                    ? { width: LIVE_CARD_WIDTH, marginRight: 15 }
+                    : { width: width - 40 }
                 ]}
               >
                 <View style={styles.liveImageContainer}>
@@ -449,13 +534,9 @@ const StudentProfile = () => {
                 </View>
                 <View style={styles.liveContent}>
                   <Text style={styles.liveTitle} numberOfLines={1}>{session.title}</Text>
-                  <Text style={styles.liveInstructor}>{session.instructor}</Text>
+                  <Text style={styles.liveInstructor} numberOfLines={2}>{session.instructor}</Text>
 
                   <View style={styles.liveMetaRow}>
-                    <View style={styles.metaItem}>
-                      <Ionicons name="people-outline" size={16} color="#8A2BE2" />
-                      <Text style={styles.metaText}>{session.viewers} Enrolled</Text>
-                    </View>
                     <View style={styles.metaItem}>
                       <Ionicons name="time-outline" size={16} color="#8A2BE2" />
                       <Text style={styles.metaText}>{formatTimeAgo(session.startedAt)}</Text>
@@ -706,6 +787,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#000',
+  },
+  sliderNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  navCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F3E5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E1BEE7',
   },
   liveCard: {
     backgroundColor: '#fff',

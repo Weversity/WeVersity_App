@@ -11,6 +11,7 @@ import {
   Clipboard,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -23,7 +24,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Message = {
   id: string;
@@ -31,6 +32,21 @@ type Message = {
   sender_id: string;
   created_at: string;
   group_id?: string;
+  sender?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    avatar_url: string;
+  };
+};
+
+const formatMessageTime = (dateString: string) => {
+  if (!dateString) return '';
+  try {
+    return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return '';
+  }
 };
 
 type ChatGroup = {
@@ -135,6 +151,7 @@ export default function ChatScreen() {
   const { id } = params; // This is the group_id
   const flatListRef = useRef<FlatList>(null);
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -150,9 +167,16 @@ export default function ChatScreen() {
   // Message Options State
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [optionsVisible, setOptionsVisible] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [stableBottomInset, setStableBottomInset] = useState(0);
 
   // Fetch data
   useEffect(() => {
+    // Capture stable bottom inset once it's available (non-zero) for layout stability
+    if (insets.bottom > 0 && stableBottomInset === 0) {
+      setStableBottomInset(insets.bottom);
+    }
+
     const loadChatData = async () => {
       if (!id) return;
 
@@ -218,6 +242,21 @@ export default function ChatScreen() {
     };
   }, [id]);
 
+  // Keyboard listener for scrolling and visibility tracking
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
+      setIsKeyboardVisible(true);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setIsKeyboardVisible(false);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const handleSend = async () => {
     if (inputText.trim().length > 0 && user && id) {
       const messageContent = inputText.trim();
@@ -255,12 +294,83 @@ export default function ChatScreen() {
     }
   };
 
-  const pickImage = async () => {
+  const handleImageUpload = async (uri: string) => {
+    if (!user || !id) return;
+
+    setIsUploading(true);
+
+    // 1. Optimistic Update
+    const tempId = `temp-img-${Date.now()}`;
+    const tempMessage: Message = {
+      id: tempId,
+      content: uri, // Show local URI immediately
+      sender_id: user.id,
+      created_at: new Date().toISOString(),
+      group_id: id as string,
+    };
+
+    setMessages(prev => [...prev, tempMessage]);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+
     try {
-      // Request permission
+      // 2. Upload to Cloudinary
+      const publicUrl = await chatService.uploadAttachment(uri);
+
+      if (publicUrl) {
+        // 3. Send Real Message to DB
+        const realMessage = await chatService.sendConversationMessage(id as string, user.id, publicUrl);
+
+        if (realMessage) {
+          // 4. Replace Temp Message
+          setMessages(prev => {
+            const alreadyExists = prev.some(msg => msg.id === realMessage.id);
+            if (alreadyExists) {
+              return prev.filter(msg => msg.id !== tempId);
+            }
+            return prev.map(msg => msg.id === tempId ? realMessage : msg);
+          });
+        }
+      } else {
+        throw new Error('Upload failed');
+      }
+    } catch (uploadError) {
+      console.error('Upload failed:', uploadError);
+      Alert.alert('Upload Error', 'Failed to upload file.');
+      // Remove optimistic message on failure
+      setMessages(prev => prev.filter(msg => msg.id !== tempId));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const openCamera = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'We need camera permissions to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        await handleImageUpload(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      Alert.alert('Error', 'Something went wrong while opening the camera.');
+    }
+  };
+
+  const openGallery = async () => {
+    try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need camera roll permissions to upload images.');
+        Alert.alert('Permission Denied', 'We need gallery permissions to upload images.');
         return;
       }
 
@@ -271,26 +381,34 @@ export default function ChatScreen() {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0];
-        setIsUploading(true);
-
-        try {
-          const publicUrl = await chatService.uploadAttachment(asset.uri);
-
-          if (publicUrl && id && user) {
-            await chatService.sendConversationMessage(id as string, user.id, publicUrl);
-          }
-        } catch (uploadError) {
-          console.error('Upload failed:', uploadError);
-          Alert.alert('Upload Error', 'Failed to upload file. Please check your internet.');
-        } finally {
-          setIsUploading(false);
-        }
+        await handleImageUpload(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Pick image error:', error);
-      Alert.alert('Error', 'Something went wrong while picking the image.');
+      console.error('Gallery error:', error);
+      Alert.alert('Error', 'Something went wrong while picking from gallery.');
     }
+  };
+
+  const pickImage = () => {
+    Alert.alert(
+      'Upload Media',
+      'Choose an option',
+      [
+        {
+          text: 'Take Photo',
+          onPress: openCamera,
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: openGallery,
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   const handleOpenMenu = async (message: Message) => {
@@ -352,9 +470,18 @@ export default function ChatScreen() {
     const isMyMessage = user && item.sender_id === user.id;
     const isSelected = selectedMessage?.id === item.id && optionsVisible;
 
-    // Check if content is an image URL (simple check)
-    const isImage = item.content && (item.content.match(/\.(jpeg|jpg|gif|png|webp)$/i) || item.content.includes('supabase.co/storage/v1/object/public/chat-attachments'));
-    const isVideo = item.content && (item.content.match(/\.(mp4|mov|m4v)$/i) || (item.content.includes('chat-attachments') && item.content.includes('video')));
+    // Check if content is an image URL (Cloudinary or generic extensions or local file)
+    const isImage = item.content && (
+      item.content.startsWith('file://') ||
+      item.content.includes('res.cloudinary.com') ||
+      item.content.match(/\.(jpeg|jpg|gif|png|webp)$/i)
+    );
+
+    // Check if content is a video URL (Cloudinary video path or generic extensions)
+    const isVideo = item.content && (
+      (item.content.includes('res.cloudinary.com') && item.content.includes('/video/upload/')) ||
+      item.content.match(/\.(mp4|mov|m4v)$/i)
+    );
 
     return (
       <TouchableOpacity
@@ -366,34 +493,41 @@ export default function ChatScreen() {
           isSelected && styles.selectedBubble
         ]}
       >
-        <View style={styles.messageContentContainer}>
-          {isImage ? (
-            <Image
-              source={{ uri: item.content }}
-              style={{ width: 200, height: 200, borderRadius: 10 }}
-              resizeMode="cover"
-            />
-          ) : isVideo ? (
-            <View style={{ width: 200, height: 120, borderRadius: 10, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
-              <Ionicons name="play-circle" size={50} color="#fff" />
-              <Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video Attachment</Text>
+        <View style={styles.bubbleInnerContainer}>
+          {isMyMessage && (
+            <View style={{ position: 'absolute', right: 10, top: 8, zIndex: 1 }}>
+              <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.7)" />
             </View>
-          ) : (
-            <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.theirMessageText]}>
-              {item.content}
+          )}
+          {!isMyMessage && (
+            <Text style={styles.senderName}>
+              {members.find(m => m.id === item.sender_id)?.name || (item.sender ? `${item.sender.first_name} ${item.sender.last_name || ''}`.trim() : 'User')}
             </Text>
           )}
-
-          {isMyMessage && (
-            <View style={styles.messageStatusContainer}>
-              <Ionicons
-                name="chevron-down"
-                size={12}
-                color={isMyMessage ? "rgba(255,255,255,0.5)" : "#CCC"}
-                style={{ marginLeft: 4 }}
+          <View style={styles.messageMainContent}>
+            {isVideo ? (
+              <View style={{ width: 220, height: 140, borderRadius: 10, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="play-circle" size={50} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video Attachment</Text>
+              </View>
+            ) : isImage ? (
+              <Image
+                source={{ uri: item.content }}
+                style={{ width: 220, height: 220, borderRadius: 10, backgroundColor: '#f0f0f0' }}
+                resizeMode="cover"
               />
-            </View>
-          )}
+            ) : (
+              <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.theirMessageText]}>
+                {item.content}
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.timeContainer}>
+            <Text style={[styles.timeText, isMyMessage ? styles.myTimeText : styles.theirTimeText]}>
+              {formatMessageTime(item.created_at)}
+            </Text>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -402,7 +536,7 @@ export default function ChatScreen() {
   const getHeaderChar = (name?: string) => (name || 'C').charAt(0).toUpperCase();
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
 
       {/* Header */}
@@ -444,7 +578,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoidingView}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <View style={styles.chatBody}>
           {loading ? (
@@ -458,6 +592,10 @@ export default function ChatScreen() {
               renderItem={renderMessage}
               keyExtractor={(item, index) => item.id ? item.id.toString() : `index-${index}-${Date.now()}`}
               contentContainerStyle={styles.listContent}
+              keyboardShouldPersistTaps="handled"
+              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             />
           )}
         </View>
@@ -485,6 +623,7 @@ export default function ChatScreen() {
               editable={!isUploading}
               onContentSizeChange={(e) => setInputHeight(e.nativeEvent.contentSize.height)}
               onBlur={() => setInputHeight(40)}
+              onFocus={() => setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)}
             />
             <TouchableOpacity
               style={styles.iconButton}
@@ -496,6 +635,11 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Manual Bottom Safety Filler - Strictly conditional and slimmer as requested */}
+      {!isKeyboardVisible && (
+        <View style={{ height: Math.max((stableBottomInset || insets.bottom) * 0.1, 0), backgroundColor: '#8A2BE2' }} />
+      )}
 
       <GroupInfoModal
         visible={infoVisible}
@@ -831,12 +975,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
-  messageStatusContainer: {
-    alignSelf: 'flex-end',
-    marginBottom: -2,
+  senderName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8A2BE2',
+    marginBottom: 4,
+  },
+  bubbleInnerContainer: {
+    minWidth: 60,
+  },
+  messageMainContent: {
+    marginBottom: 4,
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  timeText: {
+    fontSize: 10,
+  },
+  myTimeText: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+  theirTimeText: {
+    color: '#888',
   },
   messageText: {
     fontSize: 16,
+    lineHeight: 22,
   },
   myMessageText: {
     color: '#fff', // White text for my messages
@@ -845,9 +1013,9 @@ const styles = StyleSheet.create({
     color: '#333', // Dark text for their messages
   },
   inputWrapper: {
-    backgroundColor: '#8A2BE2', // Purple Bottom Area
-    paddingBottom: Platform.OS === 'ios' ? 30 : 10,
-    marginBottom: -1,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
   inputContainer: {
     flexDirection: 'row',

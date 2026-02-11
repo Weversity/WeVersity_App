@@ -169,34 +169,102 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     }
 
     try {
-      const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+      console.log('🔵 [Google Login] Step 1: Starting Google Sign-In...');
+      const { GoogleSignin, statusCodes } = require('@react-native-google-signin/google-signin');
+
+      console.log('🔵 [Google Login] Step 2: Checking Play Services...');
       await GoogleSignin.hasPlayServices();
+
+      console.log('🔵 [Google Login] Step 3: Showing Google Account Picker...');
       const userInfo = await GoogleSignin.signIn();
 
-      if (userInfo && userInfo.data && userInfo.data.idToken) {
-        const { data, error } = await supabase.auth.signInWithIdToken({
-          provider: 'google',
-          token: userInfo.data.idToken,
-        });
+      console.log('🔵 [Google Login] Step 4: User Info Received:', JSON.stringify(userInfo, null, 2));
 
-        if (error) {
-          console.error('Supabase Google Sign-In Error:', error.message);
-          throw error;
+      // ✅ FIXED: v16+ uses userInfo.idToken directly, not userInfo.data.idToken
+      const idToken = userInfo?.idToken;
+
+      if (!idToken) {
+        console.error('❌ [Google Login] No idToken found in response');
+        console.error('Full userInfo structure:', JSON.stringify(userInfo, null, 2));
+        Alert.alert('Login Failed', 'Could not retrieve authentication token from Google. Please try again.');
+        return;
+      }
+
+      console.log('🔵 [Google Login] Step 5: ID Token Retrieved:', idToken.substring(0, 20) + '...');
+      console.log('🔵 [Google Login] Step 6: Authenticating with Supabase...');
+
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+
+      if (error) {
+        console.error('❌ [Google Login] Supabase Error:', error.message);
+        console.error('Error Details:', JSON.stringify(error, null, 2));
+        Alert.alert('Authentication Failed', `Supabase error: ${error.message}`);
+        return;
+      }
+
+      console.log('✅ [Google Login] Step 7: Supabase Authentication Successful');
+      console.log('Session Data:', JSON.stringify(data.session, null, 2));
+
+      if (data.session) {
+        console.log('🔵 [Google Login] Step 8: Checking if user exists in profiles...');
+
+        // Check if user exists in profiles table
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', data.session.user.id)
+          .single();
+
+        if (profileError || !profile) {
+          // User doesn't exist in database - this is a new user trying to login
+          console.error('❌ [Google Login] User not found in profiles table');
+          console.error('Profile Error:', profileError);
+
+          // Sign out the auto-created user
+          await supabase.auth.signOut();
+
+          Alert.alert(
+            'Account Not Found',
+            'No account is associated with this Google email. Please sign up first.'
+          );
+          return;
         }
 
-        if (data.session) {
-          closeSheet();
-          // Optional: You can navigate here if needed, but closeSheet usually suffices if listeners are active.
-        }
+        // User exists, proceed with login
+        console.log('✅ [Google Login] Step 9: User profile found, Navigating to Dashboard...');
+        closeSheet();
+
+        // ✅ ADDED: Explicit navigation to ensure redirection happens
+        // The onAuthStateChange listener should also trigger, but this ensures it
+        setTimeout(() => {
+          router.replace('/(tabs)');
+        }, 300);
       } else {
-        throw new Error('No ID token present from Google Sign-In!');
+        console.warn('⚠️ [Google Login] No session created despite successful authentication');
+        Alert.alert('Login Issue', 'Authentication succeeded but no session was created. Please try again.');
       }
     } catch (error: any) {
-      console.error('Full Google Sign-In Flow Error:', error);
-      // Detailed error logging as requested
-      if (error.code) {
-        console.error('Error Code:', error.code);
+      console.error('❌ [Google Login] Full Error:', error);
+      console.error('Error Code:', error.code);
+      console.error('Error Message:', error.message);
+      console.error('Error Stack:', error.stack);
+
+      // User-friendly error messages based on status codes
+      const { statusCodes } = require('@react-native-google-signin/google-signin');
+      let userMessage = 'An unexpected error occurred. Please try again.';
+
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        userMessage = 'Sign-in was cancelled.';
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        userMessage = 'Sign-in is already in progress.';
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        userMessage = 'Google Play Services not available.';
       }
+
+      Alert.alert('Google Sign-In Error', userMessage);
     }
   };
 

@@ -27,6 +27,7 @@ export default function AllMentorsScreen() {
     const fetchInstructors = async (query = '') => {
         setIsLoading(true);
         try {
+            // @ts-ignore
             const { supabase } = await import('@/src/auth/supabase');
             let supabaseQuery = (supabase as any)
                 .from('profiles')

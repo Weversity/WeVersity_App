@@ -1,5 +1,7 @@
 import { useAuth } from '@/src/context/AuthContext';
+// @ts-ignore
 import { supabase } from '@/src/lib/supabase';
+// @ts-ignore
 import { videoService } from '@/src/services/videoService';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';

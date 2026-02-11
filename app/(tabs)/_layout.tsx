@@ -24,7 +24,7 @@ export default function TabLayout() {
         }
       }}
       screenListeners={{
-        tabPress: (e) => {
+        tabPress: (e: any) => {
           // Check if the user is logged out and pressing the profile tab
           if (e.target?.includes('profile') && !isAuthenticated) {
             // Also check if they are already on the profile screen
@@ -41,35 +41,35 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Shorts',
-          tabBarIcon: ({ color, size }) => <Ionicons name="film-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => <Ionicons name="film-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="live"
         options={{
           title: 'Live',
-          tabBarIcon: ({ color, size }) => <Ionicons name="videocam-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => <Ionicons name="videocam-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="upcoming"
         options={{
           title: 'Upcoming',
-          tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => <Ionicons name="calendar-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="myCourses"
         options={{
           title: 'Courses',
-          tabBarIcon: ({ color, size }) => <Ionicons name="library-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => <Ionicons name="library-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="inbox"
         options={{
           title: 'Inbox',
-          tabBarIcon: ({ color, size }) => <Ionicons name="chatbox-ellipses-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => <Ionicons name="chatbox-ellipses-outline" color={color} size={size} />,
         }}
       />
 
@@ -77,7 +77,7 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" color={color} size={size} />,
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => <Ionicons name="person-outline" color={color} size={size} />,
         }}
       />
     </Tabs>

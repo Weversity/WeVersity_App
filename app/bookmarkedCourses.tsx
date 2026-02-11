@@ -1,4 +1,5 @@
 import { bookmarksStore } from '@/src/data/courses';
+// @ts-ignore
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';

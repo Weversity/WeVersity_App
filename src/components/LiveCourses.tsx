@@ -3,16 +3,15 @@ import { Link } from 'expo-router';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { liveSessionService } from '../services/liveSessionService';
 
 const CourseItem = memo(({ item }: { item: any }) => {
-  // item is a live_session object, course is nested
+  // item is a live_session object
   const course = item.course || {};
-  const instructor = course.instructor || {};
+  const instructor = item.instructor || {};
   const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() || 'Instructor';
   const instructorPicture = instructor.avatar_url || `https://ui-avatars.com/api/?name=${instructorName}&background=8A2BE2&color=fff`;
   const courseImage = course.image_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop';
-  const category = course.categories || 'DEVELOPMENT';
+  const category = (typeof course.categories === 'string' ? course.categories : null) || 'DEVELOPMENT';
 
   return (
     <View style={styles.courseCard}>
@@ -45,9 +44,9 @@ const CourseItem = memo(({ item }: { item: any }) => {
         <View style={styles.footer}>
           <View style={styles.instructorInfo}>
             <Image source={{ uri: instructorPicture }} style={styles.instructorAvatar} />
-            <View>
+            <View style={styles.instructorTextContainer}>
               <Text style={styles.instructorLabel}>INSTRUCTOR</Text>
-              <Text style={styles.instructorName} numberOfLines={1}>{instructorName}</Text>
+              <Text style={styles.instructorName}>{instructorName}</Text>
             </View>
           </View>
 
@@ -68,20 +67,46 @@ interface LiveCoursesProps {
   searchQuery?: string;
 }
 
+// Error Display Component
+const ErrorBox = ({ message }: { message: string }) => (
+  <View style={styles.errorContainer}>
+    <Ionicons name="alert-circle" size={24} color="#FF3B30" />
+    <Text style={styles.errorText}>Error fetching live classes:</Text>
+    <Text style={styles.errorMessage}>{message}</Text>
+  </View>
+);
+
 const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery = '' }) => {
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const loadSessions = useCallback(async (showLoading = true) => {
     if (loading) return;
     if (showLoading) setLoading(true);
+    setFetchError(null);
 
     try {
-      const data = await liveSessionService.fetchActiveLiveSessions();
-      setSessions(data);
-    } catch (error) {
+      console.log('DEBUG: Starting fetch with status: [live, upcoming]...');
+
+      const { data, error } = await supabase
+        .from('live_sessions')
+        .select('*, instructor:profiles!instructor_id(first_name, last_name, avatar_url), course:courses(title, image_url, categories)')
+        .in('status', ['live', 'upcoming', 'Live', 'Upcoming']);
+
+      console.log('DEBUG: Query Result:', data);
+      console.log('DEBUG: Query Error:', error);
+
+      if (error) {
+        setFetchError(error.message);
+        throw error;
+      }
+
+      setSessions(data || []);
+    } catch (error: any) {
       console.error('Failed to fetch live sessions:', error);
+      setFetchError(error.message || 'An unknown error occurred');
       if (onCoursesLoaded) {
         onCoursesLoaded(0);
       }
@@ -106,7 +131,6 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
         },
         (payload) => {
           console.log('Live session change detected:', payload.eventType);
-          // Refresh the list when any change occurs in live_sessions
           loadSessions(false);
         }
       )
@@ -122,24 +146,43 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
     loadSessions();
   }, [loadSessions]);
 
-  // Filter sessions based on search query AND strictly 'live' status
+  // Filter based on status, time, and search query
   const filteredSessions = useMemo(() => {
-    // Strictly include only sessions where status is 'live'
-    const validSessions = sessions.filter(session => session.status === 'live');
+    const now = new Date().getTime();
+    const fiveMinutesInMs = 5 * 60 * 1000;
+    const todayDate = new Date().toDateString();
+
+    const liveOrSoonSessions = sessions.filter(session => {
+      const status = (session.status || '').toLowerCase();
+
+      // Always show if live
+      if (status === 'live') return true;
+
+      // If upcoming, check time
+      if (status === 'upcoming') {
+        if (!session.scheduled_at) return false;
+
+        const scheduledTime = new Date(session.scheduled_at).getTime();
+        const scheduledDate = new Date(session.scheduled_at).toDateString();
+
+        const isSoonOrPassed = scheduledTime <= (now + fiveMinutesInMs);
+        const isToday = scheduledDate === todayDate;
+
+        return isSoonOrPassed && isToday;
+      }
+
+      return false;
+    });
 
     if (!searchQuery.trim()) {
-      return validSessions;
+      return liveOrSoonSessions;
     }
 
     const query = searchQuery.toLowerCase();
-    return validSessions.filter(session => {
+    return liveOrSoonSessions.filter(session => {
       const course = session.course || {};
-      const instructor = course.instructor || {};
       const title = course.title?.toLowerCase() || '';
-      const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.toLowerCase();
-      const category = course.categories?.toLowerCase() || '';
-
-      return title.includes(query) || instructorName.includes(query) || category.includes(query);
+      return title.includes(query);
     });
   }, [sessions, searchQuery]);
 
@@ -161,9 +204,9 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
         <View style={styles.emptyIconContainer}>
           <Ionicons name="videocam-off" size={48} color="#8A2BE2" />
         </View>
-        <Text style={styles.emptyText}>No Live Classes Right Now</Text>
+        <Text style={styles.emptyText}>No classes are live right now</Text>
         <Text style={styles.emptySubText}>
-          Our instructors aren't live at the moment. Check the schedule for upcoming sessions!
+          Our instructors aren't live at the moment. Check back later!
         </Text>
         <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
           <Text style={styles.refreshButtonText}>Refresh</Text>
@@ -178,19 +221,22 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
   }, [loading, filteredSessions]);
 
   return (
-    <FlatList
-      key="single-column-list"
-      data={filteredSessions}
-      renderItem={renderItem}
-      keyExtractor={(item) => item.id.toString()}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
-      }
-      ListFooterComponent={renderFooter}
-      ListEmptyComponent={renderEmpty}
-      contentContainerStyle={styles.listContainer}
-      showsVerticalScrollIndicator={false}
-    />
+    <View style={{ flex: 1 }}>
+      {fetchError && <ErrorBox message={fetchError} />}
+      <FlatList
+        key="single-column-list"
+        data={filteredSessions}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.id.toString()}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+        }
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={styles.listContainer}
+        showsVerticalScrollIndicator={false}
+      />
+    </View>
   );
 };
 
@@ -301,12 +347,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flex: 1,
+    paddingRight: 10,
   },
   instructorAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#f0f0f0',
+  },
+  instructorTextContainer: {
+    flex: 1,
   },
   instructorLabel: {
     fontSize: 9,
@@ -386,6 +436,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: 'bold',
+  },
+  errorContainer: {
+    backgroundColor: '#FFE5E5',
+    padding: 16,
+    margin: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 8,
+  },
+  errorText: {
+    color: '#1a1a1a',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  errorMessage: {
+    color: '#FF3B30',
+    fontSize: 12,
+    textAlign: 'center',
   },
 });
 

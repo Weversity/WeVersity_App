@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { Course, InstructorStats } from '../types';
 
 // Environment variable safety check
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -16,7 +17,7 @@ export const courseService = {
      * @param {string} category
      * @param {number|null} rating
      */
-    async fetchPublishedCourses(page = 0, pageSize = 10, type = null, search = '', category = 'All', rating = null) {
+    async fetchPublishedCourses(page: number = 0, pageSize: number = 10, type: string | null = null, search: string = '', category: string = 'All', rating: number | null = null): Promise<Course[]> {
         try {
             const from = page * pageSize;
             const to = from + pageSize - 1;
@@ -72,6 +73,10 @@ export const courseService = {
                 throw error;
             }
 
+            // Re-enabling data dump log (assuming 'courses' is the relevant data here)
+            console.log("[Full Data Dump - fetchPublishedCourses]", JSON.stringify(courses, null, 2));
+
+
             if (!courses || courses.length === 0) return [];
 
             // 2. Fetch reviews manually for each course to calculate counts and ratings
@@ -83,7 +88,7 @@ export const courseService = {
 
                 const count = reviewsData?.length || 0;
                 let avg = 0.0;
-                if (count > 0) {
+                if (reviewsData && count > 0) {
                     const sum = reviewsData.reduce((acc, r) => acc + (r.rating || 0), 0);
                     avg = sum / count;
                 }
@@ -95,14 +100,14 @@ export const courseService = {
                 };
             }));
 
-            return coursesWithCounts;
-        } catch (error) {
+            return coursesWithCounts as any[];
+        } catch (error: any) {
             throw error;
         }
     },
 
     // Fetch course by ID with retry logic
-    async fetchCourseById(id, retries = 3) {
+    async fetchCourseById(id: string, retries: number = 3): Promise<Course | any> {
         for (let i = 0; i < retries; i++) {
             try {
                 const { data, error } = await supabase
@@ -138,7 +143,7 @@ export const courseService = {
 
                 return data;
 
-            } catch (error) {
+            } catch (error: any) {
                 if (i === retries - 1) {
                     console.error("Final attempt failed for fetchCourseById:", error);
                     throw error;
@@ -148,35 +153,69 @@ export const courseService = {
     },
 
     // Fetch ONLY course content (Heavy Load) with retry logic
-    async fetchCourseContent(id, retries = 3) {
+    async fetchCourseContent(id: string, retries: number = 3): Promise<any> {
+        // LEGACY: Keeping for backward compatibility but redirecting to fetchFullCurriculum if appropriate
+        return this.fetchFullCurriculum(id, retries);
+    },
+
+    /**
+     * Fetch the full curriculum using relational tables.
+     * 1. Get curriculum_topics (Sections)
+     * 2. Get curriculum_items (Lessons/Quizzes) for those topics
+     */
+    async fetchFullCurriculum(courseId: string, retries: number = 3): Promise<any> {
         for (let i = 0; i < retries; i++) {
             try {
-                const { data, error } = await supabase
-                    .from('courses')
-                    .select('course_content')
-                    .eq('id', id)
-                    .single();
+                // 1. Fetch Topics (Sections)
+                const { data: topics, error: topicsError } = await supabase
+                    .from('curriculum_topics')
+                    .select('id, title, order')
+                    .eq('course_id', courseId)
+                    .order('order', { ascending: true });
 
-                if (error) {
-                    if (error.code === 'PGRST116') throw new Error('Course content not found');
-                    console.warn(`Attempt ${i + 1} failed to fetch content: `, error.message);
-                    if (i === retries - 1) throw error;
-                    await new Promise(res => setTimeout(res, 1000));
-                    continue;
-                }
+                if (topicsError) throw topicsError;
+                if (!topics || topics.length === 0) return [];
 
-                return data?.course_content;
-            } catch (error) {
-                if (i === retries - 1) {
-                    console.error("Final attempt failed for fetchCourseContent:", error);
-                    throw error;
-                }
+                // 2. Fetch Items (Lessons) for all these topics
+                const topicIds = topics.map(t => t.id);
+                const { data: items, error: itemsError } = await supabase
+                    .from('curriculum_items')
+                    .select('id, topic_id, title, type, content, video_url')
+                    .in('topic_id', topicIds);
+
+                if (itemsError) throw itemsError;
+
+                // 3. Map Items to their respective Topics
+                const topicMap = topics.map(topic => {
+                    const topicItems = (items || [])
+                        .filter(item => item.topic_id === topic.id)
+                        .map(item => ({
+                            id: item.id,
+                            title: item.title,
+                            type: item.type === 'video' ? 'video' : (item.type === 'quiz' ? 'quiz' : 'article'),
+                            content: item.content,
+                            video_url: item.video_url,
+                            is_free: false // Default, can be adjusted if schema supports it
+                        }));
+
+                    return {
+                        title: topic.title,
+                        data: topicItems
+                    };
+                });
+
+                return topicMap;
+
+            } catch (error: any) {
+                console.error(`Attempt ${i + 1} failed for fetchFullCurriculum:`, error.message);
+                if (i === retries - 1) throw error;
+                await new Promise(res => setTimeout(res, 1000));
             }
         }
     },
 
     // Fetch courses by instructor ID
-    async fetchInstructorCourses(instructorId) {
+    async fetchInstructorCourses(instructorId: string): Promise<Course[]> {
         try {
             if (!instructorId) return [];
 
@@ -208,8 +247,8 @@ export const courseService = {
                 ...course,
                 // Handle both status string and is_published boolean
                 status: course.status || (course.is_published ? 'PUBLISHED' : 'DRAFT')
-            }));
-        } catch (error) {
+            })) as any[];
+        } catch (error: any) {
             if (error.name === 'AuthSessionMissingError' || error.message?.includes('session')) return [];
             console.error('fetchInstructorCourses error:', error);
             throw error;
@@ -217,7 +256,7 @@ export const courseService = {
     },
 
     // Fetch real-time statistics using Supabase Edge Function + Manual Fallback (Official Logic) - REVENUE REMOVED
-    async fetchInstructorStats(instructorId) {
+    async fetchInstructorStats(instructorId: string): Promise<InstructorStats> {
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) return { totalStudents: 0, courseRating: 0, totalReviews: 0 };
@@ -293,7 +332,7 @@ export const courseService = {
                 totalReviews
             };
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('fetchInstructorStats error:', error.message);
             return { totalStudents: 0, courseRating: 0, totalReviews: 0 };
         }
@@ -301,7 +340,7 @@ export const courseService = {
 
 
     // Upload course thumbnail to Supabase Storage
-    async uploadCourseImage(uri) {
+    async uploadCourseImage(uri: string): Promise<string | null> {
         try {
             if (!uri) return null;
 
@@ -331,14 +370,14 @@ export const courseService = {
                 .getPublicUrl(filePath);
 
             return publicUrl;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in uploadCourseImage:', error.message);
             throw error;
         }
     },
 
     // Create a new course record in Supabase
-    async createCourse(courseData) {
+    async createCourse(courseData: Partial<Course> & { instructor_id: string }): Promise<any> {
         try {
             const { data, error } = await supabase
                 .from('courses')
@@ -351,11 +390,11 @@ export const courseService = {
                         image_url: courseData.image_url,
                         instructor_id: courseData.instructor_id,
                         is_published: true, // Defaulting to published
-                        what_will_i_learn: courseData.whatWillILearn,
-                        target_audience: courseData.targetAudience,
-                        total_duration: courseData.totalDuration,
-                        materials_included: courseData.materialsIncluded,
-                        requirements: courseData.requirements,
+                        what_will_i_learn: (courseData as any).whatWillILearn,
+                        target_audience: (courseData as any).targetAudience,
+                        total_duration: (courseData as any).totalDuration,
+                        materials_included: (courseData as any).materialsIncluded,
+                        requirements: (courseData as any).requirements,
                         course_content: courseData.course_content, // JSON string or object
                     }
                 ])
@@ -364,7 +403,7 @@ export const courseService = {
 
             if (error) throw error;
             return data;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error in createCourse:', error.message);
             throw error;
         }

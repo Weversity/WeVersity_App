@@ -42,25 +42,32 @@ export const useAuth = () => {
 
         const initAuth = async () => {
             try {
-                const { data, error } = await supabase.auth.getSession();
+                // Race getSession with a timeout
+                const sessionPromise = supabase.auth.getSession();
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Session timeout')), 7000)
+                );
+
+                const { data, error } = await Promise.race([sessionPromise, timeoutPromise]);
                 if (error) throw error;
 
                 if (mounted) {
                     if (data?.session) {
                         setUser(data.session.user);
-                        await fetchProfile(data.session);
+                        // Also race profile fetch
+                        await Promise.race([
+                            fetchProfile(data.session),
+                            new Promise(resolve => setTimeout(resolve, 5000))
+                        ]);
                     } else {
                         setUser(null);
                         setProfile(null);
                     }
                 }
             } catch (error) {
-                console.warn('[useAuth] Session init error:', error);
-                await supabase.auth.signOut().catch(() => { });
-                if (mounted) {
-                    setUser(null);
-                    setProfile(null);
-                }
+                console.warn('[useAuth] Session init error/timeout:', error);
+                // Only sign out if it wasn't a timeout (optional, but safer to leave alone if just slow)
+                // But if we timed out, likely offline or generic error.
             } finally {
                 if (mounted) setLoading(false);
             }
@@ -76,16 +83,22 @@ export const useAuth = () => {
                 return;
             }
 
+            console.log(`[useAuth] Auth state change: ${event}`);
+
             if (session?.user) {
                 setUser(session.user);
-                await fetchProfile(session);
+                // Race profile fetch so we don't hang loading state
+                await Promise.race([
+                    fetchProfile(session),
+                    new Promise(resolve => setTimeout(resolve, 5000))
+                ]);
             } else {
                 setUser(null);
                 setProfile(null);
             }
 
             // Ensure loading is false after any auth change
-            setLoading(false);
+            if (mounted) setLoading(false);
         });
 
         return () => {

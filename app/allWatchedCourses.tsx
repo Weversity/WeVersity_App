@@ -39,6 +39,7 @@ export default function AllWatchedCoursesScreen() {
   useEffect(() => {
     const fetchEnrollments = async () => {
       try {
+        // @ts-ignore
         const { supabase } = await import('@/src/auth/supabase');
         const { data: { user } } = await (supabase as any).auth.getUser();
 

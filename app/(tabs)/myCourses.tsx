@@ -1,6 +1,7 @@
 import { CourseCardSkeleton } from '@/src/components/CourseCardSkeleton';
 import SearchEmptyState from '@/src/components/SearchEmptyState';
 import { courseService } from '@/src/services/courseService';
+import { Course } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
@@ -26,7 +27,7 @@ import {
 const { width } = Dimensions.get('window');
 
 // Step 2: Key Name Matching Check
-const CourseCard = ({ course, onPress }: { course: any; onPress: () => void }) => {
+const CourseCard = ({ course, onPress }: { course: Course; onPress: () => void }) => {
   return (
     <TouchableOpacity
       style={styles.card}
@@ -113,7 +114,7 @@ export default function MyCoursesScreen() {
           selectedFilterCategory,
           selectedRating
         );
-        return (data || []).map(c => ({
+        return (data || []).map((c: any): Course => ({
           ...c,
           is_free: c.price === 0
         }));
@@ -147,7 +148,7 @@ export default function MyCoursesScreen() {
   }).current;
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    viewableItems.forEach(({ item }: any) => {
+    viewableItems.forEach(({ item }: { item: Course }) => {
       if (item.id) {
         queryClient.prefetchQuery({
           queryKey: ['course', item.id],
@@ -165,9 +166,9 @@ export default function MyCoursesScreen() {
     setRefreshing(false);
   }, [refetch]);
 
-  const handleCoursePress = (course: any) => {
+  const handleCoursePress = (course: Course) => {
     const instructor = Array.isArray(course.instructor) ? course.instructor[0] : course.instructor;
-    const instructorName = instructor ? `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() : 'Instructor';
+    const instructorName = instructor ? `${instructor.first_name || ''} ${instructor.last_name || ''} `.trim() : 'Instructor';
     const title = course.title || course.course_name || '';
     const categories = course.categories || '';
 
@@ -261,13 +262,13 @@ export default function MyCoursesScreen() {
       <View style={{ flex: 1, minHeight: 500 }}>
         <FlatList
           data={filteredCourses}
-          renderItem={({ item }: { item: any }) => (
+          renderItem={({ item }: { item: Course }) => (
             <CourseCard
               course={item}
               onPress={() => handleCoursePress(item)}
             />
           )}
-          keyExtractor={(item: any) => `course-${item.id}`}
+          keyExtractor={(item: Course) => `course-${item.id}`}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={

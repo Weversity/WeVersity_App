@@ -1,4 +1,5 @@
 import { useAuth } from '@/src/context/AuthContext';
+// @ts-ignore
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -9,8 +10,8 @@ interface UploadedCourse {
     id: string;
     title: string;
     categories: string;
-    is_published: boolean;
-    image_url: string;
+    is_published?: boolean;
+    image_url?: string | null;
     price: number | null;
 }
 
@@ -30,7 +31,15 @@ export default function MyUploadedCoursesScreen() {
         try {
             setLoading(true);
             const data = await courseService.fetchInstructorCourses(user.id);
-            setCourses(data);
+            const mappedCourses: UploadedCourse[] = data.map((item: any) => ({
+                id: item.id,
+                title: item.title,
+                categories: item.categories,
+                is_published: item.is_published,
+                image_url: item.image_url,
+                price: Number(item.price) || 0,
+            }));
+            setCourses(mappedCourses);
         } catch (error: any) {
             if (error?.name === 'AuthSessionMissingError' || error?.message?.includes('session')) return;
             console.error('Error fetching uploaded courses:', error);

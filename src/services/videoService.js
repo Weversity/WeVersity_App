@@ -5,10 +5,14 @@ import { supabase } from '../lib/supabase';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.weversity.org';
 
-// API Keys - In a real app, these should be securely stored or accessed via backend!
+// -------------------------------------------------------------------------
+// HARDCODED CLOUDINARY CONFIGURATION (As requested by user)
+// -------------------------------------------------------------------------
 const CLOUDINARY_CLOUD_NAME = 'dn93gd6yw';
 const CLOUDINARY_API_KEY = '738326273237372';
 const CLOUDINARY_API_SECRET = '56uMqGUQMReHrIZoyFGXIxi-0NU';
+const CLOUDINARY_UPLOAD_PRESET = 'weversity_shorts';
+// -------------------------------------------------------------------------
 
 export const videoService = {
   /**
@@ -18,7 +22,7 @@ export const videoService = {
    */
   uploadVideoToCloudinary: async (fileUri, resourceType = 'video') => {
     try {
-      const uploadPreset = 'weversity_shorts'; // Aapka preset name
+      const uploadPreset = CLOUDINARY_UPLOAD_PRESET;
 
       // Basic validation/cleanup of resourceType
       const finalResourceType = resourceType === 'image' ? 'image' : 'video';
@@ -34,9 +38,14 @@ export const videoService = {
       data.append('resource_type', finalResourceType);
 
       console.log(`--- Cloudinary: Uploading ${finalResourceType} ---`);
+      console.log(`🔹 Cloud Name: ${CLOUDINARY_CLOUD_NAME}`);
+      console.log(`🔹 Upload Preset: ${uploadPreset}`);
+
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${finalResourceType}/upload`;
+      console.log('🔗 Upload URL:', uploadUrl);
 
       const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${finalResourceType}/upload`,
+        uploadUrl,
         {
           method: 'POST',
           body: data,
@@ -59,7 +68,7 @@ export const videoService = {
         throw new Error(result.error?.message || 'Cloudinary upload failed');
       }
     } catch (error) {
-      console.error('❌ Cloudinary Error:', error.message);
+      console.error('❌ Cloudinary Upload Error:', error.message);
       throw error;
     }
   },
@@ -165,11 +174,25 @@ export const videoService = {
 
       console.log(`--- Deleting from Cloudinary: ${publicId} ---`);
 
+      // DEBUG: Verify API Key availability
+      console.log('🔹 DEBUG: Checking API Key Access...');
+      if (!CLOUDINARY_API_KEY) {
+        console.error('🛑 CRITICAL ERROR: CLOUDINARY_API_KEY is undefined!');
+        throw new Error('API Key is missing inside function scope');
+      } else {
+        console.log(`✅ API Key Found: ${CLOUDINARY_API_KEY}`);
+      }
+
+      console.log(`🔹 Cloud Name: ${CLOUDINARY_CLOUD_NAME}`);
+      console.log(`🔹 Resource Type: ${resourceType}`);
+
       const timestamp = Math.round((new Date()).getTime() / 1000).toString();
 
       // Signature Generation: public_id=xxx&timestamp=xxx + api_secret
       const paramsToSign = `public_id=${publicId}&timestamp=${timestamp}`;
       const stringToSign = paramsToSign + CLOUDINARY_API_SECRET;
+
+      console.log('🔹 generating signature...');
 
       const signature = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA1,
@@ -183,8 +206,11 @@ export const videoService = {
       formData.append('signature', signature);
       // resourceType is usually 'video' or 'image'
 
+      const deleteUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/destroy`;
+      console.log('🔗 Delete URL:', deleteUrl);
+
       const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/destroy`,
+        deleteUrl,
         {
           method: 'POST',
           body: formData
@@ -210,6 +236,9 @@ export const videoService = {
       if (error.message && error.message.includes('not found')) {
         console.warn('⚠️ Treating as ghost entry due to error message');
         return { success: true, ghostEntry: true };
+      }
+      if (error.message && error.message.includes('API key')) {
+        console.error('🛑 This is likely an API Key configuration error.');
       }
       throw error; // Stop Supabase deletion for real errors
     }
@@ -335,7 +364,7 @@ export const videoService = {
 
   uploadCommentImage: async (fileUri) => {
     try {
-      const uploadPreset = 'weversity_shorts'; // Your preset
+      const uploadPreset = CLOUDINARY_UPLOAD_PRESET;
       const data = new FormData();
 
       // Support for Expo/React Native FormData

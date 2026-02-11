@@ -1,5 +1,6 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
+import { Conversation } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -99,7 +100,7 @@ const GuestView = ({ onGoToProfile }: { onGoToProfile: () => void }) => {
 };
 
 // Reusable Conversation Item Component
-const ConversationItem = memo(({ item, onPress }: { item: any; onPress: (id: string) => void }) => {
+const ConversationItem = memo(({ item, onPress }: { item: Conversation; onPress: (id: string) => void }) => {
   return (
     <TouchableOpacity
       style={styles.conversationItem}
@@ -157,7 +158,7 @@ const renderEmptyMessages = (message: string) => (
   </View>
 );
 
-const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
     data={conversations}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
@@ -171,7 +172,7 @@ const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: {
   />
 ));
 
-const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: any[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
     data={conversations.filter((c) => c.isGroup)}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
@@ -201,13 +202,13 @@ export default function InboxScreen() {
     { key: 'communities', title: 'Communities' },
   ]);
 
-  const [conversations, setConversations] = useState<any[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
 
   // Restore the format helper
-  const formatConversation = useCallback((conv: any) => {
+  const formatConversation = useCallback((conv: any): Conversation => {
     const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
     const isMe = msg.sender_id === user?.id;
     let timeStr = '';
@@ -252,7 +253,7 @@ export default function InboxScreen() {
       console.log('🔄 [Inbox] Fetching conversations...');
       const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
       const mapped = inboxData.map(formatConversation);
-      setConversations(mapped.sort((a, b) => b.timestamp - a.timestamp));
+      setConversations(mapped.sort((a: Conversation, b: Conversation) => b.timestamp - a.timestamp));
     } catch (error) {
       console.error('❌ [Inbox] Error fetching chats:', error);
     } finally {
@@ -272,7 +273,7 @@ export default function InboxScreen() {
     if (!user) return;
 
     const subscription = chatService.subscribeToGlobalChat((newMessage: any) => {
-      setConversations(prev => {
+      setConversations((prev: Conversation[]) => {
         const chatId = newMessage.group_id || newMessage.conversation_id;
         if (!chatId) return prev;
         const others = prev.filter(c => c.id !== chatId);
@@ -297,6 +298,7 @@ export default function InboxScreen() {
     return () => {
       (async () => {
         try {
+          // @ts-ignore
           const { supabase } = await import('@/src/lib/supabase');
           await supabase.removeChannel(subscription);
         } catch (err) {

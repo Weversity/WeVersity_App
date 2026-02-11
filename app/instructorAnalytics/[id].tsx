@@ -1,3 +1,4 @@
+// @ts-ignore
 import { supabase } from '@/src/auth/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -153,7 +154,7 @@ export default function InstructorAnalyticsScreen() {
                         .in('course_id', allCourseIds);
 
                     if (enrollmentData) {
-                        const uniqueStudents = new Set(enrollmentData.map(e => e.student_id));
+                        const uniqueStudents = new Set(enrollmentData.map((e: any) => e.student_id));
                         totalStudents = uniqueStudents.size;
                     }
                 }

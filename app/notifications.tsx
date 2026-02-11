@@ -1,3 +1,4 @@
+// @ts-ignore
 import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';

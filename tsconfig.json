@@ -4,11 +4,19 @@
     "strict": true,
     "esModuleInterop": true,
     "jsx": "react-native",
+    "target": "ESNext",
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
     "paths": {
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "skipLibCheck": true,
+    "types": []
   },
   "include": [
     "**/*.ts",

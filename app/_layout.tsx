@@ -2,6 +2,7 @@ import { Buffer } from 'buffer';
 import 'react-native-get-random-values';
 global.Buffer = Buffer;
 
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -50,18 +51,41 @@ function InitialLayout() {
   const [appIsReady, setAppIsReady] = useState(false);
 
   useEffect(() => {
+    console.log('InitialLayout: Checking auth loading state...', { isLoading });
+
+    // Safety timeout: If auth takes too long (>5s), force the app to show to avoid getting stuck
+    const safetyTimer = setTimeout(() => {
+      if (isLoading) {
+        console.warn('InitialLayout: Auth loading timed out. Forcing app ready.');
+        setAppIsReady(true);
+      }
+    }, 5000);
+
     if (!isLoading) {
+      console.log('InitialLayout: Auth finished loading. Preparing to hide splash screen...');
       // Small delay for smooth transition
       const timer = setTimeout(() => {
+        console.log('InitialLayout: Setting appIsReady to true');
         setAppIsReady(true);
       }, 500);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(safetyTimer);
+      };
     }
+
+    return () => clearTimeout(safetyTimer);
   }, [isLoading]);
 
+  // Ensure we hide splash screen as soon as our custom loading UI is mounted
   const onLayoutRootView = React.useCallback(async () => {
-    // Hide the native splash screen once the custom loading UI resides in memory
-    await SplashScreen.hideAsync();
+    console.log('InitialLayout: onLayoutRootView called. Hiding native splash screen...');
+    try {
+      await SplashScreen.hideAsync();
+      console.log('InitialLayout: Native splash screen hidden successfully');
+    } catch (e) {
+      console.warn('InitialLayout: Error hiding splash screen:', e);
+    }
   }, []);
 
   if (!appIsReady) {
@@ -112,16 +136,18 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <CoursesProvider>
-        <AuthProvider>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <InitialLayout />
-            <StatusBar style="auto" />
-          </ThemeProvider>
-        </AuthProvider>
-      </CoursesProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <CoursesProvider>
+          <AuthProvider>
+            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+              <InitialLayout />
+              <StatusBar style="auto" />
+            </ThemeProvider>
+          </AuthProvider>
+        </CoursesProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 
