@@ -658,25 +658,35 @@ export default function LearningPlayerScreen() {
         if (!activeLessonPath || !sections[activeLessonPath.s]) return null;
         const section = sections[activeLessonPath.s];
         const lesson = section.data[activeLessonPath.l];
-        if (activeLessonPath.sl != null && lesson.lessons) {
-            return lesson.lessons[activeLessonPath.sl];
+        let target: Lesson = (activeLessonPath.sl != null && lesson.lessons)
+            ? lesson.lessons[activeLessonPath.sl]
+            : lesson;
+
+        // NEW: Normalize questions from both possible locations
+        if (!target.questions || target.questions.length === 0) {
+            const metaQuestions = (target as any).meta_data?.questions;
+            if (metaQuestions && Array.isArray(metaQuestions)) {
+                target.questions = metaQuestions;
+            }
         }
-        return lesson;
+
+        return target;
     };
 
     const currentLesson = getCurrentLesson();
 
     const handleStartQuiz = () => {
         const lesson = getCurrentLesson();
-        if (lesson && lesson.questions) {
-            router.push({
-                pathname: "/quiz",
-                params: {
-                    courseId: id,
-                    lessonTitle: lesson.title,
-                    questions: JSON.stringify(lesson.questions)
-                }
-            });
+        console.log('Quiz Questions Found:', lesson?.questions?.length || 0);
+
+        if (lesson && lesson.questions && lesson.questions.length > 0) {
+            // NEW: Inline Quiz Selection
+            setIsQuizStarted(true);
+            setCurrentQuestionIndex(0);
+            setSelectedAnswers({});
+            setQuizResult(null);
+        } else {
+            Alert.alert('No Questions', 'This quiz does not have any questions available yet.');
         }
     };
 
