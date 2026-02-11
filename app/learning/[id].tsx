@@ -171,38 +171,11 @@ const tagsStyles = {
 const ContentRenderer = ({
     lesson,
     onStartQuiz,
-    isQuizStarted,
-    currentQuestionIndex,
-    selectedAnswers,
-    onOptionSelect,
-    onSubmitQuestion,
-    onBackQuestion,
     onSkipQuiz,
-    quizResult,
-    onFinishQuiz,
-    onRetakeQuiz
 }: {
     lesson: Lesson | null;
     onStartQuiz: () => void;
-    isQuizStarted: boolean;
-    currentQuestionIndex: number;
-    selectedAnswers: Record<number, number>;
-    onOptionSelect: (index: number) => void;
-    onSubmitQuestion: () => void;
-    onBackQuestion: () => void;
     onSkipQuiz: () => void;
-    quizResult: {
-        score: number;
-        total: number;
-        percentage: number;
-        correctAnswers: number;
-        incorrectAnswers: number;
-        earnedMarks: string;
-        passingMarks: string;
-        timestamp: string;
-    } | null;
-    onFinishQuiz: () => void;
-    onRetakeQuiz: () => void;
 }) => {
     const videoSource = (lesson?.type === 'video') ? (lesson.video_url || lesson.video_link || lesson.content || '') : '';
     const player = useVideoPlayer(videoSource, player => {
@@ -233,166 +206,32 @@ const ContentRenderer = ({
                 </View>
             );
         case 'quiz':
-            if (quizResult) {
-                return (
-                    <View style={styles.quizResultContainer}>
-                        <Text style={styles.quizTag}>QUIZ</Text>
-                        <Text style={styles.quizMainTitle}>{lesson.title}</Text>
-                        <View style={styles.divider} />
-
-                        {/* Summary Header */}
-                        <View style={styles.resultSummaryHeader}>
-                            <View style={styles.summaryItem}>
-                                <Text style={styles.summaryLabel}>Questions</Text>
-                                <Text style={styles.summaryValue}>{quizResult.total}</Text>
-                            </View>
-                            <View style={styles.summaryItem}>
-                                <Text style={styles.summaryLabel}>Quiz Time</Text>
-                                <Text style={styles.summaryValue}>Not timed</Text>
-                            </View>
-                            <View style={styles.summaryItem}>
-                                <Text style={styles.summaryLabel}>Total Marks</Text>
-                                <Text style={styles.summaryValue}>{quizResult.total}.00</Text>
-                            </View>
-                            <View style={styles.summaryItem}>
-                                <Text style={styles.summaryLabel}>Passing Marks</Text>
-                                <Text style={styles.summaryValue}>{quizResult.passingMarks}</Text>
-                            </View>
-                        </View>
-
-                        <Text style={styles.historyTitle}>Attempt History</Text>
-
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.historyScroll}>
-                            <View style={styles.historyTable}>
-                                {/* Table Header */}
-                                <View style={styles.tableRowHeader}>
-                                    <Text style={[styles.tableCellHeader, { width: 140 }]}>DATE</Text>
-                                    <Text style={[styles.tableCellHeader, { width: 80 }]}>QUESTION</Text>
-                                    <Text style={[styles.tableCellHeader, { width: 100 }]}>TOTAL MARKS</Text>
-                                    <Text style={[styles.tableCellHeader, { width: 120 }]}>CORRECT ANSWER</Text>
-                                    <Text style={[styles.tableCellHeader, { width: 130 }]}>INCORRECT ANSWER</Text>
-                                    <Text style={[styles.tableCellHeader, { width: 120 }]}>EARNED MARKS</Text>
-                                    <Text style={[styles.tableCellHeader, { width: 80 }]}>RESULT</Text>
-                                </View>
-
-                                {/* Table Body - Single current attempt */}
-                                <View style={styles.tableRow}>
-                                    <Text style={[styles.tableCell, { width: 140 }]}>{quizResult.timestamp}</Text>
-                                    <Text style={[styles.tableCell, { width: 80 }]}>{quizResult.total}</Text>
-                                    <Text style={[styles.tableCell, { width: 100 }]}>{quizResult.total}.00</Text>
-                                    <Text style={[styles.tableCell, { width: 120, color: '#4CAF50', fontWeight: 'bold' }]}>{quizResult.correctAnswers}</Text>
-                                    <Text style={[styles.tableCell, { width: 130, color: '#f44336', fontWeight: 'bold' }]}>{quizResult.incorrectAnswers}</Text>
-                                    <Text style={[styles.tableCell, { width: 120 }]}>{quizResult.earnedMarks} ({quizResult.percentage}%)</Text>
-                                    <View style={[styles.tableCell, { width: 80 }]}>
-                                        <View style={[styles.resultTag, { backgroundColor: quizResult.percentage >= 80 ? '#e8f5e9' : '#ffebee' }]}>
-                                            <Text style={[styles.resultTagText, { color: quizResult.percentage >= 80 ? '#2e7d32' : '#c62828' }]}>
-                                                {quizResult.percentage >= 80 ? 'Pass' : 'Fail'}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                </View>
-                            </View>
-                        </ScrollView>
-
-                        <View style={styles.resultActions}>
-                            <TouchableOpacity style={styles.retakeBtn} onPress={onRetakeQuiz}>
-                                <Text style={styles.retakeBtnText}>Retake Quiz</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.continueBtn} onPress={onFinishQuiz}>
-                                <Text style={styles.continueBtnText}>Continue to Next Lesson</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                );
-            }
-
-            if (!isQuizStarted) {
-                return (
-                    <View style={styles.quizStartContainer}>
-                        <Text style={styles.quizMainTitle}>{lesson.title}</Text>
-                        <View style={styles.divider} />
-
-                        <View style={styles.quizMetaRow}>
-                            <Text style={styles.quizMetaLabel}>Questions:</Text>
-                            <Text style={styles.quizMetaValue}>{lesson.questions?.length || 0} of {lesson.questions?.length || 0}</Text>
-                        </View>
-                        <View style={styles.quizMetaRow}>
-                            <Text style={styles.quizMetaLabel}>Quiz Time:</Text>
-                            <Text style={styles.quizMetaValue}>Not timed</Text>
-                        </View>
-                        <View style={styles.quizMetaRow}>
-                            <Text style={styles.quizMetaLabel}>Total Attempted:</Text>
-                            <Text style={styles.quizMetaValue}>0/{lesson.questions?.length || 0}</Text>
-                        </View>
-                        <View style={styles.quizMetaRow}>
-                            <Text style={styles.quizMetaLabel}>Passing Grade:</Text>
-                            <Text style={styles.quizMetaValue}>80%</Text>
-                        </View>
-
-                        <View style={styles.quizStartActions}>
-                            <TouchableOpacity style={styles.startQuizBtn} onPress={onStartQuiz}>
-                                <Text style={styles.startQuizBtnText}>Start Quiz</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.skipQuizBtn} onPress={onSkipQuiz}>
-                                <Text style={styles.skipQuizBtnText}>Skip Quiz</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                );
-            }
-
-            const currentQuestion = lesson.questions?.[currentQuestionIndex];
-            const selectedOption = selectedAnswers[currentQuestionIndex];
+            const questionsCount = lesson.questions?.length || 0;
 
             return (
-                <View style={styles.quizActiveContainer}>
-                    <View style={styles.quizActiveHeader}>
-                        <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600', marginBottom: 5 }}>{lesson.title}</Text>
-                        <Text style={styles.questionCounter}>Question: <Text style={{ fontWeight: '600' }}>{currentQuestionIndex + 1}/{lesson.questions?.length}</Text></Text>
+                <View style={styles.quizStartContainer}>
+                    <Text style={styles.quizMainTitle}>{lesson.title}</Text>
+                    <View style={styles.divider} />
+
+                    <View style={styles.quizMetaRow}>
+                        <Text style={styles.quizMetaLabel}>Questions:</Text>
+                        <Text style={styles.quizMetaValue}>{questionsCount} Questions</Text>
+                    </View>
+                    <View style={styles.quizMetaRow}>
+                        <Text style={styles.quizMetaLabel}>Quiz Time:</Text>
+                        <Text style={styles.quizMetaValue}>Not timed</Text>
+                    </View>
+                    <View style={styles.quizMetaRow}>
+                        <Text style={styles.quizMetaLabel}>Passing Grade:</Text>
+                        <Text style={styles.quizMetaValue}>80%</Text>
                     </View>
 
-                    <View style={styles.activeQuestionCard}>
-                        <Text style={styles.activeQuestionText}>
-                            {currentQuestionIndex + 1}. {currentQuestion?.question_text || currentQuestion?.question || ''}
-                        </Text>
-
-                        <View style={styles.optionsList}>
-                            {(currentQuestion?.options || []).map((option: any, idx: number) => {
-                                const isSelected = selectedOption === idx;
-                                const optionText = typeof option === 'object' ? option.text : option;
-                                return (
-                                    <TouchableOpacity
-                                        key={idx}
-                                        style={[styles.webOptionBtn, isSelected && styles.webOptionBtnSelected]}
-                                        onPress={() => onOptionSelect(idx)}
-                                    >
-                                        <View style={[styles.webRadio, isSelected && styles.webRadioSelected]}>
-                                            {isSelected && <View style={styles.webRadioInner} />}
-                                        </View>
-                                        <Text style={[styles.webOptionText, isSelected && styles.webOptionTextSelected]}>{optionText}</Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-                    </View>
-
-                    <View style={styles.quizFooter}>
-                        <TouchableOpacity
-                            style={[styles.quizBackBtn, currentQuestionIndex === 0 && { opacity: 0.5 }]}
-                            onPress={onBackQuestion}
-                            disabled={currentQuestionIndex === 0}
-                        >
-                            <Text style={styles.quizBackBtnText}>← Back</Text>
+                    <View style={styles.quizStartActions}>
+                        <TouchableOpacity style={styles.startQuizBtn} onPress={onStartQuiz}>
+                            <Text style={styles.startQuizBtnText}>Start Quiz</Text>
                         </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={[styles.quizSubmitBtn, selectedOption === undefined && { opacity: 0.5 }]}
-                            onPress={onSubmitQuestion}
-                            disabled={selectedOption === undefined}
-                        >
-                            <Text style={styles.quizSubmitBtnText}>
-                                {currentQuestionIndex === (lesson.questions?.length || 0) - 1 ? 'Finish Quiz' : 'Submit & Next →'}
-                            </Text>
+                        <TouchableOpacity style={styles.skipQuizBtn} onPress={onSkipQuiz}>
+                            <Text style={styles.skipQuizBtnText}>Skip Quiz</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -475,21 +314,6 @@ export default function LearningPlayerScreen() {
     const [sections, setSections] = useState<Section[]>([]);
     const [activeLessonPath, setActiveLessonPath] = useState<{ s: number; l: number; sl?: number } | null>(null);
     const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
-
-    // Quiz States
-    const [isQuizStarted, setIsQuizStarted] = useState(false);
-    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-    const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
-    const [quizResult, setQuizResult] = useState<{
-        score: number;
-        total: number;
-        percentage: number;
-        correctAnswers: number;
-        incorrectAnswers: number;
-        earnedMarks: string;
-        passingMarks: string;
-        timestamp: string;
-    } | null>(null);
 
     const getPathKey = (s: number, l: number, sl?: number) => {
         const section = sections[s];
@@ -646,11 +470,6 @@ export default function LearningPlayerScreen() {
 
     const handleLessonSelect = (path: { s: number; l: number; sl?: number }) => {
         setActiveLessonPath(path);
-        // Reset quiz when lesson changes
-        setIsQuizStarted(false);
-        setCurrentQuestionIndex(0);
-        setSelectedAnswers({});
-        setQuizResult(null);
         toggleSidebar(false);
     };
 
@@ -662,13 +481,34 @@ export default function LearningPlayerScreen() {
             ? lesson.lessons[activeLessonPath.sl]
             : lesson;
 
-        // NEW: Normalize questions from both possible locations
-        if (!target.questions || target.questions.length === 0) {
-            const metaQuestions = (target as any).meta_data?.questions;
-            if (metaQuestions && Array.isArray(metaQuestions)) {
-                target.questions = metaQuestions;
+        // --- Robust Question Extraction ---
+        let foundQuestions: any[] = [];
+
+        // 1. Check existing questions array
+        if (target.questions && Array.isArray(target.questions) && target.questions.length > 0) {
+            foundQuestions = target.questions;
+        }
+        // 2. Check meta_data.questions
+        else if ((target as any).meta_data?.questions && Array.isArray((target as any).meta_data.questions)) {
+            foundQuestions = (target as any).meta_data.questions;
+        }
+        // 3. Check content field (common in Supabase for Quiz items)
+        else if (target.content && typeof target.content === 'string') {
+            try {
+                // If it's a JSON string, it might be the questions array directly or an object with questions
+                const parsed = JSON.parse(target.content);
+                if (Array.isArray(parsed)) {
+                    foundQuestions = parsed;
+                } else if (parsed.questions && Array.isArray(parsed.questions)) {
+                    foundQuestions = parsed.questions;
+                }
+            } catch (e) {
+                // Not JSON or contains article text, ignore
             }
         }
+
+        // Normalize back to .questions for consistency
+        target.questions = foundQuestions;
 
         return target;
     };
@@ -677,78 +517,28 @@ export default function LearningPlayerScreen() {
 
     const handleStartQuiz = () => {
         const lesson = getCurrentLesson();
-        console.log('Quiz Questions Found:', lesson?.questions?.length || 0);
+        if (!lesson) return;
 
-        if (lesson && lesson.questions && lesson.questions.length > 0) {
-            // NEW: Inline Quiz Selection
-            setIsQuizStarted(true);
-            setCurrentQuestionIndex(0);
-            setSelectedAnswers({});
-            setQuizResult(null);
+        // Questions are already normalized by getCurrentLesson()
+        const questions = lesson.questions || [];
+        console.log('Final Questions Array (handleStartQuiz):', questions.length);
+
+        if (questions && questions.length > 0) {
+            router.push({
+                pathname: "/quiz",
+                params: {
+                    courseId: String(id),
+                    lessonTitle: lesson.title,
+                    questions: JSON.stringify(questions)
+                }
+            });
         } else {
+            console.warn('Quiz Check Failed (handleStartQuiz):', { keys: Object.keys(lesson), hasContent: !!lesson.content });
             Alert.alert('No Questions', 'This quiz does not have any questions available yet.');
         }
     };
 
-    const handleOptionSelect = (index: number) => {
-        setSelectedAnswers(prev => ({ ...prev, [currentQuestionIndex]: index }));
-    };
-
-    const handleBackQuestion = () => {
-        if (currentQuestionIndex > 0) setCurrentQuestionIndex(prev => prev - 1);
-    };
-
-    const handleSubmitQuestion = () => {
-        const lesson = getCurrentLesson();
-        if (!lesson?.questions) return;
-
-        if (currentQuestionIndex < lesson.questions.length - 1) {
-            setCurrentQuestionIndex(prev => prev + 1);
-        } else {
-            // Calculate Score
-            let score = 0;
-            lesson.questions.forEach((q: any, idx: number) => {
-                const selected = selectedAnswers[idx];
-                const options = q.options || [];
-                const option = options[selected];
-
-                // Flexible matching for correct answer
-                const isCorrect = q.isCorrect ||
-                    (typeof option === 'object' && (option.isCorrect || String(option.id) === String(q.correct_answer))) ||
-                    String(option) === String(q.correct_answer);
-
-                if (isCorrect) score++;
-            });
-
-            const percentage = Math.round((score / lesson.questions.length) * 100);
-            const now = new Date();
-            const timestamp = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}, ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-
-            setQuizResult({
-                score,
-                total: lesson.questions.length,
-                percentage,
-                correctAnswers: score,
-                incorrectAnswers: lesson.questions.length - score,
-                earnedMarks: `${score}.00`,
-                passingMarks: `${Math.ceil(lesson.questions.length * 0.8)}.00`,
-                timestamp
-            });
-        }
-    };
-
-    const handleRetakeQuiz = () => {
-        setIsQuizStarted(true);
-        setCurrentQuestionIndex(0);
-        setSelectedAnswers({});
-        setQuizResult(null);
-    };
-
     const handleSkipQuiz = () => {
-        handleCompleteAndNext();
-    };
-
-    const handleFinishQuizResult = () => {
         handleCompleteAndNext();
     };
 
@@ -959,16 +749,7 @@ export default function LearningPlayerScreen() {
                 <ContentRenderer
                     lesson={currentLesson}
                     onStartQuiz={handleStartQuiz}
-                    isQuizStarted={isQuizStarted}
-                    currentQuestionIndex={currentQuestionIndex}
-                    selectedAnswers={selectedAnswers}
-                    onOptionSelect={handleOptionSelect}
-                    onSubmitQuestion={handleSubmitQuestion}
-                    onBackQuestion={handleBackQuestion}
                     onSkipQuiz={handleSkipQuiz}
-                    quizResult={quizResult}
-                    onFinishQuiz={handleFinishQuizResult}
-                    onRetakeQuiz={handleRetakeQuiz}
                 />
 
                 {currentLesson && currentLesson.type !== 'quiz' && (

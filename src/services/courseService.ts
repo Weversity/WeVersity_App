@@ -180,7 +180,7 @@ export const courseService = {
                 const topicIds = topics.map(t => t.id);
                 const { data: items, error: itemsError } = await supabase
                     .from('curriculum_items')
-                    .select('id, topic_id, title, type, content, video_url')
+                    .select('id, topic_id, title, type, content, video_url, meta_data')
                     .in('topic_id', topicIds);
 
                 if (itemsError) throw itemsError;
@@ -195,6 +195,7 @@ export const courseService = {
                             type: item.type === 'video' ? 'video' : (item.type === 'quiz' ? 'quiz' : 'article'),
                             content: item.content,
                             video_url: item.video_url,
+                            meta_data: item.meta_data,
                             is_free: false // Default, can be adjusted if schema supports it
                         }));
 
