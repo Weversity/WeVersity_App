@@ -515,11 +515,38 @@ export default function LearningPlayerScreen() {
 
     const currentLesson = getCurrentLesson();
 
+    const getNextLessonPath = (path: { s: number; l: number; sl?: number }) => {
+        if (!path) return null;
+        let nextPath: { s: number; l: number; sl?: number } | null = null;
+
+        const currentSection = sections[path.s];
+        const currentLessonObj = currentSection.data[path.l];
+
+        // 1. Is there a nested sub-lesson next?
+        if (path.sl !== undefined && currentLessonObj.lessons && path.sl < currentLessonObj.lessons.length - 1) {
+            nextPath = { ...path, sl: path.sl + 1 };
+        }
+        // 2. Is there a nested sub-lesson starting?
+        else if (path.sl === undefined && currentLessonObj.lessons && currentLessonObj.lessons.length > 0) {
+            nextPath = { ...path, sl: 0 };
+        }
+        // 3. Next lesson in same section?
+        else if (path.l < currentSection.data.length - 1) {
+            nextPath = { s: path.s, l: path.l + 1 };
+        }
+        // 4. Next section first lesson?
+        else if (path.s < sections.length - 1) {
+            nextPath = { s: path.s + 1, l: 0 };
+        }
+
+        return nextPath;
+    };
+
     const handleStartQuiz = () => {
         const lesson = getCurrentLesson();
-        if (!lesson) return;
+        if (!lesson || !activeLessonPath) return;
 
-        // Questions are already normalized by getCurrentLesson()
+        const lessonId = getPathKey(activeLessonPath.s, activeLessonPath.l, activeLessonPath.sl);
         const questions = lesson.questions || [];
         console.log('Final Questions Array (handleStartQuiz):', questions.length);
 
@@ -528,6 +555,7 @@ export default function LearningPlayerScreen() {
                 pathname: "/quiz",
                 params: {
                     courseId: String(id),
+                    lessonId: lessonId,
                     lessonTitle: lesson.title,
                     questions: JSON.stringify(questions)
                 }
@@ -539,7 +567,26 @@ export default function LearningPlayerScreen() {
     };
 
     const handleSkipQuiz = () => {
-        handleCompleteAndNext();
+        Alert.alert(
+            "Skip Quiz",
+            "Are you sure you want to skip this quiz? Your progress will not be saved.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Skip",
+                    onPress: () => {
+                        if (!activeLessonPath) return;
+                        const nextPath = getNextLessonPath(activeLessonPath);
+                        if (nextPath) {
+                            handleLessonSelect(nextPath);
+                        } else {
+                            Alert.alert("Course Finished", "You have reached the end of the course!");
+                        }
+                    },
+                    style: "destructive"
+                }
+            ]
+        );
     };
 
 
@@ -578,36 +625,16 @@ export default function LearningPlayerScreen() {
         }
 
         // Find Next Lesson Logic
-        let nextPath: { s: number; l: number; sl?: number } | null = null;
-
-        const currentSection = sections[activeLessonPath.s];
-        const currentLessonObj = currentSection.data[activeLessonPath.l];
-
-        // 1. Is there a nested sub-lesson next?
-        if (activeLessonPath.sl !== undefined && currentLessonObj.lessons && activeLessonPath.sl < currentLessonObj.lessons.length - 1) {
-            nextPath = { ...activeLessonPath, sl: activeLessonPath.sl + 1 };
-        }
-        // 2. Is there a nested sub-lesson starting?
-        else if (activeLessonPath.sl === undefined && currentLessonObj.lessons && currentLessonObj.lessons.length > 0) {
-            nextPath = { ...activeLessonPath, sl: 0 };
-        }
-        // 3. Next lesson in same section?
-        else if (activeLessonPath.l < currentSection.data.length - 1) {
-            nextPath = { s: activeLessonPath.s, l: activeLessonPath.l + 1 };
-        }
-        // 4. Next section first lesson?
-        else if (activeLessonPath.s < sections.length - 1) {
-            nextPath = { s: activeLessonPath.s + 1, l: 0 };
-            // Auto expand next section
-            const newSections = [...sections];
-            newSections[activeLessonPath.s + 1].isExpanded = true;
-            setSections(newSections);
-        }
+        const nextPath = getNextLessonPath(activeLessonPath);
 
         if (nextPath) {
-            setActiveLessonPath(nextPath);
-            // Scroll to top of content when lesson changes
-            contentScrollViewRef.current?.scrollTo({ y: 0, animated: true });
+            // If we moved to a new section, expand it
+            if (nextPath.s !== activeLessonPath.s) {
+                const newSections = [...sections];
+                newSections[nextPath.s].isExpanded = true;
+                setSections(newSections);
+            }
+            handleLessonSelect(nextPath);
         } else {
             Alert.alert("Congratulations! 🎉", "You have completed the entire course.", [
                 { text: "Go to My Courses", onPress: () => router.replace('/(tabs)/myCourses') },
@@ -851,8 +878,14 @@ const styles = StyleSheet.create({
     quizStartActions: { flexDirection: 'row', alignItems: 'center', marginTop: 30 },
     startQuizBtn: { backgroundColor: '#8A2BE2', paddingVertical: 14, paddingHorizontal: 35, borderRadius: 25, marginRight: 20 },
     startQuizBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-    skipQuizBtn: { paddingVertical: 10 },
-    skipQuizBtnText: { color: '#666', fontSize: 16, fontWeight: '500' },
+    skipQuizBtn: {
+        paddingVertical: 14,
+        paddingHorizontal: 35,
+        borderRadius: 25,
+        borderWidth: 1,
+        borderColor: '#8A2BE2'
+    },
+    skipQuizBtnText: { color: '#8A2BE2', fontSize: 16, fontWeight: '600' },
 
     quizActiveContainer: { flex: 1 },
     quizActiveHeader: { backgroundColor: '#8A2BE2', paddingVertical: 15, paddingHorizontal: 20 },

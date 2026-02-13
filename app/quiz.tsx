@@ -1,3 +1,4 @@
+import { supabase } from '@/src/auth/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -29,7 +30,7 @@ interface Question {
 
 export default function QuizScreen() {
     const router = useRouter();
-    const { courseId, lessonTitle, questions: questionsRaw } = useLocalSearchParams();
+    const { courseId, lessonId, lessonTitle, questions: questionsRaw } = useLocalSearchParams();
 
     const questions: Question[] = React.useMemo(() => {
         try {
@@ -63,6 +64,37 @@ export default function QuizScreen() {
         setSelectedOption(index);
     };
 
+    const updateProgress = async () => {
+        if (!courseId || !lessonId) return;
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            // Fetch current progress
+            const { data: enrollment, error: fetchErr } = await supabase
+                .from('enrollments')
+                .select('completed_lessons')
+                .eq('student_id', user.id)
+                .eq('course_id', courseId)
+                .single();
+
+            if (fetchErr) throw fetchErr;
+
+            const completed = enrollment?.completed_lessons || [];
+            if (!completed.includes(lessonId as string)) {
+                const updatedCompleted = [...completed, lessonId as string];
+                await supabase
+                    .from('enrollments')
+                    .update({ completed_lessons: updatedCompleted })
+                    .eq('student_id', user.id)
+                    .eq('course_id', courseId);
+                console.log("Quiz progress updated successfully");
+            }
+        } catch (err) {
+            console.error("Failed to update quiz progress:", err);
+        }
+    };
+
     const handleNext = () => {
         if (selectedOption === null) return;
 
@@ -81,6 +113,7 @@ export default function QuizScreen() {
             setSelectedOption(null);
         } else {
             setShowResult(true);
+            updateProgress(); // Mark completed when results are shown
         }
     };
 

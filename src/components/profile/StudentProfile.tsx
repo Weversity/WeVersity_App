@@ -201,10 +201,38 @@ const StudentProfile = () => {
 
   // Separate lightweight fetch functions - Lifted for onRefresh access
   const fetchUpcomingCount = async (supabase: any) => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const tonight = new Date(); tonight.setHours(23, 59, 59, 999);
-    const { data } = await supabase.from('live_sessions').select('id', { count: 'exact', head: true }).gte('scheduled_at', today.toISOString()).lte('scheduled_at', tonight.toISOString());
-    setUpcomingCount(data?.length || 0);
+    try {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const tonight = new Date(); tonight.setHours(23, 59, 59, 999);
+
+      // Fetch ALL sessions scheduled for today (past & future)
+      const { data, error } = await supabase
+        .from('live_sessions')
+        .select('scheduled_at') // We only need the time
+        .gte('scheduled_at', today.toISOString())
+        .lte('scheduled_at', tonight.toISOString());
+
+      if (error) {
+        console.error('Error fetching upcoming count:', error);
+        return;
+      }
+
+      if (data) {
+        const now = new Date();
+        // Client-side filter: Only count sessions where time is in the future
+        const upcoming = data.filter((session: any) => {
+          if (!session.scheduled_at) return false;
+          // Parse UTC date string from Supabase
+          const sessionDate = new Date(session.scheduled_at);
+          return sessionDate > now;
+        });
+
+        console.log(`DEBUG: Found ${data.length} sessions today. ${upcoming.length} are upcoming.`);
+        setUpcomingCount(upcoming.length);
+      }
+    } catch (err) {
+      console.error('Exception in fetchUpcomingCount:', err);
+    }
   };
 
   const fetchLiveSessions = async (supabase: any) => {
@@ -451,7 +479,7 @@ const StudentProfile = () => {
             <Text style={styles.welcomeTitle}>Welcome back, {userDisplayName}! 👋</Text>
           </View>
           <Text style={styles.welcomeSubtitle}>
-            You have {upcomingCount} upcoming classes today.
+            You have {upcomingCount === 0 ? 'no' : upcomingCount} upcoming {upcomingCount === 1 ? 'class' : 'classes'} today.
           </Text>
 
           <TouchableOpacity style={styles.aiHelpButton} onPress={() => router.push({ pathname: '/support', params: { chat: 'true' } })}>

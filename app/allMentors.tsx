@@ -1,12 +1,13 @@
 import { followedMentorsStore, toggleFollow } from '@/src/data/mentorsStore';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
     FlatList,
     Image,
+    RefreshControl,
     StatusBar,
     StyleSheet,
     Text,
@@ -22,10 +23,11 @@ export default function AllMentorsScreen() {
     const [search, setSearch] = useState('');
     const [instructors, setInstructors] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [followed, setFollowed] = useState(new Set(followedMentorsStore));
 
-    const fetchInstructors = async (query = '') => {
-        setIsLoading(true);
+    const fetchInstructors = async (query = '', isRefreshing = false) => {
+        if (!isRefreshing) setIsLoading(true);
         try {
             // @ts-ignore
             const { supabase } = await import('@/src/auth/supabase');
@@ -38,7 +40,7 @@ export default function AllMentorsScreen() {
                     avatar_url,
                     courses (
                         id,
-                        enrollments (count),
+                        enrollments (student_id),
                         reviews (rating)
                     )
                 `)
@@ -59,15 +61,16 @@ export default function AllMentorsScreen() {
                     const initials = (first?.[0] || '') + (last?.[0] || '');
 
                     // Calculate Stats
-                    let totalStudents = 0;
+                    // CHANGED: Count Total Enrollments (Not Unique Students)
+                    let totalEnrollments = 0;
                     let totalRatingSum = 0;
                     let totalRatingCount = 0;
 
                     if (p.courses && Array.isArray(p.courses)) {
                         p.courses.forEach((c: any) => {
-                            // Enrollments Count
-                            if (c.enrollments && c.enrollments[0]) {
-                                totalStudents += c.enrollments[0].count || 0;
+                            // Enrollments - Count total enrollments
+                            if (c.enrollments && Array.isArray(c.enrollments)) {
+                                totalEnrollments += c.enrollments.length;
                             }
 
                             // Ratings
@@ -90,7 +93,7 @@ export default function AllMentorsScreen() {
                         avatar: p.avatar_url,
                         initials: initials.toUpperCase() || 'IN',
                         specialty: 'Professional Mentor',
-                        followers: totalStudents,
+                        followers: totalEnrollments, // Reflects Total Enrollments
                         rating: Number(avgRating.toFixed(1))
                     };
                 });
@@ -100,20 +103,19 @@ export default function AllMentorsScreen() {
             console.error('Error fetching instructors:', error);
         } finally {
             setIsLoading(false);
+            setRefreshing(false);
         }
     };
 
-    useEffect(() => {
-        fetchInstructors();
-    }, []);
-
-    // Debounced search could be better, but simple useEffect for now
-    useEffect(() => {
-        const delayDebounceFn = setTimeout(() => {
+    useFocusEffect(
+        useCallback(() => {
             fetchInstructors(search);
-        }, 500);
+        }, [search])
+    );
 
-        return () => clearTimeout(delayDebounceFn);
+    const onRefresh = useCallback(() => {
+        setRefreshing(true);
+        fetchInstructors(search, true);
     }, [search]);
 
     const handleToggleFollow = (mentorId: string) => {
@@ -211,6 +213,9 @@ export default function AllMentorsScreen() {
                     columnWrapperStyle={styles.row}
                     showsVerticalScrollIndicator={false}
                     extraData={followed}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#8A2BE2']} />
+                    }
                 />
             ) : (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 }}>

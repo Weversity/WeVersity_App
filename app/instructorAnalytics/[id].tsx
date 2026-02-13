@@ -1,19 +1,20 @@
 // @ts-ignore
 import { supabase } from '@/src/auth/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
     FlatList,
     Image,
+    RefreshControl,
     ScrollView,
     StatusBar,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -57,122 +58,135 @@ export default function InstructorAnalyticsScreen() {
     });
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!id) return;
-            setLoading(true);
+    const [refreshing, setRefreshing] = useState(false);
 
-            try {
-                // 1. Fetch Profile Details
-                const { data: profileData } = await supabase
-                    .from('profiles')
-                    .select('id, first_name, last_name, avatar_url, bio')
-                    .eq('id', id)
-                    .single();
+    const fetchData = async (isRefreshing = false) => {
+        if (!id) return;
+        if (!isRefreshing) setLoading(true);
 
-                if (profileData) {
-                    setProfile({
-                        id: profileData.id,
-                        first_name: profileData.first_name,
-                        last_name: profileData.last_name,
-                        avatar_url: profileData.avatar_url,
-                        bio: profileData.bio || 'No bio available',
-                    });
-                }
+        try {
+            const { data: profileData } = await supabase
+                .from('profiles')
+                .select('id, first_name, last_name, avatar_url, biography')
+                .eq('id', id)
+                .single();
 
-                // 2. Fetch All Courses by this Instructor with Stats and Status
-                // Assuming columns: status (text), categories (text) exist
-                const { data: coursesData } = await supabase
-                    .from('courses')
-                    .select(`
-                        id, 
-                        title, 
-                        image_url, 
-                        price, 
-                        description,
-                        status,
-                        categories,
-                        reviews (rating)
-                    `)
-                    .eq('instructor_id', id)
-                    .order('created_at', { ascending: false });
+            if (profileData) {
+                setProfile({
+                    id: profileData.id,
+                    first_name: profileData.first_name,
+                    last_name: profileData.last_name,
+                    avatar_url: profileData.avatar_url,
+                    bio: profileData.biography || 'No bio available',
+                });
+            }
 
-                let processedCourses: Course[] = [];
-                let allCourseIds: any[] = [];
-                let totalRatingSum = 0;
-                let totalRatingCount = 0;
+            // 2. Fetch All Courses by this Instructor with Stats and Status
+            // Assuming columns: status (text), categories (text) exist
+            const { data: coursesData } = await supabase
+                .from('courses')
+                .select(`
+                    id, 
+                    title, 
+                    image_url, 
+                    price, 
+                    description,
+                    status,
+                    categories,
+                    reviews (rating)
+                `)
+                .eq('instructor_id', id)
+                .order('created_at', { ascending: false });
 
-                if (coursesData) {
-                    processedCourses = coursesData.map((c: any) => {
-                        allCourseIds.push(c.id);
+            let processedCourses: Course[] = [];
+            let allCourseIds: any[] = [];
+            let totalRatingSum = 0;
+            let totalRatingCount = 0;
 
-                        // Calculate average rating for this specific course
-                        let courseRatingSum = 0;
-                        let courseRatingCount = 0;
-                        if (c.reviews && Array.isArray(c.reviews)) {
-                            c.reviews.forEach((r: any) => {
-                                if (r.rating) {
-                                    courseRatingSum += r.rating;
-                                    courseRatingCount++;
+            if (coursesData) {
+                processedCourses = coursesData.map((c: any) => {
+                    allCourseIds.push(c.id);
 
-                                    // Global accumulator
-                                    totalRatingSum += r.rating;
-                                    totalRatingCount++;
-                                }
-                            });
-                        }
+                    // Calculate average rating for this specific course
+                    let courseRatingSum = 0;
+                    let courseRatingCount = 0;
+                    if (c.reviews && Array.isArray(c.reviews)) {
+                        c.reviews.forEach((r: any) => {
+                            if (r.rating) {
+                                courseRatingSum += r.rating;
+                                courseRatingCount++;
 
-                        const avgRating = courseRatingCount > 0 ? (courseRatingSum / courseRatingCount) : 0;
-
-                        return {
-                            id: c.id,
-                            title: c.title,
-                            image_url: c.image_url,
-                            price: c.price,
-                            rating: avgRating, // Real calculated average
-                            description: c.description,
-                            status: c.status || 'Pre-Launch', // Default if null
-                            categories: c.categories || 'General',
-                            reviewCount: courseRatingCount
-                        };
-                    });
-                }
-
-                setCourses(processedCourses);
-
-                // 3. Calculate Stats
-                const totalCourses = processedCourses.length;
-                const overallRating = totalRatingCount > 0 ? (totalRatingSum / totalRatingCount) : 0;
-
-                // 4. Calculate Total Students (Unique enrollments for these courses)
-                let totalStudents = 0;
-                if (allCourseIds.length > 0) {
-                    // We need unique student_ids
-                    const { data: enrollmentData } = await supabase
-                        .from('enrollments')
-                        .select('student_id')
-                        .in('course_id', allCourseIds);
-
-                    if (enrollmentData) {
-                        const uniqueStudents = new Set(enrollmentData.map((e: any) => e.student_id));
-                        totalStudents = uniqueStudents.size;
+                                // Global accumulator
+                                totalRatingSum += r.rating;
+                                totalRatingCount++;
+                            }
+                        });
                     }
-                }
+
+                    const avgRating = courseRatingCount > 0 ? (courseRatingSum / courseRatingCount) : 0;
+
+                    return {
+                        id: c.id,
+                        title: c.title,
+                        image_url: c.image_url,
+                        price: c.price,
+                        rating: avgRating, // Real calculated average
+                        description: c.description,
+                        status: c.status || 'Pre-Launch', // Default if null
+                        categories: c.categories || 'General',
+                        reviewCount: courseRatingCount
+                    };
+                });
+            }
+
+            setCourses(processedCourses);
+
+            // 3. Calculate Stats
+            const totalCourses = processedCourses.length;
+
+            // 4. Determine Global Stats via Service to ensure consistency
+            // Import courseService dynamically to avoid top-level issues if any
+            // @ts-ignore
+            const { courseService } = await import('@/src/services/courseService');
+
+            // Ensure ID is a string (handle array case from expo-router)
+            const instructorId = Array.isArray(id) ? id[0] : id;
+
+            if (instructorId) {
+                const serviceStats = await courseService.fetchInstructorStats(instructorId);
+                const totalStudents = serviceStats.totalStudents || 0;
+                const overallRating = serviceStats.courseRating || 0;
 
                 setStats({
                     totalCourses,
                     overallRating,
                     totalStudents,
                 });
-
-            } catch (error) {
-                console.error("Error fetching instructor data:", error);
-            } finally {
-                setLoading(false);
+            } else {
+                setStats({
+                    totalCourses,
+                    overallRating: 0,
+                    totalStudents: 0,
+                });
             }
-        };
 
-        fetchData();
+        } catch (error) {
+            console.error("Error fetching instructor data:", error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
+
+    useFocusEffect(
+        useCallback(() => {
+            fetchData();
+        }, [id])
+    );
+
+    const onRefresh = useCallback(() => {
+        setRefreshing(true);
+        fetchData(true);
     }, [id]);
 
     const displayName = profile
@@ -216,7 +230,7 @@ export default function InstructorAnalyticsScreen() {
                                 {item.reviewCount ? ` (${item.reviewCount})` : ''}
                             </Text>
                         </View>
-                        <Text style={styles.priceText}>{item.price === '0' || item.price === 'Free' ? 'Free' : item.price}</Text>
+                        <Text style={styles.priceText}>{item.price === '0' || item.price === 'Free' ? 'Free' : `$${item.price}`}</Text>
                     </View>
                 </View>
             </TouchableOpacity>
@@ -237,7 +251,13 @@ export default function InstructorAnalyticsScreen() {
                 <View style={{ width: 24 }} />
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.scrollContent}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#8A2BE2']} />
+                }
+            >
                 {/* Profile Section */}
                 <View style={styles.profileSection}>
                     <View style={styles.avatarContainer}>

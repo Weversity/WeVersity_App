@@ -6,14 +6,16 @@ import { Ionicons } from '@expo/vector-icons';
 
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import NotificationIcon from '../notifications/NotificationIcon';
 
 const { width, height } = Dimensions.get('window');
+
+// ... (stats, interfaces, getTimeAgo, SideMenu, ShortViewerModal, ShortCard, UploadChoiceModal unchanged)
 
 // Data based on the provided image inspiration
 const stats = [
@@ -303,15 +305,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const initials = `${(dynamicFirstName || 'I')[0]}${(dynamicLastName || '')[0]}`.toUpperCase();
 
 
-
-  useEffect(() => {
-    fetchProfileData();
-    loadShorts();
-    if (user?.id) {
-      fetchCourses();
-      fetchStats();
-    }
-  }, [user?.id]);
+  // NOTE: Switched to useFocusEffect to ensure stats update on return
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfileData();
+      loadShorts();
+      if (user?.id) {
+        fetchCourses();
+        fetchStats();
+      }
+    }, [user?.id])
+  );
 
   const fetchStats = async () => {
     try {

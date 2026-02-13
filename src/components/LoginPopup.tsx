@@ -150,7 +150,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
       try {
         const { GoogleSignin } = require('@react-native-google-signin/google-signin');
         GoogleSignin.configure({
-          webClientId: '636424335937-7l9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
+          webClientId: '636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
         });
       } catch (e) {
         console.warn('GoogleSignin.configure failed:', e);

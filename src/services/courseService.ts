@@ -273,63 +273,78 @@ export const courseService = {
                 const { data: analyticsData, error: analyticsError } = await supabase.functions.invoke('get-instructor-analytics', {
                     body: { instructor_id: instructorId },
                     headers: {
-                        Authorization: `Bearer ${accessToken} `,
+                        Authorization: `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     }
                 });
 
                 if (!analyticsError && analyticsData) {
+                    // Normalize data structure
                     totalStudents = analyticsData.totalStudents || analyticsData.total_students || 0;
-                    avgRating = parseFloat(analyticsData.courseRating || analyticsData.average_rating || 0);
-                    totalReviews = parseInt(analyticsData.totalReviews || analyticsData.total_reviews || 0);
+
+                    // Handle rating which might be string or number
+                    const rawRating = analyticsData.courseRating || analyticsData.average_rating || 0;
+                    avgRating = parseFloat(String(rawRating));
+
+                    totalReviews = parseInt(String(analyticsData.totalReviews || analyticsData.total_reviews || 0));
+
                     if (totalStudents > 0 || avgRating > 0) edgeFunctionSuccess = true;
                 }
             } catch (edgeError) {
                 // Silent fallback
             }
 
-            // STEP 2: Manual Fallback
+            // STEP 2: Manual Fallback (If Edge Function fails or returns empty)
             if (!edgeFunctionSuccess) {
+                // A. Calculate Total Enrollments (Not Unique Students)
+                // Use a direct join query to find all enrollments for courses by this instructor
+                const { data: enrollmentData, error: enrollmentError } = await supabase
+                    .from('enrollments')
+                    .select(`
+                        student_id,
+                        courses!inner (
+                            instructor_id
+                        )
+                    `)
+                    .eq('courses.instructor_id', instructorId);
+
+                if (enrollmentData) {
+                    // CHANGED: Count total enrollments instead of unique students
+                    totalStudents = enrollmentData.length;
+                }
+
+                // B. Calculate Ratings & Reviews
                 const { data: courses } = await supabase
                     .from('courses')
-                    .select('id, rating, reviews')
+                    .select(`
+                        id,
+                        reviews (rating)
+                    `)
                     .eq('instructor_id', instructorId);
 
                 if (courses && courses.length > 0) {
-                    const courseIds = courses.map(c => c.id);
+                    let totalRatingSum = 0;
+                    let totalRatingCount = 0;
 
-                    const { data: enrollments } = await supabase
-                        .from('enrollments')
-                        .select('student_id')
-                        .in('course_id', courseIds);
-
-                    if (enrollments) {
-                        const uniqueStudents = new Set(enrollments.map(e => e.student_id).filter(Boolean));
-                        totalStudents = uniqueStudents.size;
-                    }
-
-                    let ratingSum = 0;
-                    let coursesWithRatings = 0;
-                    let reviewsSum = 0;
-
-                    courses.forEach(c => {
-                        const r = parseFloat(c.rating) || 0;
-                        const rev = parseInt(c.reviews) || 0;
-                        if (r > 0) {
-                            ratingSum += r;
-                            coursesWithRatings++;
+                    courses.forEach((c: any) => {
+                        if (c.reviews && Array.isArray(c.reviews)) {
+                            c.reviews.forEach((r: any) => {
+                                if (r.rating) {
+                                    totalRatingSum += r.rating;
+                                    totalRatingCount++;
+                                }
+                            });
                         }
-                        reviewsSum += rev;
                     });
 
-                    avgRating = coursesWithRatings > 0 ? (ratingSum / coursesWithRatings) : 0;
-                    totalReviews = reviewsSum;
+                    avgRating = totalRatingCount > 0 ? (totalRatingSum / totalRatingCount) : 0;
+                    totalReviews = totalRatingCount;
                 }
             }
 
             return {
                 totalStudents,
-                courseRating: parseFloat(Number(avgRating || 0).toFixed(1)),
+                courseRating: parseFloat(avgRating.toFixed(1)),
                 totalReviews
             };
 
