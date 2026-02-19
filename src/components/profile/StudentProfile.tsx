@@ -633,7 +633,7 @@ const StudentProfile = () => {
           <ActivityIndicator color="#8A2BE2" style={{ marginVertical: 20 }} />
         ) : recentCourses.length > 0 ? (
           recentCourses.map((item, index) => (
-            <TouchableOpacity key={`${item.id}-${index}`} style={styles.learningCard} onPress={() => router.push(`/learning/${item.id}` as any)}>
+            <TouchableOpacity key={`${item.id}-${index}`} style={styles.learningCard} onPress={() => router.push(`/courseDetails/${item.id}` as any)}>
               <Image source={{ uri: item.image }} style={styles.courseCardImage} />
               <View style={styles.learningContent}>
                 <View style={styles.learningHeader}>

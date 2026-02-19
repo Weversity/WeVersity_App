@@ -7,6 +7,7 @@ import {
   Animated,
   Dimensions,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -28,6 +29,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
   const [showInternalPopup, setShowInternalPopup] = useState(false);
   const [showPhoneLogin, setShowPhoneLogin] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   // The vertical position of the sheet. Starts off-screen (SCREEN_HEIGHT).
   const panY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -110,6 +112,22 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     }
   }, [visible]);
 
+  // Keyboard Listeners for dynamic sizing
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, []);
+
   // Interpolate backdrop opacity
   // When panY is 0 (fully open), opacity is 0.5
   // When panY is SCREEN_HEIGHT (closed), opacity is 0
@@ -150,7 +168,8 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
       try {
         const { GoogleSignin } = require('@react-native-google-signin/google-signin');
         GoogleSignin.configure({
-          webClientId: '636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
+          offlineAccess: true,
+          webClientId: '530732187418-psu0kbajdpt5fsvtr3g662iovvq7pqrs.apps.googleusercontent.com',
         });
       } catch (e) {
         console.warn('GoogleSignin.configure failed:', e);
@@ -180,13 +199,18 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
 
       console.log('🔵 [Google Login] Step 4: User Info Received:', JSON.stringify(userInfo, null, 2));
 
-      // ✅ FIXED: v16+ uses userInfo.idToken directly, not userInfo.data.idToken
-      const idToken = userInfo?.idToken;
+      // ✅ ROBUST extracted logic for v11+ / v12+
+      // New versions return { data: { idToken... }, type: 'success' }
+      // Older versions returned { idToken... } directly
+      let idToken = userInfo?.data?.idToken || userInfo?.idToken;
 
       if (!idToken) {
         console.error('❌ [Google Login] No idToken found in response');
         console.error('Full userInfo structure:', JSON.stringify(userInfo, null, 2));
-        Alert.alert('Login Failed', 'Could not retrieve authentication token from Google. Please try again.');
+        Alert.alert(
+          'Login Failed',
+          'Could not retrieve authentication token from Google. This usually means the Client ID or SHA-1 is mismatched in Google Cloud Console.'
+        );
         return;
       }
 
@@ -335,9 +359,15 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardAvoidingView}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20} // Small offset for Android
         >
           <Animated.View
-            style={[styles.sheet, { transform: [{ translateY: panY }] }]}
+            style={[
+              styles.sheet,
+              { transform: [{ translateY: panY }] },
+              // Dynamic height for keyboard: expand to nearly full screen to allow scrolling
+              isKeyboardVisible && { height: '100%', maxHeight: '100%', borderTopLeftRadius: 0, borderTopRightRadius: 0 }
+            ]}
             {...panResponderRef.panHandlers}
           >
             <View style={styles.sheetHeader}>
@@ -350,7 +380,10 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
 
 
             <ScrollView
-              contentContainerStyle={styles.scrollContent}
+              contentContainerStyle={[
+                styles.scrollContent,
+                isKeyboardVisible && { paddingBottom: 150 } // Add extra padding when keyboard is open
+              ]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >

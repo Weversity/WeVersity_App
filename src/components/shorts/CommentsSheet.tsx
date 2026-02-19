@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Animated,
     Dimensions,
     FlatList,
@@ -95,6 +97,29 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
     const [replyingTo, setReplyingTo] = useState<{ id: string, username: string } | null>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const router = useRouter();
+
+    const checkAuth = () => {
+        if (!currentUser) {
+            Keyboard.dismiss();
+            Alert.alert(
+                'Login Required',
+                'Please login to comment and interact with videos.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                        text: 'Go to Profile',
+                        onPress: () => {
+                            onClose();
+                            router.push('/profile');
+                        }
+                    }
+                ]
+            );
+            return false;
+        }
+        return true;
+    };
 
     // Dynamic Padding logic for seamless scrolling
     const [dynamicPadding, setDynamicPadding] = useState(100);
@@ -237,6 +262,7 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
     }, [visible, videoId]);
 
     const handleSend = async () => {
+        if (!checkAuth()) return;
         if ((!newComment.trim() && !selectedImage) || !currentUser) return;
         const tempId = Date.now().toString();
         const content = newComment.trim();
@@ -295,7 +321,11 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
                     {item.image_url && <Image source={{ uri: item.image_url }} style={styles.commentImage} />}
                     <View style={styles.commentMeta}>
                         {!item.parent_id && (
-                            <TouchableOpacity onPress={() => { setReplyingTo({ id: item.id, username: item.user.first_name }); inputRef.current?.focus(); }}>
+                            <TouchableOpacity onPress={() => {
+                                if (!checkAuth()) return;
+                                setReplyingTo({ id: item.id, username: item.user.first_name });
+                                inputRef.current?.focus();
+                            }}>
                                 <Text style={styles.replyLink}>Reply</Text>
                             </TouchableOpacity>
                         )}
@@ -346,7 +376,10 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
                                         placeholderTextColor="#888"
                                         value={newComment}
                                         onChangeText={setNewComment}
-                                        onFocus={() => { wantsEmojiRef.current = false; }}
+                                        onFocus={() => {
+                                            if (!checkAuth()) return;
+                                            wantsEmojiRef.current = false;
+                                        }}
                                         multiline
                                     />
                                     <View style={styles.inputActions}>

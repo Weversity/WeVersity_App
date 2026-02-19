@@ -123,7 +123,7 @@ export default function AllWatchedCoursesScreen() {
           renderItem={({ item, index }) => (
             <WatchedCourseCard
               course={item}
-              onPress={() => router.push(`/learning/${item.id}` as any)}
+              onPress={() => router.push(`/courseDetails/${item.id}` as any)}
             />
           )}
           keyExtractor={(item, index) => `${item.id}-${index}`}

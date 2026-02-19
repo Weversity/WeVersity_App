@@ -707,9 +707,9 @@ export default function LearningPlayerScreen() {
         <View style={styles.container}>
             <Stack.Screen options={{ headerShown: false }} />
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => toggleSidebar(true)} style={styles.hamburgerBtn}><Ionicons name="menu" size={32} color="#fff" /></TouchableOpacity>
-                <Text style={styles.headerTitle} numberOfLines={1}>{course?.title || 'Learning Player'}</Text>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}><Ionicons name="arrow-back" size={28} color="#fff" /></TouchableOpacity>
+                <Text style={styles.headerTitle} numberOfLines={1}>{course?.title || 'Learning Player'}</Text>
+                <TouchableOpacity onPress={() => toggleSidebar(true)} style={styles.hamburgerBtn}><Ionicons name="menu" size={32} color="#fff" /></TouchableOpacity>
             </View>
 
             {/* Sidebar Overlay */}

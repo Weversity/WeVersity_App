@@ -3,7 +3,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useState } from 'react';
-import { Animated, Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
 import CommentsSheet from './CommentsSheet';
@@ -38,6 +38,7 @@ interface ShortFeedItemProps {
     isMuted: boolean;
     setIsMuted: (muted: boolean) => void;
     onCommentsVisibilityChange?: (visible: boolean) => void;
+    containerHeight: number;
 }
 
 const getRandomColor = (name: string) => {
@@ -53,7 +54,15 @@ const getInitials = (firstName?: string, lastName?: string) => {
     return ((firstName?.[0] || '') + (lastName?.[0] || '')).toUpperCase() || '?';
 };
 
-export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, setIsMuted, onCommentsVisibilityChange }: ShortFeedItemProps) {
+export default function ShortFeedItem({
+    item,
+    isVisible,
+    onRefresh,
+    isMuted,
+    setIsMuted,
+    onCommentsVisibilityChange,
+    containerHeight
+}: ShortFeedItemProps) {
     const router = useRouter();
     const { user } = useAuth();
     const isFocused = useIsFocused(); // Track screen focus
@@ -227,7 +236,20 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
     };
 
     const handleReaction = async (type: 'like') => {
-        if (!user) return; // Only allow likes
+        if (!user) {
+            Alert.alert(
+                'Login Required',
+                'Please login to like and interact with videos.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                        text: 'Go to Profile',
+                        onPress: () => router.push('/profile')
+                    }
+                ]
+            );
+            return;
+        }
 
         // Animation for Like
         Animated.sequence([
@@ -251,18 +273,18 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
 
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { height: containerHeight }]}>
             <TouchableOpacity
                 activeOpacity={1}
                 onPress={togglePlay}
-                style={styles.videoContainer}
+                style={[styles.videoContainer, { height: containerHeight }]}
                 disabled={showComments}
             >
                 {isVideo ? (
                     <>
                         <VideoView
                             player={player}
-                            style={styles.video}
+                            style={[styles.video, { height: '100%' }]}
                             contentFit="cover"
                             nativeControls={false}
                         />
@@ -275,7 +297,7 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
                 ) : (
                     <Image
                         source={{ uri: item.video_url }}
-                        style={styles.video}
+                        style={[styles.video, { height: '100%' }]}
                         resizeMode="cover"
                     />
                 )}
@@ -385,16 +407,15 @@ export default function ShortFeedItem({ item, isVisible, onRefresh, isMuted, set
 const styles = StyleSheet.create({
     container: {
         width: width,
-        height: '100%',
         backgroundColor: 'black',
     },
     videoContainer: {
         width: '100%',
-        height: '100%',
+        padding: 0,
+        margin: 0,
     },
     video: {
         width: '100%',
-        height: '100%',
     },
     playIconContainer: {
         position: 'absolute',

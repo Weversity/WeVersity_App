@@ -1,10 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Link } from 'expo-router';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 
-const CourseItem = memo(({ item }: { item: any }) => {
+const CourseItem = memo(({ item, onJoinPress }: { item: any, onJoinPress?: (id: string) => void }) => {
   // item is a live_session object
   const course = item.course || {};
   const instructor = item.instructor || {};
@@ -50,12 +49,10 @@ const CourseItem = memo(({ item }: { item: any }) => {
             </View>
           </View>
 
-          <Link href={`/live/${item.id}`} asChild>
-            <TouchableOpacity style={styles.joinButton}>
-              <Text style={styles.joinButtonText}>Join Now</Text>
-              <Ionicons name="play" size={14} color="#fff" style={styles.playIcon} />
-            </TouchableOpacity>
-          </Link>
+          <TouchableOpacity style={styles.joinButton} onPress={() => onJoinPress?.(item.id)}>
+            <Text style={styles.joinButtonText}>Join Now</Text>
+            <Ionicons name="play" size={14} color="#fff" style={styles.playIcon} />
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -65,6 +62,7 @@ const CourseItem = memo(({ item }: { item: any }) => {
 interface LiveCoursesProps {
   onCoursesLoaded?: (count: number) => void;
   searchQuery?: string;
+  onJoinPress?: (id: string) => void;
 }
 
 // Error Display Component
@@ -76,7 +74,7 @@ const ErrorBox = ({ message }: { message: string }) => (
   </View>
 );
 
-const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery = '' }) => {
+const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery = '', onJoinPress }) => {
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -194,8 +192,8 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
   }, [filteredSessions.length, onCoursesLoaded]);
 
   const renderItem = useCallback(({ item }: { item: any }) => (
-    <CourseItem item={item} />
-  ), []);
+    <CourseItem item={item} onJoinPress={onJoinPress} />
+  ), [onJoinPress]);
 
   const renderEmpty = useCallback(() => {
     if (loading) return null;

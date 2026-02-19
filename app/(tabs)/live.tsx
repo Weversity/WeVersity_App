@@ -1,14 +1,34 @@
 import LiveCourses from '@/src/components/LiveCourses';
 import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function HomeScreen() {
   const { user, profile, role } = useAuth();
+  const router = useRouter();
   const [liveClassCount, setLiveClassCount] = useState(0);
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const handleJoinClass = (id: string) => {
+    if (!user) {
+      Alert.alert(
+        'Login Required',
+        'Please login to join live classes.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Go to Profile',
+            onPress: () => router.push('/profile')
+          }
+        ]
+      );
+    } else {
+      router.push(`/live/${id}` as any);
+    }
+  };
 
   // No local fetch guards needed, relying on simple mount effect
 
@@ -106,7 +126,11 @@ export default function HomeScreen() {
           <Text style={styles.bannerSubtitle}>Join thousands of students learning right now.</Text>
         </View>
 
-        <LiveCourses onCoursesLoaded={setLiveClassCount} searchQuery={searchQuery} />
+        <LiveCourses
+          onCoursesLoaded={setLiveClassCount}
+          searchQuery={searchQuery}
+          onJoinPress={handleJoinClass}
+        />
       </View>
     </View>
   );

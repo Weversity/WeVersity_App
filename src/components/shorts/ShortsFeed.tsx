@@ -1,12 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, FlatList, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { videoService } from '../../services/videoService';
 import ShortFeedItem from './ShortFeedItem';
-
-const { height } = Dimensions.get('window');
 
 // Helper to shuffle array
 const shuffleArray = (array: any[]) => {
@@ -20,31 +17,26 @@ const shuffleArray = (array: any[]) => {
 
 export default function ShortsFeed() {
     const navigation = useNavigation();
-    // Explicitly typing shorts as any[] to avoid never[] error
     const [shorts, setShorts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    // Track which item is currently in view to only play that video
     const [currentVisibleIndex, setCurrentVisibleIndex] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [isCommentsVisible, setIsCommentsVisible] = useState(false);
+    const [containerHeight, setContainerHeight] = useState(0);
 
-
-    // Safe try-catch for tab bar height in case it's used outside nav context temporarily
-    let bottomTabHeight = 0;
-    try {
-        bottomTabHeight = useBottomTabBarHeight();
-    } catch (e) {
-        bottomTabHeight = 49; // Default fallback
-    }
-
-    const ITEM_HEIGHT = height - bottomTabHeight;
+    const onLayout = (event: any) => {
+        const { height } = event.nativeEvent.layout;
+        if (height > 0 && Math.abs(height - containerHeight) > 1) {
+            setContainerHeight(height);
+        }
+    };
 
     const loadShorts = async (isManualRefresh = false) => {
         try {
             if (isManualRefresh) {
                 setIsRefreshing(true);
-                setShorts([]); // Immediately clear current videos
+                setShorts([]);
             } else {
                 setLoading(true);
             }
@@ -53,7 +45,7 @@ export default function ShortsFeed() {
             if (data) {
                 const finalData = isManualRefresh ? shuffleArray(data) : data;
                 setShorts(finalData);
-                setCurrentVisibleIndex(0); // Reset to first video
+                setCurrentVisibleIndex(0);
             }
         } catch (error) {
             console.error("Failed to load shorts", error);
@@ -65,17 +57,11 @@ export default function ShortsFeed() {
 
     useEffect(() => {
         loadShorts();
-
-        // Listen for bottom tab press
-        const unsubscribe = (navigation as any).addListener('tabPress', (e: any) => {
-            // Check if the user is already on this screen
-            const isFocused = navigation.isFocused();
-            if (isFocused) {
-                // Prevent default behavior if needed, but for "refresh" we want to trigger our logic
+        const unsubscribe = (navigation as any).addListener('tabPress', () => {
+            if (navigation.isFocused()) {
                 loadShorts(true);
             }
         });
-
         return unsubscribe;
     }, [navigation]);
 
@@ -89,28 +75,26 @@ export default function ShortsFeed() {
         itemVisiblePercentThreshold: 80,
     }).current;
 
-    const dataToRender = shorts;
-
     const renderEmpty = () => {
         if (loading || isRefreshing) {
             return (
-                <View style={[styles.loadingContainer, { height: ITEM_HEIGHT }]}>
+                <View style={[styles.loadingContainer, { height: containerHeight || '100%' }]}>
                     <ActivityIndicator size="large" color="#8A2BE2" />
                     <Text style={{ color: '#fff', marginTop: 15, fontSize: 16 }}>Finding fresh videos...</Text>
                 </View>
             );
         }
         return (
-            <View style={[styles.loadingContainer, { padding: 40, height: ITEM_HEIGHT }]}>
+            <View style={[styles.loadingContainer, { padding: 40, height: containerHeight || '100%' }]}>
                 <Ionicons name="videocam-off-outline" size={60} color="#666" style={{ marginBottom: 20 }} />
                 <Text style={{ color: '#fff', textAlign: 'center', fontSize: 16 }}>No shorts found. Be the first to upload!</Text>
             </View>
         );
     };
 
-    const renderItem = useCallback(({ item, index }: { item: any, index: number }) => {
+    const renderItem = useCallback(({ item, index }: { item: any; index: number }) => {
         return (
-            <View style={{ height: ITEM_HEIGHT }}>
+            <View style={{ height: containerHeight }}>
                 <ShortFeedItem
                     item={item}
                     isVisible={index === currentVisibleIndex}
@@ -118,12 +102,12 @@ export default function ShortsFeed() {
                     isMuted={isMuted}
                     setIsMuted={setIsMuted}
                     onCommentsVisibilityChange={setIsCommentsVisible}
+                    containerHeight={containerHeight}
                 />
             </View>
         );
-    }, [currentVisibleIndex, ITEM_HEIGHT, isMuted]);
+    }, [currentVisibleIndex, isMuted, containerHeight]);
 
-    // Show initial loader only if we have no data and are loading for the first time
     if (loading && shorts.length === 0 && !isRefreshing) {
         return (
             <View style={styles.loadingContainer}>
@@ -133,34 +117,40 @@ export default function ShortsFeed() {
     }
 
     return (
-        <View style={styles.container}>
-            <StatusBar barStyle="light-content" backgroundColor="black" />
-
-            <FlatList
-                data={dataToRender}
-                renderItem={renderItem}
-                keyExtractor={(item) => item.id}
-                pagingEnabled
-                scrollEnabled={!isCommentsVisible}
-                showsVerticalScrollIndicator={false}
-                snapToInterval={ITEM_HEIGHT}
-                snapToAlignment="start"
-                decelerationRate="fast"
-                disableIntervalMomentum={true}
-                onViewableItemsChanged={onViewableItemsChanged}
-                viewabilityConfig={viewabilityConfig}
-                ListEmptyComponent={renderEmpty}
-                getItemLayout={(data, index) => ({
-                    length: ITEM_HEIGHT,
-                    offset: ITEM_HEIGHT * index,
-                    index,
-                })}
-                removeClippedSubviews={false}
-                keyboardShouldPersistTaps="handled"
-                initialNumToRender={2}
-                maxToRenderPerBatch={2}
-                windowSize={3}
-            />
+        <View style={styles.container} onLayout={onLayout}>
+            <StatusBar barStyle="light-content" backgroundColor="black" translucent />
+            {containerHeight === 0 ? (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#8A2BE2" />
+                </View>
+            ) : (
+                <FlatList
+                    data={shorts}
+                    renderItem={renderItem}
+                    keyExtractor={(item) => item.id}
+                    pagingEnabled={true}
+                    scrollEnabled={!isCommentsVisible}
+                    showsVerticalScrollIndicator={false}
+                    snapToInterval={containerHeight}
+                    snapToAlignment="start"
+                    decelerationRate="fast"
+                    disableIntervalMomentum={true}
+                    onViewableItemsChanged={onViewableItemsChanged}
+                    viewabilityConfig={viewabilityConfig}
+                    ListEmptyComponent={renderEmpty}
+                    contentContainerStyle={{ flexGrow: 1 }}
+                    getItemLayout={(data, index) => ({
+                        length: containerHeight,
+                        offset: containerHeight * index,
+                        index,
+                    })}
+                    removeClippedSubviews={true}
+                    keyboardShouldPersistTaps="handled"
+                    initialNumToRender={2}
+                    maxToRenderPerBatch={2}
+                    windowSize={3}
+                />
+            )}
         </View>
     );
 }

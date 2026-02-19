@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Bubble, GiftedChat, IMessage, InputToolbar, Send } from 'react-native-gifted-chat';
+import { Alert, FlatList, Image, Keyboard, Modal, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Bubble, Composer, GiftedChat, IMessage, InputToolbar, Send } from 'react-native-gifted-chat';
 
 interface SupportChatProps {
     visible: boolean;
@@ -45,6 +44,18 @@ const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose, initialMess
     const [menuVisible, setMenuVisible] = useState(false);
     const [historyVisible, setHistoryVisible] = useState(false);
     const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+
+    useEffect(() => {
+        if (Platform.OS !== 'android') return;
+
+        const showSub = Keyboard.addListener('keyboardDidShow', () => { });
+        const hideSub = Keyboard.addListener('keyboardDidHide', () => { });
+
+        return () => {
+            showSub.remove();
+            hideSub.remove();
+        };
+    }, []);
 
     useEffect(() => {
         if (visible) {
@@ -217,17 +228,40 @@ const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose, initialMess
         return (
             <InputToolbar
                 {...props}
-                containerStyle={styles.inputContainer}
-                primaryStyle={{ alignItems: 'center' }}
+                containerStyle={styles.inputToolbarContainer}
+                primaryStyle={styles.inputToolbarPrimary}
+                renderAccessory={renderAccessory}
             />
+        );
+    };
+
+    const renderComposer = (props: any) => {
+        return (
+            <View style={styles.inputWrapper}>
+                <Composer
+                    {...props}
+                    textInputStyle={styles.textInput}
+                    placeholderTextColor="#999"
+                />
+            </View>
         );
     };
 
     const renderSend = (props: any) => {
         return (
-            <Send {...props} containerStyle={styles.sendContainer}>
-                <Ionicons name="send" size={24} color="#8A2BE2" />
+            <Send {...props} containerStyle={styles.sendButtonContainer}>
+                <View style={styles.sendButton}>
+                    <Ionicons name="send" size={20} color="#fff" />
+                </View>
             </Send>
+        );
+    };
+
+    const renderAccessory = () => {
+        return (
+            <View style={styles.toolbarRow}>
+                {/* Space for future icons as requested */}
+            </View>
         );
     };
 
@@ -235,8 +269,9 @@ const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose, initialMess
         return <Image source={{ uri: props.currentMessage.user.avatar }} style={styles.avatar} />;
     };
 
-    const renderAccessory = () => (
-        isInputFocused ? null : (
+    const renderChatFooter = () => {
+        if (isInputFocused) return null;
+        return (
             <View style={styles.suggestedQuestionsContainer}>
                 <Text style={styles.suggestedQuestionsTitle}>Suggested Questions</Text>
                 <FlatList
@@ -252,23 +287,30 @@ const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose, initialMess
                     contentContainerStyle={{ paddingLeft: 10 }}
                 />
             </View>
-        )
-    );
+        );
+    };
 
     return (
-        <Modal animationType="slide" transparent={false} visible={visible} onRequestClose={onClose}>
-            <SafeAreaView style={styles.container}>
+        <Modal
+            animationType="slide"
+            transparent={false}
+            visible={visible}
+            onRequestClose={onClose}
+            presentationStyle="fullScreen"
+            statusBarTranslucent={true}
+        >
+            <View style={styles.container}>
                 {/* Header */}
                 <View style={styles.header}>
                     <TouchableOpacity onPress={onClose} style={styles.backButton}>
-                        <Ionicons name="arrow-back" size={24} color="#333" />
+                        <Ionicons name="arrow-back" size={24} color="#fff" />
                     </TouchableOpacity>
                     <View style={styles.headerTitleContainer}>
                         <Image source={{ uri: bot.avatar }} style={styles.headerAvatar} />
                         <Text style={styles.headerTitle}>AI Assistant</Text>
                     </View>
                     <TouchableOpacity onPress={() => setMenuVisible(true)}>
-                        <Ionicons name="ellipsis-vertical" size={24} color="#333" />
+                        <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
                     </TouchableOpacity>
                 </View>
 
@@ -321,12 +363,7 @@ const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose, initialMess
                     </View>
                 </Modal>
 
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === "ios" ? "padding" : undefined}
-                    enabled={Platform.OS === "ios"}
-                    style={{ flex: 1 }}
-                    keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-                >
+                <View style={{ flex: 1 }}>
                     <GiftedChat
                         messages={messages}
                         onSend={onSend}
@@ -334,20 +371,24 @@ const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose, initialMess
                         isTyping={isTyping}
                         renderBubble={renderBubble}
                         renderInputToolbar={renderInputToolbar}
+                        renderComposer={renderComposer}
                         renderSend={renderSend}
                         renderAvatar={renderAvatar}
-                        renderChatFooter={renderAccessory}
+                        renderChatFooter={renderChatFooter}
                         // @ts-ignore
                         alwaysShowSend
                         placeholder="Type your message..."
-                        messagesContainerStyle={styles.messagesContainer}
                         textInputProps={{
                             onFocus: () => setIsInputFocused(true),
                             onBlur: () => setIsInputFocused(false),
                         }}
+                        // Keyboard Handling Logic
+                        isKeyboardInternallyHandled={true}
+                        keyboardShouldPersistTaps="handled"
+                        bottomOffset={0} // Fix for Modal internal positioning
                     />
-                </KeyboardAvoidingView>
-            </SafeAreaView>
+                </View>
+            </View>
         </Modal>
     );
 };
@@ -362,42 +403,92 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 50, // Avoid status bar
+        paddingBottom: 15,
         borderBottomWidth: 1,
         borderBottomColor: '#f0f0f0',
+        backgroundColor: '#8A2BE2',
+        // Fixed height to prevent shifting
+        minHeight: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 60 : 100,
     },
     backButton: {
         padding: 4,
+        zIndex: 1, // Ensure button is clickable above container
     },
     headerTitleContainer: {
+        flex: 1, // Allow container to take available space
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center', // Center content horizontally
+        marginHorizontal: 10, // Prevent overlap with buttons
     },
     headerAvatar: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        marginRight: 8,
+        width: 39, // Slightly larger for visibility
+        height: 39,
+        borderRadius: 20,
+        marginRight: 10, // Increased spacing
+        backgroundColor: 'white', // White background for logo visibility
+        resizeMode: 'contain', // Ensure logo fits well
     },
     headerTitle: {
         fontSize: 18,
         fontWeight: '600',
-        color: '#333',
+        color: '#fff',
     },
-    messagesContainer: {
-        paddingBottom: 20,
-    },
-    inputContainer: {
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
+    inputToolbarContainer: {
         backgroundColor: '#fff',
-        paddingHorizontal: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#E0E0E0',
+        paddingTop: 0, // GiftedChat handles vertical spacing
+        paddingBottom: Platform.OS === 'ios' ? 5 : 0,
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
     },
-    sendContainer: {
+    inputToolbarPrimary: {
+        alignItems: 'flex-end', // Align composer and send at the bottom
+        paddingHorizontal: 12,
+        paddingBottom: 8,
+    },
+    toolbarRow: {
+        height: 25, // Row 1: space for future icons
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 15,
+        borderBottomWidth: 0, // No border between rows needed for this design
+    },
+    inputWrapper: {
+        flex: 1,
+        backgroundColor: '#F2F2F2', // Light grey search-box
+        borderRadius: 25, // Fully rounded
+        paddingHorizontal: 10,
+        marginRight: 10,
+        borderWidth: 1,
+        borderColor: '#E8E8E8',
+        minHeight: 45,
+        justifyContent: 'center',
+    },
+    textInput: {
+        fontSize: 16,
+        lineHeight: 20,
+        color: '#333',
+        paddingTop: Platform.OS === 'ios' ? 10 : 5,
+        paddingBottom: Platform.OS === 'ios' ? 10 : 5,
+    },
+    sendButtonContainer: {
         justifyContent: 'center',
         alignItems: 'center',
+        marginBottom: 2, // Align with input
+    },
+    sendButton: {
         height: 44,
         width: 44,
+        borderRadius: 22,
+        backgroundColor: '#8A2BE2',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     avatar: {
         width: 36,
