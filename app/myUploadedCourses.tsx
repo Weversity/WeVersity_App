@@ -71,7 +71,7 @@ export default function MyUploadedCoursesScreen() {
 
                     <View style={[styles.priceBadgePillRow, (item.price === 0 || !item.price) ? styles.badgeFree : styles.badgePaid]}>
                         <Text style={styles.priceBadgeText}>
-                            {(item.price === 0 || !item.price) ? 'FREE' : 'PAID'}
+                            {(item.price === 0 || !item.price) ? '$0' : `$${item.price}`}
                         </Text>
                     </View>
                 </View>
@@ -85,10 +85,9 @@ export default function MyUploadedCoursesScreen() {
 
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                    <Ionicons name="arrow-back" size={20} color="#fff" />
                 </TouchableOpacity>
                 <Text style={styles.headerText}>Your Uploaded Courses</Text>
-                <View style={{ width: 24 }} />
             </View>
 
             {loading ? (
@@ -126,114 +125,117 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     header: {
-        paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-        paddingBottom: 12,
+        paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
+        paddingBottom: 15,
         paddingHorizontal: 20,
         backgroundColor: '#8A2BE2',
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottomLeftRadius: 30,
-        borderBottomRightRadius: 30,
+        justifyContent: 'flex-start', // Align to left
     },
     headerText: {
-        fontSize: 22,
+        fontSize: 18, // Reduced size
         fontWeight: 'bold',
         color: '#fff',
     },
     backButton: {
-        padding: 5,
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255, 255, 255, 0.2)', // Premium glass look
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12, // Gap between icon and text
     },
     listContent: {
         padding: 20,
-        paddingTop: 30,
+        paddingTop: 25,
     },
     courseCard: {
         flexDirection: 'row',
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-        borderRadius: 24,
-        padding: 15,
-        marginBottom: 20,
+        backgroundColor: '#FFFDFF', // Matching ultra-light premium purple
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 16,
+        // Soft professional black shadow
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 10,
+        elevation: 3,
         borderWidth: 1,
-        borderColor: 'rgba(224, 212, 252, 0.4)',
-        shadowColor: '#8A2BE2',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.1,
-        shadowRadius: 20,
-        elevation: 5,
+        borderColor: '#F0EFFF',
         alignItems: 'center',
     },
     imageWrapper: {
         position: 'relative',
     },
     courseImage: {
-        width: 100,
-        height: 100,
-        borderRadius: 20,
+        width: 85,
+        height: 85,
+        borderRadius: 12,
         backgroundColor: '#f0f0f0',
-    },
-    badgeFree: {
-        backgroundColor: '#2196F3',
-    },
-    badgePaid: {
-        backgroundColor: '#FFD700',
-    },
-    priceBadgeText: {
-        fontSize: 10,
-        fontWeight: '900',
-        color: '#fff',
-    },
-    priceBadgePillRow: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    badgeRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-        alignItems: 'center',
-        marginTop: 4,
     },
     courseContent: {
         flex: 1,
-        marginLeft: 20,
+        marginLeft: 15,
         justifyContent: 'center',
     },
     courseTitle: {
-        fontSize: 18,
+        fontSize: 15,
         fontWeight: 'bold',
-        color: '#1A1A1A',
-        lineHeight: 24,
+        color: '#000',
+        lineHeight: 20,
     },
     courseCategory: {
-        fontSize: 13,
+        fontSize: 11,
         color: '#8A2BE2',
         fontWeight: '600',
-        marginBottom: 10,
+        marginBottom: 8,
+    },
+    badgeRow: {
+        flexDirection: 'row',
+        gap: 8,
+        alignItems: 'center',
     },
     statusBadgePill: {
-        alignSelf: 'flex-start',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 25,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
     },
     statusPublishedPill: {
-        backgroundColor: '#E8F5E9',
+        backgroundColor: '#E6FFFA',
     },
     statusDraftPill: {
-        backgroundColor: '#FFF3E0',
+        backgroundColor: '#FFF5F5',
     },
     statusTextPill: {
-        fontSize: 11,
-        fontWeight: 'bold',
+        fontSize: 9,
+        fontWeight: '800',
+        letterSpacing: 0.5,
     },
     statusTextPublished: {
-        color: '#4CAF50',
+        color: '#319795',
     },
     statusTextDraft: {
-        color: '#FF9800',
+        color: '#E53E3E',
+    },
+    priceBadgePillRow: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    badgeFree: {
+        backgroundColor: '#EBF8FF',
+    },
+    badgePaid: {
+        backgroundColor: '#FEFCBF',
+    },
+    priceBadgeText: {
+        fontSize: 10,
+        fontWeight: 'bold',
+        color: '#3182CE',
     },
 });

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -210,6 +210,7 @@ export default function ViewProfile() {
     if (loading && !profile && shorts.length === 0) {
         return (
             <View style={styles.loadingContainer}>
+                <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
                 <ActivityIndicator size="large" color="#8A2BE2" />
             </View>
         );
@@ -347,18 +348,17 @@ export default function ViewProfile() {
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="light-content" />
+            <Stack.Screen options={{ headerShown: false }} />
+            <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
 
-            {/* Top Navigation Bar */}
-            <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
+            {/* Header */}
+            <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                    <Ionicons name="arrow-back" size={20} color="#fff" />
                 </TouchableOpacity>
-                <View style={styles.titleContainer}>
-                    <Text style={styles.topBarTitle}>Public Profile</Text>
-                </View>
-                {/* Empty view to balance the back button and keep title centered */}
-                <View style={styles.rightPlaceholder} />
+                <Text style={styles.headerText}>
+                    {profile ? `${profile.first_name} ${profile.last_name}` : 'Instructor Profile'}
+                </Text>
             </View>
 
             <FlatList
@@ -407,32 +407,28 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: '#fff',
     },
-    topBar: {
+    header: {
+        paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
+        paddingBottom: 15,
+        paddingHorizontal: 20,
+        backgroundColor: '#8A2BE2',
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 15,
-        paddingBottom: 15,
-        backgroundColor: '#8A2BE2',
+        justifyContent: 'flex-start',
     },
-    backButton: {
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1,
-    },
-    titleContainer: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    rightPlaceholder: {
-        width: 40,
-    },
-    topBarTitle: {
+    headerText: {
         fontSize: 18,
         fontWeight: 'bold',
         color: '#fff',
+    },
+    backButton: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
     },
     headerContainer: {
         backgroundColor: '#fff',

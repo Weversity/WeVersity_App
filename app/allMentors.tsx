@@ -1,6 +1,6 @@
 import { followedMentorsStore, toggleFollow } from '@/src/data/mentorsStore';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
@@ -170,15 +170,15 @@ export default function AllMentorsScreen() {
 
     return (
         <View style={styles.container}>
+            <Stack.Screen options={{ headerShown: false }} />
             <StatusBar barStyle="light-content" />
 
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                    <Ionicons name="arrow-back" size={20} color="#fff" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>All Mentors</Text>
-                <View style={{ width: 24 }} />
+                <Text style={styles.headerText}>All Mentors</Text>
             </View>
 
             {/* Search Bar */}
@@ -233,24 +233,27 @@ const styles = StyleSheet.create({
         backgroundColor: '#F4F7FC',
     },
     header: {
+        paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
+        paddingBottom: 15,
+        paddingHorizontal: 20,
+        backgroundColor: '#8A2BE2',
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-        paddingBottom: 12,
-        backgroundColor: '#8A2BE2',
+        justifyContent: 'flex-start',
     },
-    backButton: {
-        width: 30,
-        height: 30,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    headerTitle: {
-        fontSize: 22,
+    headerText: {
+        fontSize: 18,
         fontWeight: 'bold',
         color: '#fff',
+    },
+    backButton: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
     },
     searchContainer: {
         flexDirection: 'row',

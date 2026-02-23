@@ -1,0 +1,46 @@
+{
+    "project_info": {
+        "project_number": "636424335937",
+        "project_id": "weversity-signup",
+        "storage_bucket": "weversity-signup.firebasestorage.app"
+    },
+    "client": [
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:636424335937:android:3a53fcc8aab56cb3a28cc0",
+                "android_client_info": {
+                    "package_name": "org.weversity.app"
+                }
+            },
+            "oauth_client": [
+                {
+                    "client_id": "636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com",
+                    "client_type": 3
+                }
+            ],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyBaP2NSNT7P7HeTBE25PYaaBWAB32eg79U"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": [
+                        {
+                            "client_id": "636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com",
+                            "client_type": 3
+                        },
+                        {
+                            "client_id": "636424335937-a2s6su815jjt90n9561ujagnblb8be16.apps.googleusercontent.com",
+                            "client_type": 2,
+                            "ios_info": {
+                                "bundle_id": "org.weversity.app"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "configuration_version": "1"
+}

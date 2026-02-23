@@ -2,10 +2,9 @@
 import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Image, SectionList, StatusBar, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Alert, Image, Modal, SectionList, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Mapping of notification types to badge icons
 const badgeIconMap: { [key: string]: keyof typeof Ionicons.glyphMap } = {
@@ -99,6 +98,9 @@ const NotificationScreen = () => {
   const { user, setUnreadCount } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isClearing, setIsClearing] = useState(false);
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [customDays, setCustomDays] = useState('');
 
   // Reset unread count when screen is opened
   useEffect(() => {
@@ -192,6 +194,70 @@ const NotificationScreen = () => {
       supabase.removeChannel(subscription);
     };
   }, [user]);
+
+  const handleClearNotifications = async (filterType: 'all' | 'custom', daysInput?: string) => {
+    if (!user) return;
+
+    if (filterType === 'custom' && (!daysInput || isNaN(parseInt(daysInput)))) {
+      Alert.alert('Error', 'Please enter a valid number of days.');
+      return;
+    }
+
+    setIsClearing(true);
+    try {
+      let query = supabase.from('notifications').delete().eq('recipient_id', user.id);
+
+      let thresholdDate: Date | null = null;
+      if (filterType === 'custom' && daysInput) {
+        thresholdDate = new Date();
+        thresholdDate.setDate(thresholdDate.getDate() - parseInt(daysInput));
+        query = query.lt('created_at', thresholdDate.toISOString());
+      }
+
+      const { error } = await query;
+
+      if (error) throw error;
+
+      // Update local state
+      if (filterType === 'all') {
+        setNotifications([]);
+      } else if (thresholdDate) {
+        setNotifications(prev => prev.filter(n => new Date(n.created_at) >= thresholdDate!));
+      }
+
+      if (showCustomModal) setShowCustomModal(false);
+      setCustomDays('');
+
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+      Alert.alert('Error', 'Failed to clear notifications. Please check your internet connection and try again.');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  const showClearOptions = () => {
+    Alert.alert(
+      'Clear Notifications',
+      'Choose an option to clear your notifications:',
+      [
+        {
+          text: 'Clear All',
+          onPress: () => handleClearNotifications('all'),
+          style: 'destructive',
+        },
+        {
+          text: 'Clear Older than Days...',
+          onPress: () => setShowCustomModal(true),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  };
 
 
   // Format notification text based on website style
@@ -378,8 +444,26 @@ const NotificationScreen = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      <SafeAreaView style={styles.contentArea}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
+
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerText}>Notifications</Text>
+        </View>
+        <TouchableOpacity onPress={showClearOptions} style={styles.clearButton} disabled={notifications.length === 0 || isClearing}>
+          {isClearing ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name="trash-outline" size={22} color="#fff" opacity={notifications.length === 0 ? 0.5 : 1} />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.contentArea}>
         <SectionList
           sections={groupedNotifications}
           renderItem={renderItem}
@@ -396,7 +480,56 @@ const NotificationScreen = () => {
             ) : null
           }
         />
-      </SafeAreaView>
+      </View>
+
+      {/* Custom Days Modal */}
+      <Modal
+        visible={showCustomModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCustomModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Clear Older Notifications</Text>
+            <Text style={styles.modalSubtitle}>How many days old notifications do you want to keep?</Text>
+
+            <TextInput
+              style={styles.daysInput}
+              placeholder="Enter number of days"
+              placeholderTextColor="#999"
+              keyboardType="numeric"
+              value={customDays}
+              onChangeText={setCustomDays}
+              autoFocus={true}
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowCustomModal(false);
+                  setCustomDays('');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={() => handleClearNotifications('custom', customDays)}
+                disabled={isClearing}
+              >
+                {isClearing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Confirm Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -405,6 +538,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
+    paddingBottom: 15,
+    paddingHorizontal: 20,
+    backgroundColor: '#8A2BE2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  clearButton: {
+    width: 38,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   contentArea: {
     flex: 1,
@@ -509,7 +675,78 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
     fontWeight: '500',
-  }
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 25,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1A1A1A',
+    marginBottom: 10,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  daysInput: {
+    width: '100%',
+    height: 50,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    fontSize: 16,
+    color: '#000',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F5F5F5',
+  },
+  confirmButton: {
+    backgroundColor: '#E74C3C',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
 });
 
 export default NotificationScreen;

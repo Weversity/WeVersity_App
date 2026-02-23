@@ -3,7 +3,7 @@ import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext'; // Assuming AuthContext for logout
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -663,15 +663,15 @@ export default function ProfileSettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
 
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+          <Ionicons name="arrow-back" size={20} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile Settings</Text>
-        <View style={{ width: 40 }} />
+        <Text style={styles.headerText}>Profile Settings</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -766,26 +766,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   header: {
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
+    paddingBottom: 15,
+    paddingHorizontal: 20,
+    backgroundColor: '#8A2BE2',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-    paddingBottom: 12,
-    backgroundColor: '#8A2BE2',
+    justifyContent: 'flex-start',
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: 'transparent',
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 22,
+  headerText: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   content: {
     padding: 20,

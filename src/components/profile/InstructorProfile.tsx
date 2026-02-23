@@ -9,8 +9,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import NotificationIcon from '../notifications/NotificationIcon';
 
 const { width, height } = Dimensions.get('window');
@@ -19,8 +19,9 @@ const { width, height } = Dimensions.get('window');
 
 // Data based on the provided image inspiration
 const stats = [
-  { id: '1', title: 'Total Students', color: '#F3E5F5', icon: 'people', iconColor: '#8A2BE2' },
-  { id: '3', title: 'Course Rating', color: '#FFF9C4', icon: 'star', iconColor: '#FBC02D' },
+  { id: '1', title: 'Total Students', color: '#F7F0FF', icon: 'people', iconColor: '#6d28d9' },
+  { id: '3', title: 'Course Rating', color: '#F7F0FF', icon: 'star', iconColor: '#6d28d9' },
+  { id: '2', title: 'Total Courses', color: '#F7F0FF', icon: 'library', iconColor: '#6d28d9' },
 ];
 
 interface Short {
@@ -66,6 +67,8 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
 
   const menuItems = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
+    { id: 'google_meet', title: 'Google Meet', icon: 'logo-google', onPress: () => { onClose(); router.push('/live/googleMeet'); } },
+    { id: 'withdrawals', title: 'Withdrawals', icon: 'wallet-outline', onPress: () => { onClose(); router.push('/instructor/withdrawals'); } },
     { id: '3', title: 'Public Profile', icon: 'person-circle-outline', onPress: () => { onClose(); onViewPublicProfile(); } },
     { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
     { id: '7', title: 'Support', icon: 'help-circle-outline', onPress: () => { onClose(); router.push('/support'); } },
@@ -247,6 +250,8 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const router = useRouter();
+  const heroScrollViewRef = useRef<ScrollView>(null);
+  const [activeSlide, setActiveSlide] = useState(0);
 
 
 
@@ -269,6 +274,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false); // Deletion state
+
+  // Wave/Shake Animation for Slide 1
+  const shakeAnimation = useRef(new Animated.Value(0)).current;
+
+  // Hero Slider Dynamic Stats
+  const [heroTotalLikes, setHeroTotalLikes] = useState(0);
+  const [heroFollowersCount, setHeroFollowersCount] = useState(0);
+
+  // Trophy Burst Animation for Slide 3
+  const trophyScale = useRef(new Animated.Value(1)).current;
+  const burstValue = useRef(new Animated.Value(0)).current;
 
   const fetchProfileData = async () => {
     try {
@@ -317,6 +333,91 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     }, [user?.id])
   );
 
+  // Wave Shake Animation Loop
+  useEffect(() => {
+    const startShake = () => {
+      Animated.sequence([
+        Animated.timing(shakeAnimation, { toValue: 10, duration: 100, useNativeDriver: true }),
+        Animated.timing(shakeAnimation, { toValue: -10, duration: 100, useNativeDriver: true }),
+        Animated.timing(shakeAnimation, { toValue: 10, duration: 100, useNativeDriver: true }),
+        Animated.timing(shakeAnimation, { toValue: 0, duration: 100, useNativeDriver: true }),
+      ]).start(() => {
+        // Wait 2 seconds before repeating
+        setTimeout(startShake, 2000);
+      });
+    };
+
+    startShake();
+  }, []);
+
+  const triggerTrophyBurst = useCallback(() => {
+    // Reset values
+    trophyScale.setValue(1);
+    burstValue.setValue(0);
+
+    Animated.parallel([
+      // Trophy Scaling
+      Animated.sequence([
+        Animated.timing(trophyScale, { toValue: 1.25, duration: 200, useNativeDriver: true }),
+        Animated.spring(trophyScale, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true }),
+      ]),
+      // Particle Burst (Opacity & Scale)
+      Animated.timing(burstValue, { toValue: 1, duration: 600, useNativeDriver: true }),
+    ]).start();
+  }, [trophyScale, burstValue]);
+
+  // Trigger burst when Slide 3 (index 2) is active
+  useEffect(() => {
+    if (activeSlide === 2) {
+      triggerTrophyBurst();
+    }
+  }, [activeSlide, triggerTrophyBurst]);
+
+  // Auto-scroll Effect for Hero Slider
+  useEffect(() => {
+    const totalSlides = 3;
+    const interval = setInterval(() => {
+      const nextSlide = (activeSlide + 1) % totalSlides;
+      heroScrollViewRef.current?.scrollTo({
+        x: nextSlide * (width - 40),
+        animated: true,
+      });
+      setActiveSlide(nextSlide);
+    }, 6000); // Increased to 6 seconds for slower rotation
+
+    return () => clearInterval(interval);
+  }, [activeSlide]);
+
+  const fetchHeroStats = async () => {
+    try {
+      if (!user?.id) return;
+
+      // 1. Fetch Followers Count
+      const { count: fCount, error: fError } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', user.id);
+
+      if (!fError) setHeroFollowersCount(fCount || 0);
+
+      // 2. Fetch Total Likes from shorts
+      const { data: lData, error: lError } = await supabase
+        .from('shorts')
+        .select('likes_count')
+        .eq('instructor_id', user.id);
+
+      if (!lError && lData) {
+        const total = lData.reduce((acc, curr) => acc + (curr.likes_count || 0), 0);
+        setHeroTotalLikes(total);
+      } else {
+        setHeroTotalLikes(0);
+      }
+    } catch (err) {
+      console.error('Error fetching hero stats:', err);
+      setHeroTotalLikes(0);
+    }
+  };
+
   const fetchStats = async () => {
     try {
       if (!user?.id) {
@@ -325,6 +426,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
       }
 
       setLoadingStats(true);
+      fetchHeroStats(); // Fetch hero specific stats concurrently
       console.log('[InstructorProfile] fetchStats started for User ID:', user.id);
 
       const data = await courseService.fetchInstructorStats(user.id);
@@ -623,8 +725,136 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           />
         }
       >
-        <Text style={styles.welcomeTitle}>Welcome back, {instructorName}!</Text>
-        <Text style={styles.welcomeSubtitle}>Here is what's happening with your courses today.</Text>
+        {/* Refined Hero Paging Slider with Background */}
+        <LinearGradient
+          colors={['#8A2BE2', '#9D50E5']}
+          style={styles.heroGradientWrapper}
+        >
+          <View style={styles.sliderWrapper}>
+            <ScrollView
+              ref={heroScrollViewRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(event) => {
+                const slide = Math.round(event.nativeEvent.contentOffset.x / (width - 40));
+                setActiveSlide(slide);
+              }}
+            >
+              {/* Slide 1: Welcome - Centered with Shake Animation */}
+              <View style={styles.slide}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={styles.welcomeTitleWhite}>Welcome back,</Text>
+                  <Animated.View style={{ transform: [{ translateX: shakeAnimation }] }}>
+                    <Text style={{ fontSize: 22, marginLeft: 8 }}>👋</Text>
+                  </Animated.View>
+                </View>
+                <Text style={styles.instructorNameLarge}>{instructorName}!</Text>
+                <Text style={styles.welcomeSubtitleWhite}>Ready to inspire your students today?</Text>
+              </View>
+
+              {/* Slide 2: Public Impact - Re-layout */}
+              <View style={styles.slide}>
+                <View style={styles.slideContentFullWidth}>
+                  <View style={styles.publicImpactRowHeader}>
+                    <View style={styles.publicImpactTextCol}>
+                      <Text style={styles.publicImpactCatchyTitleLeft}>Your community is growing!</Text>
+                      <Text style={styles.publicImpactSubLeft}>Check out your latest reach.</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.whiteProfileBtnSmall}
+                      onPress={() => {
+                        if (user?.id) {
+                          router.push({ pathname: '/viewProfile/[id]', params: { id: user.id } } as any);
+                        }
+                      }}
+                    >
+                      <Text style={styles.whiteProfileBtnTextSmall}>See Profile</Text>
+                      <Ionicons name="arrow-forward" size={12} color="#8A2BE2" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.publicStatsRowMinimal}>
+                    <View style={styles.publicStatItem}>
+                      <Text style={styles.publicStatValueWhite}>{heroFollowersCount.toLocaleString()}</Text>
+                      <Text style={styles.publicStatLabelWhite}>Followers</Text>
+                    </View>
+                    <View style={styles.publicStatDividerWhiteSmall} />
+                    <View style={styles.publicStatItem}>
+                      <Text style={styles.publicStatValueWhite}>{heroTotalLikes.toLocaleString()}</Text>
+                      <Text style={styles.publicStatLabelWhite}>Likes</Text>
+                    </View>
+                    <View style={styles.publicStatDividerWhiteSmall} />
+                    <View style={styles.publicStatItem}>
+                      <Text style={styles.publicStatValueWhite}>{shorts.length}</Text>
+                      <Text style={styles.publicStatLabelWhite}>Shorts</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Slide 3: Inspiration - Strictly Centered & Simplified with Burst Animation */}
+              <View style={styles.slide}>
+                {/* Burst Particles Container */}
+                <View style={styles.particlesContainer}>
+                  {[0, 45, 90, 135, 180, 225, 270, 315].map((angle, i) => {
+                    const radius = 40;
+                    const translateX = burstValue.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, radius * Math.cos(angle * Math.PI / 180)]
+                    });
+                    const translateY = burstValue.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, radius * Math.sin(angle * Math.PI / 180)]
+                    });
+                    const opacity = burstValue.interpolate({
+                      inputRange: [0, 0.7, 1],
+                      outputRange: [0, 1, 0]
+                    });
+                    const scale = burstValue.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.3, 1]
+                    });
+
+                    return (
+                      <Animated.View
+                        key={i}
+                        style={[
+                          styles.particle,
+                          {
+                            transform: [{ translateX }, { translateY }, { scale }],
+                            opacity
+                          }
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+
+                <Animated.View style={{ transform: [{ scale: trophyScale }], zIndex: 2 }}>
+                  <Ionicons name="trophy" size={36} color="#FFD700" style={{ marginBottom: 4 }} />
+                </Animated.View>
+
+                <Text style={styles.motivationTitleBoldCenter}>Top Instructor Club</Text>
+                <Text style={styles.motivationSubtitleWhiteCenter}>Your teaching is changing lives.</Text>
+                <Text style={[styles.motivationSubtitleWhiteCenter, { fontWeight: 'bold', marginTop: 2 }]}>Keep it up!</Text>
+              </View>
+            </ScrollView>
+          </View>
+
+          {/* Pagination Dots - Final placement above stats cards */}
+          <View style={styles.paginationDotsFinal}>
+            {[0, 1, 2].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  activeSlide === i && styles.activeDot
+                ]}
+              />
+            ))}
+          </View>
+        </LinearGradient>
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
@@ -634,59 +864,56 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
               if (stat.title === 'Total Students') {
                 displayValue = statsData.totalStudents.toLocaleString();
               } else if (stat.title === 'Course Rating') {
-                // Format as 5.0 (3) (1 decimal + brackets)
                 const rating = statsData.courseRating.toFixed(1);
                 const reviews = statsData.totalReviews || 0;
                 displayValue = `${rating} (${reviews})`;
+              } else if (stat.title === 'Total Courses') {
+                displayValue = uploadedCourses.length.toString();
               }
             }
 
             return (
               <View key={stat.id} style={styles.statCard}>
+                <View style={styles.statIconContainer}>
+                  <Ionicons name={stat.icon as any} size={20} color={stat.iconColor} />
+                </View>
                 <View style={styles.statInfo}>
                   <Text style={styles.statTitle}>{stat.title}</Text>
-
-                  {loadingStats ? (
-                    <View style={{ height: 44, justifyContent: 'center', alignItems: 'flex-start' }}>
-                      <ActivityIndicator size="small" color={stat.iconColor} />
-                    </View>
-                  ) : (
-                    <Text style={[
-                      styles.statValue,
-                      stat.title === 'Course Rating' && { color: '#FBC02D' }
-                    ]}>
-                      {displayValue}
-                    </Text>
-                  )}
-                </View>
-
-                <View style={[styles.statIconContainer, { backgroundColor: stat.color }]}>
-                  <Ionicons name={stat.icon as any} size={26} color={stat.iconColor} />
+                  <Text style={styles.statValue}>{displayValue}</Text>
                 </View>
               </View>
             );
           })}
         </View>
 
+
         {/* Quick Actions */}
 
 
-        <TouchableOpacity style={styles.actionButton} onPress={uploadShort}>
-          <View style={styles.actionIconCircle}>
-            <Ionicons name="phone-portrait-outline" size={24} color="#8A2BE2" />
+        {/* Create Live Class Button */}
+        <TouchableOpacity
+          style={styles.liveClassButton}
+          activeOpacity={0.9}
+          onPress={() => router.push('/live/googleMeet' as any)}
+        >
+          <View style={styles.liveClassIconBox}>
+            <Ionicons name="videocam" size={24} color="#FFFFFF" />
           </View>
-          <View>
-            <Text style={styles.actionTitle}>Upload Short</Text>
-            <Text style={styles.actionSubtitle}>Share quick tips</Text>
+          <View style={styles.liveClassContent}>
+            <Text style={styles.liveClassTitle}>Create Live Class</Text>
+            <Text style={styles.liveClassSubtext}>Interact with your students real-time</Text>
           </View>
+          <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
         </TouchableOpacity>
+
 
         {/* Recent Shorts Section */}
         <View style={styles.recentSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Shorts</Text>
-            <TouchableOpacity onPress={() => setViewAllShortsVisible(true)}>
-              <Text style={styles.seeAllText}>View All</Text>
+            <TouchableOpacity onPress={uploadShort} style={styles.uploadHeaderButton}>
+              <Ionicons name="cloud-upload-outline" size={18} color="#8A2BE2" style={{ marginRight: 4 }} />
+              <Text style={styles.uploadHeaderButtonText}>Upload</Text>
             </TouchableOpacity>
           </View>
 
@@ -723,11 +950,12 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                   />
                 ))}
               </View>
-              {shorts.length > 9 && (
-                <TouchableOpacity onPress={() => setViewAllShortsVisible(true)} style={{ alignSelf: 'center', marginTop: 10 }}>
-                  <Text style={styles.seeAllText}>View More</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                onPress={() => setViewAllShortsVisible(true)}
+                style={{ alignSelf: 'flex-end', marginTop: 10 }}
+              >
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -757,7 +985,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
               </Text>
             </View>
           ) : (
-            uploadedCourses.slice(0, 2).map((course) => (
+            uploadedCourses.slice(0, 3).map((course) => (
               <View key={course.id} style={styles.uploadedCourseCard}>
                 <View style={styles.imageContainer}>
                   <Image
@@ -767,7 +995,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                 </View>
 
                 <View style={styles.uploadedCourseContent}>
-                  <Text style={styles.uploadedCourseTitle} numberOfLines={1}>{course.title}</Text>
+                  <Text style={styles.uploadedCourseTitle} numberOfLines={2}>{course.title}</Text>
                   <View style={{ height: 4 }} />
                   <Text style={styles.uploadedCourseCategory}>{course.categories || 'Uncategorized'}</Text>
 
@@ -780,17 +1008,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
                     <View style={[styles.priceBadgePillRow, (course.price === 0 || !course.price) ? styles.badgeFree : styles.badgePaid]}>
                       <Text style={styles.priceBadgeText}>
-                        {(course.price === 0 || !course.price) ? 'FREE' : 'PAID'}
+                        {(course.price === 0 || !course.price) ? '$0' : `$${course.price}`}
                       </Text>
                     </View>
                   </View>
                 </View>
-              </View>
+              </View >
             ))
           )}
-        </View>
+        </View >
 
-      </ScrollView>
+      </ScrollView >
 
 
       <SideMenu
@@ -937,60 +1165,146 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   statsContainer: {
-    marginBottom: 15, // Consistent gap
-    flexDirection: 'column',
-    gap: 15, // Consistent gap between cards
-  },
-  statCard: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20, // Equal padding
+    marginBottom: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center', // Ensure alignment
+    alignItems: 'center',
+    width: '100%',
+  },
+  statCard: {
+    width: '31.5%',
+    backgroundColor: '#FFFDFF', // Ultra-light premium purple (almost white)
+    borderRadius: 20,
+    padding: 12,
+    height: 110,
+    justifyContent: 'center',
+    alignItems: 'center',
+    // Clean, soft shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03, // Thora aur kam kar diya
+    shadowRadius: 6,
+    elevation: 1, // Reduced elevation for a lighter shadow
     borderWidth: 1,
-    borderColor: '#E0D4FC',
-    shadowColor: '#8A2BE2',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
+    borderColor: '#F0EFFF', // Subtle border to refine edge
+  },
+  statIconContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#F7F0FF', // Even softer lavender
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statInfo: {
+    alignItems: 'center',
+  },
+  statTitle: {
+    fontSize: 10,
+    color: '#8A8A8E',
+    fontWeight: '500',
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'center',
+  },
+  incomeCardWrapper: {
+    width: '100%',
+    marginBottom: 20,
+    borderRadius: 24,
+    // Equal shadow on all sides
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.02,
     shadowRadius: 10,
     elevation: 2,
   },
-  statInfo: {
-    flex: 1,
+  incomeCard: {
+    borderRadius: 24,
+    padding: 20,
+    backgroundColor: '#FFFDFF', // Matching ultra-light premium purple
+    borderWidth: 1,
+    borderColor: '#F0EFFF',
   },
-  statTitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 8,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 8,
-  },
-  growthContainer: {
+  incomeHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 4,
+    marginBottom: 20,
   },
-  growthText: {
-    fontSize: 12,
+  incomeTitle: {
+    color: '#000', // Black as in stats card
+    fontSize: 16,
     fontWeight: '700',
   },
-  growthPeriod: {
-    fontSize: 11,
-    color: '#888',
-    marginLeft: 2,
+  seeAllIncome: {
+    color: '#8A2BE2', // Purple for "See All" action
+    fontSize: 12,
+    fontWeight: '600',
   },
-  statIconContainer: {
+  incomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  incomeCol: {
+    flex: 1,
+  },
+  incomeLabel: {
+    color: '#8A8A8E', // Muted grey as in stats card labels
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  incomeValue: {
+    color: '#000', // Bold black as in stats card values
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  incomeDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#F0EFFF', // Light purple divider
+    marginHorizontal: 15,
+  },
+  liveClassButton: {
+    backgroundColor: '#8A2BE2',
+    borderRadius: 24,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    shadowColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 8,
+  },
+  liveClassIconBox: {
     width: 50,
     height: 50,
-    borderRadius: 12,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 15,
+  },
+  liveClassContent: {
+    flex: 1,
+  },
+  liveClassTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  liveClassSubtext: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 12,
   },
   actionButton: {
     backgroundColor: '#fff',
@@ -1094,6 +1408,19 @@ const styles = StyleSheet.create({
     color: '#8A2BE2',
     fontSize: 14,
     fontWeight: '600',
+  },
+  uploadHeaderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F4F0FF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  uploadHeaderButtonText: {
+    color: '#8A2BE2',
+    fontSize: 14,
+    fontWeight: '500',
   },
   shortItem: {
     flexDirection: 'row',
@@ -1346,91 +1673,89 @@ const styles = StyleSheet.create({
   // Uploaded Courses Styles
   uploadedCourseCard: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 24,
-    padding: 15,
-    marginBottom: 20,
+    backgroundColor: '#FFFDFF', // Matching ultra-light premium purple
+    borderRadius: 16, // Sharper modern radius as requested
+    padding: 12, // Reduced padding
+    marginBottom: 16,
+    // Soft professional black shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(224, 212, 252, 0.4)',
-    shadowColor: '#8A2BE2',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
-    alignItems: 'center',
+    borderColor: '#F0EFFF',
   },
   imageContainer: {
     position: 'relative',
   },
   uploadedCourseImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 20,
+    width: 90, // Slightly more compact
+    height: 90,
+    borderRadius: 12, // Reduced radius for sharper look
     backgroundColor: '#f0f0f0',
-  },
-  priceBadgePillRow: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  badgeFree: {
-    backgroundColor: '#2196F3', // Blue for FREE
-  },
-  badgePaid: {
-    backgroundColor: '#FFD700', // Gold for PAID
-  },
-  priceBadgeText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#fff',
   },
   uploadedCourseContent: {
     flex: 1,
-    marginLeft: 20,
+    marginLeft: 15, // Reduced margin
     justifyContent: 'center',
   },
   uploadedCourseTitle: {
-    fontSize: 18,
+    fontSize: 15, // Slightly smaller for 2 lines
     fontWeight: 'bold',
-    color: '#1A1A1A',
-    lineHeight: 24,
+    color: '#000',
+    lineHeight: 20,
   },
   uploadedCourseCategory: {
-    fontSize: 13,
+    fontSize: 11,
     color: '#8A2BE2',
     fontWeight: '600',
-    marginBottom: 10,
+    marginBottom: 8,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
   },
   statusBadgePill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 25,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8, // More modern badge shape
   },
   statusPublishedPill: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#E6FFFA', // Minty soft background
   },
   statusDraftPill: {
-    backgroundColor: '#FFF3E0', // Orange-ish for Draft
+    backgroundColor: '#FFF5F5', // Softest red/orange for draft
   },
   statusTextPill: {
-    fontSize: 11,
-    fontWeight: 'bold',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   statusTextPublished: {
-    color: '#4CAF50',
+    color: '#319795',
   },
   statusTextDraft: {
-    color: '#FF9800',
+    color: '#E53E3E',
+  },
+  priceBadgePillRow: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeFree: {
+    backgroundColor: '#EBF8FF', // Softest blue
+  },
+  badgePaid: {
+    backgroundColor: '#FEFCBF', // Softest gold
+  },
+  priceBadgeText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#3182CE', // Professional blue for price
   },
   emptyCoursesContainer: {
     justifyContent: 'center',
@@ -1474,6 +1799,160 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  heroGradientWrapper: {
+    borderRadius: 24,
+    marginBottom: 20,
+    padding: 1, // Slight padding to show border effect if needed
+    zIndex: 99,
+    elevation: 5,
+  },
+  sliderWrapper: {
+    height: 140, // Further reduced height for compact look
+    width: width - 40,
+    backgroundColor: 'transparent',
+    borderRadius: 24,
+    overflow: 'hidden',
+    paddingTop: 5,
+  },
+  slide: {
+    width: width - 40,
+    height: 140, // Match wrapper
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20, // Strict equal padding
+    backgroundColor: 'transparent',
+  },
+  slideContentFullWidth: {
+    width: '100%',
+  },
+  welcomeTitleWhite: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  instructorNameLarge: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginVertical: 4,
+    textAlign: 'center',
+  },
+  welcomeSubtitleWhite: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  publicImpactRowHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  publicImpactTextCol: {
+    flex: 1,
+  },
+  publicImpactCatchyTitleLeft: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'left',
+  },
+  publicImpactSubLeft: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    marginTop: 2,
+    textAlign: 'left',
+  },
+  publicStatsRowMinimal: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 16,
+  },
+  publicStatItem: {
+    alignItems: 'center',
+  },
+  publicStatValueWhite: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  publicStatLabelWhite: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 1,
+  },
+  publicStatDividerWhiteSmall: {
+    width: 1,
+    height: 15,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  whiteProfileBtnSmall: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  whiteProfileBtnTextSmall: {
+    color: '#8A2BE2',
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  motivationTitleBoldCenter: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  motivationSubtitleWhiteCenter: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  paginationDotsFinal: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 0,
+    paddingBottom: 10,
+    zIndex: 100, // Ensure visibility
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    marginHorizontal: 4,
+  },
+  activeDot: {
+    width: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  particlesContainer: {
+    position: 'absolute',
+    top: -15, // Adjusted to center behind trophy
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  particle: {
+    position: 'absolute',
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#FFD124', // Golden color
   },
 });
 

@@ -3,7 +3,7 @@ import { bookmarksStore } from '@/src/data/courses';
 import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -81,13 +81,13 @@ export default function BookmarkedCoursesScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+          <Ionicons name="arrow-back" size={20} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Saved Courses</Text>
-        <View style={{ width: 24 }} />
+        <Text style={styles.headerText}>Saved Courses</Text>
       </View>
 
       {loading ? (
@@ -120,21 +120,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F7FC',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 15,
     paddingTop: 10,
     paddingBottom: 15,
+    paddingHorizontal: 20,
     backgroundColor: '#8A2BE2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
   },
-  backButton: {
-    padding: 5,
-  },
-  headerTitle: {
-    fontSize: 20,
+  headerText: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   centerContainer: {
     flex: 1,

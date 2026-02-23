@@ -5,7 +5,7 @@ import { supabase } from '@/src/lib/supabase';
 import { videoService } from '@/src/services/videoService';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -96,7 +96,7 @@ export default function FollowersScreen() {
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconContainer}>
             <LinearGradient
-              colors={['#8A2BE2', '#FF007F']}
+              colors={['#A450E5', '#6A0DAD']}
               style={styles.emptyIconCircle}
             >
               <Ionicons name="people-circle-outline" size={50} color="#fff" />
@@ -122,7 +122,7 @@ export default function FollowersScreen() {
               <Text style={styles.stepText}>Tap on the <Text style={styles.boldText}>Instructor's Profile icon</Text> on any short</Text>
             </View>
 
-            <View style={styles.stepRow}>
+            <View style={[styles.stepRow, { marginBottom: 0 }]}>
               <View style={styles.stepNumber}><Text style={styles.stepNumberText}>3</Text></View>
               <Text style={styles.stepText}>Hit the <Text style={styles.boldText}>Follow button</Text> to stay updated!</Text>
             </View>
@@ -134,7 +134,7 @@ export default function FollowersScreen() {
             style={styles.exploreButtonWrapper}
           >
             <LinearGradient
-              colors={['#8A2BE2', '#FF007F']}
+              colors={['#8A2BE2', '#6A0DAD']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.exploreButton}
@@ -213,13 +213,13 @@ export default function FollowersScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+          <Ionicons name="arrow-back" size={20} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Followed Instructors</Text>
-        <View style={{ width: 24 }} />
+        <Text style={styles.headerText}>Followed Instructors</Text>
       </View>
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#888" style={styles.searchIcon} />
@@ -247,24 +247,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F7FC',
   },
   header: {
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
+    paddingBottom: 15,
+    paddingHorizontal: 20,
+    backgroundColor: '#8A2BE2',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 5 : 45,
-    paddingBottom: 12,
-    backgroundColor: '#8A2BE2',
+    justifyContent: 'flex-start',
   },
-  backButton: {
-    width: 30,
-    height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 22,
+  headerText: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -420,7 +423,7 @@ const styles = StyleSheet.create({
   },
   stepRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 16,
   },
   stepNumber: {
@@ -431,6 +434,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    marginTop: 2, // Align with the first line of text
   },
   stepNumberText: {
     color: '#8A2BE2',
@@ -438,6 +442,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   stepText: {
+    flex: 1,
     fontSize: 15,
     color: '#444',
   },

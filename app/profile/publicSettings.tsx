@@ -3,7 +3,6 @@ import { useAuth } from '@/src/context/AuthContext';
 import { supabase } from '@/src/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -234,13 +233,11 @@ export default function PublicSettingsScreen() {
                 <StatusBar barStyle="light-content" translucent />
                 <Stack.Screen options={{ headerShown: false }} />
 
-                {/* Header */}
                 <View style={[styles.header, { paddingTop: insets.top }]}>
                     <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                        <Ionicons name="arrow-back" size={20} color="#fff" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Settings</Text>
-                    <View style={{ width: 44 }} />
                 </View>
 
                 <KeyboardAwareScrollView
@@ -331,18 +328,13 @@ export default function PublicSettingsScreen() {
                         activeOpacity={0.8}
                         style={{ overflow: 'hidden', borderRadius: 28 }}
                     >
-                        <LinearGradient
-                            colors={['#8A2BE2', '#FF007F']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.saveButton}
-                        >
+                        <View style={styles.saveButton}>
                             {saving ? (
                                 <ActivityIndicator color="#fff" />
                             ) : (
                                 <Text style={styles.saveButtonText}>Save Changes</Text>
                             )}
-                        </LinearGradient>
+                        </View>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -364,17 +356,19 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingBottom: 10,
+        justifyContent: 'flex-start',
+        paddingHorizontal: 20,
+        paddingBottom: 15,
         backgroundColor: '#8A2BE2',
-        minHeight: 60,
     },
     backButton: {
-        width: 44,
-        height: 44,
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
         justifyContent: 'center',
         alignItems: 'center',
+        marginRight: 12,
     },
     headerTitle: {
         fontSize: 18,
@@ -468,6 +462,7 @@ const styles = StyleSheet.create({
     saveButton: {
         height: 56,
         borderRadius: 28,
+        backgroundColor: '#8A2BE2',
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: '#8A2BE2',
