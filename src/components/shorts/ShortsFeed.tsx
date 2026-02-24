@@ -24,11 +24,15 @@ export default function ShortsFeed() {
     const [isMuted, setIsMuted] = useState(false);
     const [isCommentsVisible, setIsCommentsVisible] = useState(false);
     const [containerHeight, setContainerHeight] = useState(0);
+    const [containerWidth, setContainerWidth] = useState(0);
 
     const onLayout = (event: any) => {
-        const { height } = event.nativeEvent.layout;
+        const { height, width } = event.nativeEvent.layout;
         if (height > 0 && Math.abs(height - containerHeight) > 1) {
             setContainerHeight(height);
+        }
+        if (width > 0 && Math.abs(width - containerWidth) > 1) {
+            setContainerWidth(width);
         }
     };
 
@@ -103,6 +107,7 @@ export default function ShortsFeed() {
                     setIsMuted={setIsMuted}
                     onCommentsVisibilityChange={setIsCommentsVisible}
                     containerHeight={containerHeight}
+                    containerWidth={containerWidth}
                 />
             </View>
         );

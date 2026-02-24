@@ -7,6 +7,7 @@ import { Alert, Animated, Dimensions, Image, StyleSheet, Text, TouchableOpacity,
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
 import CommentsSheet from './CommentsSheet';
+import ShortMediaFrame from './ShortMediaFrame';
 
 const { width, height } = Dimensions.get('window');
 
@@ -39,6 +40,7 @@ interface ShortFeedItemProps {
     setIsMuted: (muted: boolean) => void;
     onCommentsVisibilityChange?: (visible: boolean) => void;
     containerHeight: number;
+    containerWidth: number;
 }
 
 const getRandomColor = (name: string) => {
@@ -54,6 +56,63 @@ const getInitials = (firstName?: string, lastName?: string) => {
     return ((firstName?.[0] || '') + (lastName?.[0] || '')).toUpperCase() || '?';
 };
 
+const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+// Memoized Progress Bar Component to avoid re-rendering ShortFeedItem
+const ShortProgressBar = React.memo(({ player, isVisible, containerWidth }: { player: any, isVisible: boolean, containerWidth: number }) => {
+    const [progress, setProgress] = useState(0);
+    const [currentTime, setCurrentTime] = useState(0);
+
+    useEffect(() => {
+        if (!isVisible || !player) return;
+
+        const interval = setInterval(() => {
+            if (player.duration > 0) {
+                const current = player.currentTime;
+                setCurrentTime(current);
+                setProgress((current / player.duration) * 100);
+            }
+        }, 500);
+
+        return () => clearInterval(interval);
+    }, [player, isVisible]);
+
+    if (!isVisible) return null;
+
+    const handleScrub = (event: any) => {
+        if (!player || player.duration <= 0) return;
+
+        const { locationX } = event.nativeEvent;
+        const barWidth = containerWidth - 30; // 15 padding on each side
+        const seekRatio = Math.max(0, Math.min(1, locationX / barWidth));
+        const seekTime = seekRatio * player.duration;
+
+        player.seek(seekTime);
+        setCurrentTime(seekTime);
+        setProgress(seekRatio * 100);
+    };
+
+    return (
+        <View style={styles.progressWrapper}>
+            <View style={styles.timeLabelContainer}>
+                <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+                <Text style={styles.timeText}>{formatTime(player.duration || 0)}</Text>
+            </View>
+            <TouchableOpacity
+                activeOpacity={1}
+                onPress={handleScrub}
+                style={styles.progressBarContainer}
+            >
+                <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
+            </TouchableOpacity>
+        </View>
+    );
+});
+
 export default function ShortFeedItem({
     item,
     isVisible,
@@ -61,7 +120,8 @@ export default function ShortFeedItem({
     isMuted,
     setIsMuted,
     onCommentsVisibilityChange,
-    containerHeight
+    containerHeight,
+    containerWidth
 }: ShortFeedItemProps) {
     const router = useRouter();
     const { user } = useAuth();
@@ -273,124 +333,138 @@ export default function ShortFeedItem({
 
 
     return (
-        <View style={[styles.container, { height: containerHeight }]}>
-            <TouchableOpacity
-                activeOpacity={1}
-                onPress={togglePlay}
-                style={[styles.videoContainer, { height: containerHeight }]}
-                disabled={showComments}
-            >
-                {isVideo ? (
-                    <>
-                        <VideoView
-                            player={player}
-                            style={[styles.video, { height: '100%' }]}
-                            contentFit="cover"
-                            nativeControls={false}
-                        />
-                        {!isPlaying && (
-                            <Animated.View style={[styles.playIconContainer, { opacity: playIconOpacity }]}>
-                                <Ionicons name="play" size={50} color="rgba(255,255,255,0.7)" />
-                            </Animated.View>
-                        )}
-                    </>
-                ) : (
-                    <Image
-                        source={{ uri: item.video_url }}
-                        style={[styles.video, { height: '100%' }]}
-                        resizeMode="cover"
-                    />
-                )}
-            </TouchableOpacity>
-
-            {/* Right Action Buttons - Repositioned to Bottom Right */}
-            <View style={styles.rightContainer}>
-                {/* Like Button */}
-                <TouchableOpacity onPress={() => handleReaction('like')} style={styles.actionButton}>
-                    <Animated.View style={styles.iconCircle}>
-                        <Ionicons
-                            name={userReaction === 'like' ? "heart" : "heart-outline"}
-                            size={24}
-                            color={userReaction === 'like' ? "#ff2d55" : "white"}
-                        />
-                    </Animated.View>
-                    <Text style={styles.actionText}>{likesCount}</Text>
-                </TouchableOpacity>
-
-                {/* Comment Button - No count label */}
-                <TouchableOpacity style={styles.actionButton} onPress={() => setShowComments(true)}>
-                    <View style={styles.iconCircle}>
-                        <Ionicons name="chatbox-ellipses-outline" size={24} color="white" />
-                    </View>
-                </TouchableOpacity>
-
-                {/* Mute Button - Only show for videos */}
-                {isVideo && (
-                    <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
-                        <View style={styles.iconCircle}>
-                            <Ionicons
-                                name={isMuted ? "volume-mute" : "volume-high"}
-                                size={24}
-                                color="white"
+        <View style={[styles.container, { height: containerHeight, width: containerWidth }]}>
+            <ShortMediaFrame containerWidth={containerWidth} containerHeight={containerHeight}>
+                <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={togglePlay}
+                    style={[styles.videoContainer, { height: '100%', width: '100%' }]}
+                    disabled={showComments}
+                >
+                    {isVideo ? (
+                        <>
+                            <VideoView
+                                player={player}
+                                style={[styles.video, { height: '100%' }]}
+                                contentFit="contain"
+                                nativeControls={false}
                             />
-                        </View>
-                        <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
-                    </TouchableOpacity>
-                )}
-                {/* Reload / Shuffle Button */}
-                <TouchableOpacity onPress={onRefresh} style={styles.actionButton}>
-                    <View style={styles.iconCircle}>
-                        <Ionicons name="sync" size={24} color="white" />
-                    </View>
-                    <Text style={styles.actionText}>Reload</Text>
-                </TouchableOpacity>
-            </View>
-
-            {/* Redesigned Bottom Info Section */}
-            <View style={styles.bottomOverlayCard}>
-                <TouchableOpacity onPress={handleProfilePress} style={styles.profileRow}>
-                    {item.instructor?.avatar_url ? (
-                        <Image source={{ uri: item.instructor.avatar_url }} style={styles.overlayAvatar} />
+                            {!isPlaying && (
+                                <Animated.View style={[styles.playIconContainer, { opacity: playIconOpacity }]}>
+                                    <Ionicons name="play" size={50} color="rgba(255,255,255,0.7)" />
+                                </Animated.View>
+                            )}
+                        </>
                     ) : (
-                        <View style={[
-                            styles.overlayAvatar,
-                            styles.avatarPlaceholder,
-                            { backgroundColor: getRandomColor(item.instructor?.first_name || 'Instructor') }
-                        ]}>
-                            <Text style={styles.avatarInitialSmall}>
-                                {getInitials(item.instructor?.first_name, item.instructor?.last_name)}
+                        <Image
+                            source={{ uri: item.video_url }}
+                            style={[styles.video, { height: '100%' }]}
+                            resizeMode="contain"
+                        />
+                    )}
+                </TouchableOpacity>
+            </ShortMediaFrame>
+
+            {/* Bottom UI Overlays - Outside the frame for correct layering */}
+            <View style={styles.bottomUIContainer}>
+                {/* Left: Bottom Info Section */}
+                <View style={styles.bottomOverlayCard}>
+                    <TouchableOpacity onPress={handleProfilePress} style={styles.profileRow}>
+                        {item.instructor?.avatar_url ? (
+                            <Image source={{ uri: item.instructor.avatar_url }} style={styles.overlayAvatar} />
+                        ) : (
+                            <View style={[
+                                styles.overlayAvatar,
+                                styles.avatarPlaceholder,
+                                { backgroundColor: getRandomColor(item.instructor?.first_name || 'Instructor') }
+                            ]}>
+                                <Text style={styles.avatarInitialSmall}>
+                                    {getInitials(item.instructor?.first_name, item.instructor?.last_name)}
+                                </Text>
+                            </View>
+                        )}
+                        <View style={styles.nameContainer}>
+                            <Text style={styles.instructorName}>
+                                {item.instructor?.first_name || 'Instructor'} {item.instructor?.last_name || ''}
+                            </Text>
+                            <Text style={styles.instructorRole}>
+                                {item.instructor?.occupation || 'Senior Instructor'}
                             </Text>
                         </View>
-                    )}
-                    <View style={styles.nameContainer}>
-                        <Text style={styles.instructorName}>
-                            {item.instructor?.first_name || 'Instructor'} {item.instructor?.last_name || ''}
-                        </Text>
-                        <Text style={styles.instructorRole}>
-                            {item.instructor?.occupation || 'Senior Instructor'}
-                        </Text>
-                    </View>
-                </TouchableOpacity>
+                    </TouchableOpacity>
 
-                {item.instructor?.biography && item.instructor.biography.trim() !== '' ? (
-                    <>
-                        <Text style={styles.bioText} numberOfLines={isExpanded ? undefined : 2}>
-                            {item.instructor.biography}
+                    {item.instructor?.biography && item.instructor.biography.trim() !== '' ? (
+                        <>
+                            <Text style={styles.bioText} numberOfLines={isExpanded ? undefined : 2}>
+                                {item.instructor.biography}
+                            </Text>
+                            {item.instructor.biography.length > BIO_CHAR_LIMIT && (
+                                <TouchableOpacity onPress={toggleBioExpansion}>
+                                    <Text style={styles.readMoreText}>
+                                        {isExpanded ? 'Show Less' : 'Read More'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    ) : (
+                        <Text style={styles.bioText} numberOfLines={2}>
+                            No Bio .....
                         </Text>
-                        {item.instructor.biography.length > BIO_CHAR_LIMIT && (
-                            <TouchableOpacity onPress={toggleBioExpansion}>
-                                <Text style={styles.readMoreText}>
-                                    {isExpanded ? 'Show Less' : 'Read More'}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
-                    </>
-                ) : (
-                    <Text style={styles.bioText} numberOfLines={2}>
-                        No Bio .....
-                    </Text>
-                )}
+                    )}
+                </View>
+
+                {/* Right: Action Buttons */}
+                <View style={styles.rightContainer}>
+                    {/* Like Button */}
+                    <TouchableOpacity onPress={() => handleReaction('like')} style={styles.actionButton}>
+                        <Animated.View style={styles.iconCircle}>
+                            <Ionicons
+                                name={userReaction === 'like' ? "heart" : "heart-outline"}
+                                size={24}
+                                color={userReaction === 'like' ? "#ff2d55" : "white"}
+                            />
+                        </Animated.View>
+                        <Text style={styles.actionText}>{likesCount}</Text>
+                    </TouchableOpacity>
+
+                    {/* Comment Button */}
+                    <TouchableOpacity style={styles.actionButton} onPress={() => setShowComments(true)}>
+                        <View style={styles.iconCircle}>
+                            <Ionicons name="chatbox-ellipses-outline" size={24} color="white" />
+                        </View>
+                    </TouchableOpacity>
+
+                    {/* Mute Button */}
+                    {isVideo && (
+                        <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
+                            <View style={styles.iconCircle}>
+                                <Ionicons
+                                    name={isMuted ? "volume-mute" : "volume-high"}
+                                    size={24}
+                                    color="white"
+                                />
+                            </View>
+                            <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
+                        </TouchableOpacity>
+                    )}
+                    {/* Reload / Shuffle Button */}
+                    <TouchableOpacity onPress={onRefresh} style={styles.actionButton}>
+                        <View style={styles.iconCircle}>
+                            <Ionicons name="sync" size={24} color="white" />
+                        </View>
+                        <Text style={styles.actionText}>Reload</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
+
+            {/* Progress Bar - Positioned above tab bar, below main UI */}
+            {isVideo && (
+                <ShortProgressBar
+                    player={player}
+                    isVisible={isVisible}
+                    containerWidth={containerWidth}
+                />
+            )}
 
             {/* Comments Sheet */}
             <CommentsSheet
@@ -406,7 +480,6 @@ export default function ShortFeedItem({
 
 const styles = StyleSheet.create({
     container: {
-        width: width,
         backgroundColor: 'black',
     },
     videoContainer: {
@@ -424,12 +497,8 @@ const styles = StyleSheet.create({
         transform: [{ translateX: -25 }, { translateY: -25 }],
     },
     rightContainer: {
-        position: 'absolute',
-        right: 16,
-        bottom: 40, // Positioned above nav bar
         alignItems: 'center',
-        zIndex: 10,
-        gap: 16, // Consistent spacing between icon groups
+        gap: 16,
     },
     profileContainer: {
         marginBottom: 20,
@@ -493,14 +562,8 @@ const styles = StyleSheet.create({
         elevation: 3,
     },
     bottomOverlayCard: {
-        position: 'absolute',
-        bottom: 20,
-        left: 15,
-        backgroundColor: 'transparent',
-        borderRadius: 16,
-        padding: 0, // Reduced padding since background is gone
-        maxWidth: '72%',
-        zIndex: 10,
+        flex: 1,
+        maxWidth: '80%',
     },
     profileRow: {
         flexDirection: 'row',
@@ -562,5 +625,47 @@ const styles = StyleSheet.create({
         textShadowColor: 'rgba(0, 0, 0, 0.8)',
         textShadowOffset: { width: 0, height: 1 },
         textShadowRadius: 3,
+    },
+    progressWrapper: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        paddingLeft: 8,
+        paddingRight: 15,
+        paddingTop: 0,
+        zIndex: 20,
+    },
+    progressBarContainer: {
+        height: 2,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        borderRadius: 1,
+        width: '100%',
+        overflow: 'hidden',
+    },
+    progressBarFill: {
+        height: '100%',
+        backgroundColor: '#fff',
+    },
+    timeLabelContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 2,
+    },
+    timeText: {
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: 10,
+        fontWeight: '600',
+    },
+    bottomUIContainer: {
+        position: 'absolute',
+        bottom: 22,
+        left: 0,
+        right: 0,
+        paddingHorizontal: 8,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-end',
+        zIndex: 15,
     }
 });
