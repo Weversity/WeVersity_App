@@ -56,7 +56,7 @@ export default function PublicSettingsScreen() {
                 setFirstName(data.first_name || '');
                 setLastName(data.last_name || '');
                 setBio(data.biography || ''); // Map to 'biography' field
-                setRole(data.occupation || 'Instructor'); // Map to 'occupation' field
+                setRole(data.occupation || ''); // Map to 'occupation' field
                 setAvatarUrl(data.avatar_url || '');
             }
         } catch (error: any) {
@@ -138,25 +138,28 @@ export default function PublicSettingsScreen() {
 
             // Sync with auth metadata (non-blocking, fire-and-forget)
             // This runs in the background and won't block the UI
-            supabase.auth.updateUser({
-                data: {
-                    first_name: firstName,
-                    last_name: lastName,
-                    avatar_url: finalAvatarUrl,
-                }
-            }).catch((authError: any) => {
-                // Log but don't block on auth metadata errors
-                console.error('Auth metadata update failed (non-critical):', authError);
-            });
+            // Sync with auth metadata (Awaited for consistency)
+            try {
+                await supabase.auth.updateUser({
+                    data: {
+                        first_name: firstName,
+                        last_name: lastName,
+                        avatar_url: finalAvatarUrl,
+                        occupation: role, // Ensure key is 'occupation'
+                    }
+                });
+            } catch (authError: any) {
+                console.error('Auth metadata update failed:', authError);
+            }
 
-            // Optimistically update local auth user metadata so other screens (Inbox, ViewProfile, etc.)
-            // instantly see the latest profile values without waiting for Supabase cache refresh.
-            updateUser({
+            // Await AuthContext update to ensure local state is synced
+            await updateUser({
                 user_metadata: {
                     ...(user?.user_metadata || {}),
                     first_name: firstName,
                     last_name: lastName,
                     avatar_url: finalAvatarUrl,
+                    occupation: role, // Ensure key is 'occupation'
                 },
             });
 

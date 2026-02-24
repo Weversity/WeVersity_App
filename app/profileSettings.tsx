@@ -10,6 +10,7 @@ import {
   Alert,
   Animated,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -254,28 +255,29 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
 
       if (profileError) throw profileError;
 
-      // 3. Update Auth Metadata (Non-Blocking / Independent)
+      // 3. Update Auth Metadata (Awaited for full sync)
       console.log('Syncing auth metadata...');
       try {
         await supabase.auth.updateUser({
           data: {
             first_name: fName,
             last_name: lName,
-            avatar_url: pImg
+            avatar_url: pImg,
+            occupation: occ // Correctly include occupation
           }
         });
       } catch (authErr) {
-        // Log but do NOT fail the main process
-        console.warn('Auth metadata update failed (non-critical):', authErr);
+        console.warn('Auth metadata update failed:', authErr);
       }
 
-      // 3b. Optimistically sync local auth context so all screens immediately reflect new metadata.
-      updateUser({
+      // 3b. Optimistically sync local auth context (Awaited for immediate reflection)
+      await updateUser({
         user_metadata: {
           ...(user?.user_metadata || {}),
           first_name: fName,
           last_name: lName,
           avatar_url: pImg,
+          occupation: occ // Use occupation as key
         },
       });
 
@@ -283,7 +285,9 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
 
       // 4. Critical Execution Order
       console.log('Executing refresh...');
-      await onRefresh(); // Trigger parent sync
+      if (onRefresh) {
+        await onRefresh(); // Trigger parent sync
+      }
 
       console.log('Stopping spinner and closing...');
       setIsUpdating(false);
@@ -309,77 +313,94 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
 
   return (
     <Modal transparent animationType="none" visible={visible} onRequestClose={onClose}>
-      <TouchableOpacity style={editProfileStyles.overlay} activeOpacity={1} onPress={onClose}>
-        <Animated.View style={[editProfileStyles.modalContent, { transform: [{ scale: scaleAnim }] }]}>
-          <TouchableOpacity style={editProfileStyles.closeButton} onPress={onClose}>
-            <Ionicons name="close-circle-outline" size={28} color="#999" />
-          </TouchableOpacity>
-          <Text style={editProfileStyles.modalTitle}>Edit Profile</Text>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={editProfileStyles.keyboardView}
+      >
+        <TouchableOpacity style={editProfileStyles.overlay} activeOpacity={1} onPress={onClose}>
+          <Animated.View style={[editProfileStyles.modalContent, { transform: [{ scale: scaleAnim }] }]}>
+            {/* Fixed Close Button */}
+            <TouchableOpacity style={editProfileStyles.closeButton} onPress={onClose}>
+              <Ionicons name="close-circle-outline" size={32} color="#999" />
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={editProfileStyles.profileImageContainer}
-            onPress={handleImagePick}
-            disabled={isUploading || isUpdating}
-          >
-            {isUploading ? (
-              <ActivityIndicator color="#8A2BE2" />
-            ) : (
-              <Image
-                source={(profileImage && profileImage.trim() !== '' && profileImage.startsWith('http'))
-                  ? { uri: profileImage }
-                  : { uri: `https://ui-avatars.com/api/?name=${firstName}+${lastName}&background=8A2BE2&color=fff` }}
-                style={[editProfileStyles.profileImage, { backgroundColor: '#f0f0f0' }]}
+            <ScrollView
+              style={editProfileStyles.scrollView}
+              contentContainerStyle={editProfileStyles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={editProfileStyles.modalTitle}>Edit Profile</Text>
+
+              <TouchableOpacity
+                style={editProfileStyles.profileImageContainer}
+                onPress={handleImagePick}
+                disabled={isUploading || isUpdating}
+              >
+                {isUploading ? (
+                  <ActivityIndicator color="#8A2BE2" />
+                ) : (
+                  <Image
+                    source={(profileImage && profileImage.trim() !== '' && profileImage.startsWith('http'))
+                      ? { uri: profileImage }
+                      : { uri: `https://ui-avatars.com/api/?name=${firstName}+${lastName}&background=8A2BE2&color=fff` }}
+                    style={[editProfileStyles.profileImage, { backgroundColor: '#f0f0f0' }]}
+                  />
+                )}
+                <View style={editProfileStyles.cameraIcon}>
+                  <Ionicons name="camera-outline" size={24} color="#fff" />
+                </View>
+              </TouchableOpacity>
+
+              <TextInput
+                style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
+                placeholder="First Name"
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholderTextColor="#666"
+                editable={!isUpdating}
               />
-            )}
-            <View style={editProfileStyles.cameraIcon}>
-              <Ionicons name="camera-outline" size={24} color="#fff" />
-            </View>
-          </TouchableOpacity>
 
-          <TextInput
-            style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
-            placeholder="First Name"
-            value={firstName}
-            onChangeText={setFirstName}
-            placeholderTextColor="#666"
-            editable={!isUpdating}
-          />
+              <TextInput
+                style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
+                placeholder="Last Name"
+                value={lastName}
+                onChangeText={setLastName}
+                placeholderTextColor="#666"
+                editable={!isUpdating}
+              />
+              <TextInput
+                style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
+                placeholder="Role"
+                value={occupation}
+                onChangeText={setOccupation}
+                placeholderTextColor="#666"
+                editable={!isUpdating}
+              />
 
-          <TextInput
-            style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
-            placeholder="Last Name"
-            value={lastName}
-            onChangeText={setLastName}
-            placeholderTextColor="#666"
-            editable={!isUpdating}
-          />
-          <TextInput
-            style={[editProfileStyles.input, isUpdating && { opacity: 0.6 }]}
-            placeholder="Occupation"
-            value={occupation}
-            onChangeText={setOccupation}
-            placeholderTextColor="#666"
-            editable={!isUpdating}
-          />
-
-          <TouchableOpacity
-            style={[editProfileStyles.updateButton, isUpdating && { opacity: 0.7 }]}
-            onPress={handleUpdateProfile}
-            disabled={isUpdating}
-          >
-            {isUpdating ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={editProfileStyles.updateButtonText}>Update Profile</Text>
-            )}
-          </TouchableOpacity>
-        </Animated.View>
-      </TouchableOpacity >
+              <TouchableOpacity
+                style={[editProfileStyles.updateButton, isUpdating && { opacity: 0.7 }]}
+                onPress={handleUpdateProfile}
+                disabled={isUpdating}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={editProfileStyles.updateButtonText}>Update Profile</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </Animated.View>
+        </TouchableOpacity >
+      </KeyboardAvoidingView>
     </Modal >
   );
 };
 
 const editProfileStyles = StyleSheet.create({
+  keyboardView: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
     justifyContent: 'center',
@@ -388,27 +409,37 @@ const editProfileStyles = StyleSheet.create({
   },
   modalContent: {
     width: '90%',
+    maxHeight: '85%', // Prevent modal from going off-screen
     backgroundColor: '#fff',
     borderRadius: 20,
-    padding: 25,
-    alignItems: 'center',
+    overflow: 'hidden', // Required for fixed elements to stay inside rounded corners
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
   },
+  scrollView: {
+    width: '100%',
+  },
+  scrollContent: {
+    padding: 25,
+    alignItems: 'center',
+    flexGrow: 1,
+    paddingBottom: 40, // Extra space at bottom
+  },
   closeButton: {
     position: 'absolute',
     top: 15,
     right: 15,
-    zIndex: 1,
+    zIndex: 10, // Higher than ScrollView
   },
   modalTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 20,
+    marginTop: 10, // Adjust for close button
   },
   profileImageContainer: {
     width: 120,
@@ -418,6 +449,7 @@ const editProfileStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 25,
+    flexShrink: 0, // Prevent shrinking when keyboard opens
   },
   profileImage: {
     width: 120,
@@ -439,6 +471,7 @@ const editProfileStyles = StyleSheet.create({
     padding: 15,
     fontSize: 16,
     marginBottom: 15,
+    color: '#333',
   },
   updateButton: {
     width: '100%',
@@ -606,10 +639,11 @@ export default function ProfileSettingsScreen() {
   const [profileData, setProfileData] = useState<any>(null);
 
   useEffect(() => {
-    fetchProfile();
-  }, [editProfileModalVisible]); // Refetch when modal closes to update UI
+    fetchProfile(true); // First load with spinner
+  }, []);
 
-  const fetchProfile = async () => {
+  const fetchProfile = async (isFirstLoad = false) => {
+    if (isFirstLoad) setLoadingProfile(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -674,60 +708,67 @@ export default function ProfileSettingsScreen() {
         <Text style={styles.headerText}>Profile Settings</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-
-        {/* Main User Card */}
-        <View style={styles.card}>
-          <View style={styles.userInfoRow}>
-            {/* Avatar */}
-            <View style={styles.avatarContainer}>
-              <Image
-                source={(avatarUrl && avatarUrl.trim() !== '' && avatarUrl.startsWith('http'))
-                  ? { uri: avatarUrl }
-                  : { uri: `https://ui-avatars.com/api/?name=${firstName}+${lastName}&background=8A2BE2&color=fff` }}
-                style={styles.profilePic}
-              />
-            </View>
-            <View style={styles.userInfoText}>
-              <Text style={styles.userName}>{fullName}</Text>
-              <Text style={styles.userEmail}>{userEmail}</Text>
-            </View>
-          </View>
-
-          <View style={styles.separator} />
-
-          <View style={styles.actionButtonsRow}>
-            {/* Removed My Contacts Button */}
-            <TouchableOpacity style={styles.actionButton} onPress={() => setEditProfileModalVisible(true)}>
-              <Ionicons name="create-outline" size={18} color="#fff" style={styles.btnIcon} />
-              <Text style={styles.actionButtonText}>Edit Profile</Text>
-            </TouchableOpacity>
-          </View>
+      {loadingProfile ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#8A2BE2" />
+          <Text style={styles.loadingText}>Loading Profile...</Text>
         </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.content}>
 
-        {/* Account Card */}
-        <View style={styles.card}>
-          <View style={styles.accountHeaderRow}>
-            <View style={styles.accountLabelContainer}>
-              <Ionicons name="settings-outline" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
-              <Text style={styles.cardSectionTitle}>Account</Text>
+          {/* Main User Card */}
+          <View style={styles.card}>
+            <View style={styles.userInfoRow}>
+              {/* Avatar */}
+              <View style={styles.avatarContainer}>
+                <Image
+                  source={(avatarUrl && avatarUrl.trim() !== '' && avatarUrl.startsWith('http'))
+                    ? { uri: avatarUrl }
+                    : { uri: `https://ui-avatars.com/api/?name=${firstName}+${lastName}&background=8A2BE2&color=fff` }}
+                  style={styles.profilePic}
+                />
+              </View>
+              <View style={styles.userInfoText}>
+                <Text style={styles.userName}>{fullName}</Text>
+                <Text style={styles.userEmail}>{userEmail}</Text>
+              </View>
             </View>
-            <TouchableOpacity style={styles.changePasswordBtn} onPress={() => setChangePasswordModalVisible(true)}>
-              <Text style={styles.changePasswordText}>Change Password</Text>
-            </TouchableOpacity>
+
+            <View style={styles.separator} />
+
+            <View style={styles.actionButtonsRow}>
+              {/* Removed My Contacts Button */}
+              <TouchableOpacity style={styles.actionButton} onPress={() => setEditProfileModalVisible(true)}>
+                <Ionicons name="create-outline" size={18} color="#fff" style={styles.btnIcon} />
+                <Text style={styles.actionButtonText}>Edit Profile</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <View style={styles.separator} />
+          {/* Account Card */}
+          <View style={styles.card}>
+            <View style={styles.accountHeaderRow}>
+              <View style={styles.accountLabelContainer}>
+                <Ionicons name="settings-outline" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
+                <Text style={styles.cardSectionTitle}>Account</Text>
+              </View>
+              <TouchableOpacity style={styles.changePasswordBtn} onPress={() => setChangePasswordModalVisible(true)}>
+                <Text style={styles.changePasswordText}>Change Password</Text>
+              </TouchableOpacity>
+            </View>
 
-          <View style={styles.accountActionsRow}>
-            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={18} color="#8A2BE2" style={styles.btnIcon} />
-              <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
+            <View style={styles.separator} />
+
+            <View style={styles.accountActionsRow}>
+              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                <Ionicons name="log-out-outline" size={18} color="#8A2BE2" style={styles.btnIcon} />
+                <Text style={styles.logoutText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
 
-      </ScrollView>
+        </ScrollView>
+      )}
 
       {/* Confirmation Dialogs */}
       <ConfirmationDialog
@@ -764,6 +805,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#666',
   },
   header: {
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
@@ -916,3 +968,5 @@ const styles = StyleSheet.create({
   },
 
 });
+
+

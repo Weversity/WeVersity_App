@@ -65,21 +65,20 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        const { dy } = gestureState;
-        return Math.abs(dy) > 5;
+        // Only trigger for significant vertical movements
+        return Math.abs(gestureState.dy) > 10;
       },
       onPanResponderMove: (_, gestureState) => {
-        // Only allow dragging down (positive dy) or resist dragging up
-        // Simple version: just setValue
+        // Only allow dragging down (positive dy)
         if (gestureState.dy > 0) {
           panY.setValue(gestureState.dy);
         } else {
-          // Elastic resistance for dragging up could go here, for now stick to 0 or slight minimal movement
+          // Resist dragging up
           panY.setValue(gestureState.dy * 0.1);
         }
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 100) {
+        if (gestureState.dy > 120) {
           closeSheet();
         } else {
           resetPosition();
@@ -355,11 +354,10 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
           <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         </TouchableWithoutFeedback>
 
-        {/* Bottom Sheet */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.keyboardAvoidingView}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20} // Small offset for Android
+          enabled={Platform.OS === 'ios'} // On Android, resize handles it better via manifest
         >
           <Animated.View
             style={[
@@ -368,12 +366,11 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
               // Dynamic height for keyboard: expand to nearly full screen to allow scrolling
               isKeyboardVisible && { height: '100%', maxHeight: '100%', borderTopLeftRadius: 0, borderTopRightRadius: 0 }
             ]}
-            {...panResponderRef.panHandlers}
           >
-            <View style={styles.sheetHeader}>
-              {/* Removed Help Question Mark as requested */}
-              <View />
-              <TouchableOpacity onPress={closeSheet}>
+            {/* Header / Drag Handle area now handles gestures */}
+            <View style={styles.sheetHeader} {...panResponderRef.panHandlers}>
+              <View style={styles.dragHandle} />
+              <TouchableOpacity onPress={closeSheet} style={styles.closeIcon}>
                 <Ionicons name="close" size={28} color="black" />
               </TouchableOpacity>
             </View>
@@ -429,6 +426,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   keyboardAvoidingView: {
+    flex: 1,
     justifyContent: 'flex-end',
     width: '100%',
   },
@@ -437,9 +435,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 15,
     borderTopRightRadius: 15,
     paddingHorizontal: 20,
-    paddingTop: 10,
-    maxHeight: SCREEN_HEIGHT * 0.95, // Increased slightly more to be very close to top
-    height: SCREEN_HEIGHT * 0.9,    // Use a high percentage of screen
+    maxHeight: SCREEN_HEIGHT * 0.95,
+    height: SCREEN_HEIGHT * 0.9,
     width: '100%',
     shadowColor: '#000',
     shadowOffset: {
@@ -451,11 +448,24 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    height: 40,
+    width: '100%',
     alignItems: 'center',
-    marginBottom: 10, // Reduced margin
+    justifyContent: 'center',
+    marginBottom: 5,
+  },
+  dragHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#dbdbdb',
+    borderRadius: 3,
     marginTop: 10,
+  },
+  closeIcon: {
+    position: 'absolute',
+    right: 0,
+    top: 5,
+    padding: 5,
   },
   scrollContent: {
     flexGrow: 1, // Important to allow bottom section to sit at bottom

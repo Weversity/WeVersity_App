@@ -68,7 +68,6 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
   const menuItems = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: 'google_meet', title: 'Google Meet', icon: 'logo-google', onPress: () => { onClose(); router.push('/live/googleMeet'); } },
-    { id: 'withdrawals', title: 'Withdrawals', icon: 'wallet-outline', onPress: () => { onClose(); router.push('/instructor/withdrawals'); } },
     { id: '3', title: 'Public Profile', icon: 'person-circle-outline', onPress: () => { onClose(); onViewPublicProfile(); } },
     { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
     { id: '7', title: 'Support', icon: 'help-circle-outline', onPress: () => { onClose(); router.push('/support'); } },

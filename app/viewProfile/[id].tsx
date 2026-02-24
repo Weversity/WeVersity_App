@@ -222,7 +222,8 @@ export default function ViewProfile() {
             ...profile,
             first_name: user.user_metadata.first_name || profile?.first_name,
             last_name: user.user_metadata.last_name || profile?.last_name,
-            avatar_url: user.user_metadata.avatar_url || profile?.avatar_url
+            avatar_url: user.user_metadata.avatar_url || profile?.avatar_url,
+            occupation: user.user_metadata.occupation || profile?.occupation
         } : profile;
 
         // Ensure biography is present in displayProfile if it was fetched but not in user_metadata
@@ -256,7 +257,7 @@ export default function ViewProfile() {
                         <Text style={styles.name}>{displayProfile?.first_name} {displayProfile?.last_name}</Text>
                         {/* Removed small edit button as requested */}
                     </View>
-                    <Text style={styles.role}>Instructor</Text>
+                    <Text style={styles.role}>{displayProfile?.occupation || 'Member'}</Text>
 
                     {/* Bio Section - TikTok Style with Refined Add Button */}
                     <View style={styles.bioContainer}>

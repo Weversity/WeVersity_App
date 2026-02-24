@@ -663,13 +663,19 @@ export default function ChatScreen() {
           <View style={styles.actionSheetContainer}>
             <View style={styles.actionSheetHandle} />
 
-            <TouchableOpacity
-              style={styles.actionItem}
-              onPress={() => selectedMessage && handleCopy(selectedMessage.content)}
-            >
-              <Ionicons name="copy-outline" size={22} color="#555" />
-              <Text style={styles.actionText}>Copy Text</Text>
-            </TouchableOpacity>
+            {selectedMessage && !(
+              selectedMessage.content.startsWith('file://') ||
+              selectedMessage.content.includes('res.cloudinary.com') ||
+              selectedMessage.content.match(/\.(jpeg|jpg|gif|png|webp|mp4|mov|m4v)$/i)
+            ) && (
+                <TouchableOpacity
+                  style={styles.actionItem}
+                  onPress={() => handleCopy(selectedMessage.content)}
+                >
+                  <Ionicons name="copy-outline" size={22} color="#555" />
+                  <Text style={styles.actionText}>Copy Text</Text>
+                </TouchableOpacity>
+              )}
 
             <TouchableOpacity
               style={[styles.actionItem, styles.deleteAction]}
