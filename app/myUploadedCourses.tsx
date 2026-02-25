@@ -4,7 +4,7 @@ import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface UploadedCourse {
     id: string;
@@ -48,8 +48,23 @@ export default function MyUploadedCoursesScreen() {
         }
     };
 
+    const handleCoursePress = (course: UploadedCourse) => {
+        if (course.is_published) {
+            router.push({ pathname: '/courseDetails/[id]', params: { id: course.id } } as any);
+        } else {
+            Alert.alert(
+                'Draft Course',
+                'This course is currently in draft. You will be able to view the content once it is officially published.'
+            );
+        }
+    };
+
     const renderCourseItem = ({ item }: { item: UploadedCourse }) => (
-        <View style={styles.courseCard}>
+        <TouchableOpacity
+            style={styles.courseCard}
+            onPress={() => handleCoursePress(item)}
+            activeOpacity={0.7}
+        >
             <View style={styles.imageWrapper}>
                 <Image
                     source={{ uri: item.image_url || 'https://via.placeholder.com/150' }}
@@ -76,7 +91,7 @@ export default function MyUploadedCoursesScreen() {
                     </View>
                 </View>
             </View>
-        </View>
+        </TouchableOpacity>
     );
 
     return (

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 import { useIsFocused } from '@react-navigation/native';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
@@ -63,38 +64,25 @@ const formatTime = (seconds: number) => {
 };
 
 // Memoized Progress Bar Component to avoid re-rendering ShortFeedItem
-const ShortProgressBar = React.memo(({ player, isVisible, containerWidth }: { player: any, isVisible: boolean, containerWidth: number }) => {
-    const [progress, setProgress] = useState(0);
+const ShortProgressBar = React.memo(({ player, isVisible }: { player: any, isVisible: boolean, containerWidth: number }) => {
     const [currentTime, setCurrentTime] = useState(0);
+    const isDraggingRef = useRef(false);
+    const initiallyPlayingRef = useRef(false);
 
+    // Sync from player (only when NOT dragging)
     useEffect(() => {
         if (!isVisible || !player) return;
 
         const interval = setInterval(() => {
-            if (player.duration > 0) {
-                const current = player.currentTime;
-                setCurrentTime(current);
-                setProgress((current / player.duration) * 100);
+            if (player.duration > 0 && !isDraggingRef.current) {
+                setCurrentTime(player.currentTime);
             }
-        }, 500);
+        }, 250);
 
         return () => clearInterval(interval);
     }, [player, isVisible]);
 
-    if (!isVisible) return null;
-
-    const handleScrub = (event: any) => {
-        if (!player || player.duration <= 0) return;
-
-        const { locationX } = event.nativeEvent;
-        const barWidth = containerWidth - 30; // 15 padding on each side
-        const seekRatio = Math.max(0, Math.min(1, locationX / barWidth));
-        const seekTime = seekRatio * player.duration;
-
-        player.seek(seekTime);
-        setCurrentTime(seekTime);
-        setProgress(seekRatio * 100);
-    };
+    if (!isVisible || !player) return null;
 
     return (
         <View style={styles.progressWrapper}>
@@ -102,13 +90,31 @@ const ShortProgressBar = React.memo(({ player, isVisible, containerWidth }: { pl
                 <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
                 <Text style={styles.timeText}>{formatTime(player.duration || 0)}</Text>
             </View>
-            <TouchableOpacity
-                activeOpacity={1}
-                onPress={handleScrub}
-                style={styles.progressBarContainer}
-            >
-                <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
-            </TouchableOpacity>
+            <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={player.duration || 1}
+                value={currentTime}
+                onSlidingStart={() => {
+                    isDraggingRef.current = true;
+                    initiallyPlayingRef.current = player.playing;
+                    player.pause();
+                }}
+                onValueChange={(value) => {
+                    player.currentTime = value;
+                    setCurrentTime(value);
+                }}
+                onSlidingComplete={(value) => {
+                    isDraggingRef.current = false;
+                    player.currentTime = value;
+                    if (initiallyPlayingRef.current) {
+                        player.play();
+                    }
+                }}
+                minimumTrackTintColor="#8A2BE2"
+                maximumTrackTintColor="rgba(255,255,255,0.25)"
+                thumbTintColor="white"
+            />
         </View>
     );
 });
@@ -217,7 +223,7 @@ export default function ShortFeedItem({
     useEffect(() => {
         if (isVideo && player) {
             // Video must pause if screen is not focused OR item is not visible
-            if (isFocused && isVisible) {
+            if (isFocused && isVisible && !showComments) {
                 player.play();
                 setIsPlaying(true);
                 // Fade out play icon
@@ -628,29 +634,22 @@ const styles = StyleSheet.create({
     },
     progressWrapper: {
         position: 'absolute',
-        bottom: 0,
+        bottom: -10, // Adjusted slightly for proximity
         left: 0,
         right: 0,
-        paddingLeft: 8,
-        paddingRight: 15,
         paddingTop: 0,
         zIndex: 20,
     },
-    progressBarContainer: {
-        height: 2,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        borderRadius: 1,
+    slider: {
         width: '100%',
-        overflow: 'hidden',
-    },
-    progressBarFill: {
-        height: '100%',
-        backgroundColor: '#fff',
+        height: 30, // Better hit area
+        paddingHorizontal: 0, // Unified padding for perfect alignment
     },
     timeLabelContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 2,
+        paddingHorizontal: 15, // Unified padding
+        marginBottom: -9, // Tight spacing
     },
     timeText: {
         color: 'rgba(255,255,255,0.7)',
@@ -659,7 +658,7 @@ const styles = StyleSheet.create({
     },
     bottomUIContainer: {
         position: 'absolute',
-        bottom: 22,
+        bottom: 28,
         left: 0,
         right: 0,
         paddingHorizontal: 8,

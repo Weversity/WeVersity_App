@@ -666,6 +666,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
     setUploadModalVisible(true);
   };
 
+  const handleCoursePress = (course: any) => {
+    if (course.is_published) {
+      router.push({ pathname: '/courseDetails/[id]', params: { id: course.id } } as any);
+    } else {
+      Alert.alert(
+        'Draft Course',
+        'This course is currently in draft. You will be able to view the content once it is officially published.'
+      );
+    }
+  };
+
 
 
   return (
@@ -985,7 +996,12 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             </View>
           ) : (
             uploadedCourses.slice(0, 3).map((course) => (
-              <View key={course.id} style={styles.uploadedCourseCard}>
+              <TouchableOpacity
+                key={course.id}
+                style={styles.uploadedCourseCard}
+                onPress={() => handleCoursePress(course)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.imageContainer}>
                   <Image
                     source={{ uri: course.image_url || 'https://via.placeholder.com/150' }}
@@ -1012,7 +1028,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                     </View>
                   </View>
                 </View>
-              </View >
+              </TouchableOpacity >
             ))
           )}
         </View >
