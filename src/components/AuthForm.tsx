@@ -68,7 +68,6 @@ const AuthForm: React.FC<{
         // Sign-up specific state
         const [firstName, setFirstName] = useState('');
         const [lastName, setLastName] = useState('');
-        const [userName, setUserName] = useState('');
         const [phoneNumber, setPhoneNumber] = useState('');
         const [confirmPassword, setConfirmPassword] = useState('');
         const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
@@ -81,7 +80,6 @@ const AuthForm: React.FC<{
             if (isSignUp) {
                 if (!firstName.trim()) newErrors.firstName = "First Name is required";
                 if (!lastName.trim()) newErrors.lastName = "Last Name is required";
-                if (!userName.trim()) newErrors.userName = "Username is required";
 
                 if (!phoneNumber) {
                     newErrors.phoneNumber = "Phone Number is required";
@@ -132,9 +130,32 @@ const AuthForm: React.FC<{
                 }
 
                 if (data.user) {
-                    const userRole = data.user.user_metadata?.role || 'student';
-                    const normalizedRole: Role = (userRole.charAt(0).toUpperCase() + userRole.slice(1)) as Role;
-                    login(normalizedRole);
+                    const { data: profile, error: profileError } = await supabase
+                        .from('profiles')
+                        .select('role, approved')
+                        .eq('id', data.user.id)
+                        .single();
+
+                    if (!profileError && profile) {
+                        if (profile.role === 'instructor' && profile.approved === false) {
+                            await supabase.auth.signOut();
+                            Alert.alert(
+                                "Account Pending",
+                                "Your instructor account is still pending approval. Please wait for an email once your account is activated.",
+                                [{ text: "OK" }]
+                            );
+                            setIsLoading(false);
+                            return;
+                        }
+
+                        const userRole = profile.role || 'student';
+                        const normalizedRole: Role = (userRole.charAt(0).toUpperCase() + userRole.slice(1)) as Role;
+                        login(normalizedRole);
+                    } else {
+                        const userRole = data.user.user_metadata?.role || 'student';
+                        const normalizedRole: Role = (userRole.charAt(0).toUpperCase() + userRole.slice(1)) as Role;
+                        login(normalizedRole);
+                    }
 
                     if (onAuthSuccess) {
                         onAuthSuccess();
@@ -176,7 +197,6 @@ const AuthForm: React.FC<{
                     options: {
                         data: {
                             role: role,
-                            full_name: `${firstName} ${lastName}`.trim(),
                             first_name: firstName,
                             last_name: lastName,
                             ref_phone: phoneNumber,
@@ -189,19 +209,18 @@ const AuthForm: React.FC<{
                 if (data.user) {
                     const { error: profileError } = await supabase
                         .from('profiles')
-                        .insert([
+                        .upsert([
                             {
                                 id: data.user.id,
                                 role: role,
                                 first_name: firstName,
                                 last_name: lastName,
-                                full_name: `${firstName} ${lastName}`.trim(),
-                                username: userName || email.split('@')[0],
-                                approved: role === 'student' ? true : false,
+                                username: email,
+                                approved: role === 'student',
                                 email: email,
                                 phone_number: phoneNumber,
                             }
-                        ]);
+                        ], { onConflict: 'id' });
 
                     if (profileError) {
                         console.error("Profile creation failed:", profileError);
@@ -223,6 +242,17 @@ const AuthForm: React.FC<{
                 }
             } catch (error: any) {
                 console.error("Signup Error:", error);
+
+                // Handle "User already registered" - Redirect to Login
+                if (error.message?.includes("User already registered") || error.code === '23505') {
+                    Alert.alert(
+                        'Account Exists',
+                        'This email is already registered. Please log in instead.',
+                        [{ text: 'Go to Login', onPress: () => setIsSignUp(false) }]
+                    );
+                    return;
+                }
+
                 Alert.alert('Signup Failed', error.message || "An error occurred during sign up");
             } finally {
                 setIsLoading(false);
@@ -387,17 +417,6 @@ const AuthForm: React.FC<{
                     </View>
                 </View>
 
-                <View style={{ width: '100%' }}>
-                    <TextInput
-                        style={[styles.input, errors.userName ? styles.errorInput : null]}
-                        placeholder="Username"
-                        value={userName}
-                        onChangeText={(text) => { setUserName(text); if (errors.userName) setErrors({ ...errors, userName: '' }) }}
-                        autoCapitalize="none"
-                        placeholderTextColor="#666"
-                    />
-                    {errors.userName && <Text style={styles.errorText}>{errors.userName}</Text>}
-                </View>
 
                 <View style={{ width: '100%' }}>
                     <TextInput

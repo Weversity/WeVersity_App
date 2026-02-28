@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -168,7 +169,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
         const { GoogleSignin } = require('@react-native-google-signin/google-signin');
         GoogleSignin.configure({
           offlineAccess: true,
-          webClientId: '530732187418-psu0kbajdpt5fsvtr3g662iovvq7pqrs.apps.googleusercontent.com',
+          webClientId: '636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
         });
       } catch (e) {
         console.warn('GoogleSignin.configure failed:', e);
@@ -234,24 +235,49 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
       if (data.session) {
         console.log('🔵 [Google Login] Step 8: Checking if user exists in profiles...');
 
-        // Check if user exists in profiles table
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('id')
+          .select('id, role, approved')
           .eq('id', data.session.user.id)
           .single();
 
         if (profileError || !profile) {
           // User doesn't exist in database - this is a new user trying to login
-          console.error('❌ [Google Login] User not found in profiles table');
-          console.error('Profile Error:', profileError);
+          console.log('🔵 [Google Login] User profile not found, Attempting auto-creation...');
 
-          // Sign out the auto-created user
+          const fullName = data.session.user.user_metadata?.full_name || 'Google User';
+          const email = data.session.user.email;
+          const [firstName, ...lastNameArr] = fullName.split(' ');
+          const lastName = lastNameArr.join(' ') || '';
+
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .upsert([
+              {
+                id: data.session.user.id,
+                role: 'student',
+                first_name: firstName,
+                last_name: lastName,
+                username: email,
+                approved: true,
+                email: email,
+              }
+            ], { onConflict: 'id' });
+
+          if (insertError) {
+            console.error('❌ [Google Login] Profile Auto-creation failed:', insertError.message);
+            // Even if creation fails, we don't necessarily want to kick them out if the session is valid
+          } else {
+            console.log('✅ [Google Login] Profile auto-created successfully');
+          }
+        }
+
+        if (profile?.role === 'instructor' && profile?.approved === false) {
           await supabase.auth.signOut();
-
           Alert.alert(
-            'Account Not Found',
-            'No account is associated with this Google email. Please sign up first.'
+            "Account Pending",
+            "Your instructor account is still pending approval. Please wait for an email once your account is activated.",
+            [{ text: "OK" }]
           );
           return;
         }
@@ -291,6 +317,102 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     }
   };
 
+  const handleAppleLogin = async () => {
+    try {
+      console.log('🔵 [Apple Login] Step 1: Starting Apple Sign-In...');
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) {
+        throw new Error('No identityToken returned from Apple.');
+      }
+
+      console.log('🔵 [Apple Login] Step 2: Authenticating with Supabase...');
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+      });
+
+      if (error) {
+        console.error('❌ [Apple Login] Supabase Error:', error.message);
+        Alert.alert('Authentication Failed', `Supabase error: ${error.message}`);
+        return;
+      }
+
+      console.log('✅ [Apple Login] Step 3: Supabase Authentication Successful');
+
+      if (data.session) {
+        console.log('🔵 [Apple Login] Step 4: Checking if user exists in profiles...');
+
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, role, approved')
+          .eq('id', data.session.user.id)
+          .single();
+
+        if (profileError || !profile) {
+          console.log('🔵 [Apple Login] User profile not found, Attempting auto-creation...');
+
+          const fullNameObj = credential.fullName;
+          const appleEmail = credential.email || data.session.user.email;
+
+          const firstName = fullNameObj?.givenName || 'Apple';
+          const lastName = fullNameObj?.familyName || 'User';
+
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .upsert([
+              {
+                id: data.session.user.id,
+                role: 'student',
+                first_name: firstName,
+                last_name: lastName,
+                username: appleEmail,
+                approved: true,
+                email: appleEmail,
+              }
+            ], { onConflict: 'id' });
+
+          if (insertError) {
+            console.error('❌ [Apple Login] Profile Auto-creation failed:', insertError.message);
+          } else {
+            console.log('✅ [Apple Login] Profile auto-created successfully');
+          }
+        }
+
+        if (profile?.role === 'instructor' && profile?.approved === false) {
+          await supabase.auth.signOut();
+          Alert.alert(
+            "Account Pending",
+            "Your instructor account is still pending approval. Please wait for an email once your account is activated.",
+            [{ text: "OK" }]
+          );
+          return;
+        }
+
+        console.log('✅ [Apple Login] Step 5: User profile found, Navigating to Dashboard...');
+        closeSheet();
+        setTimeout(() => {
+          router.replace('/(tabs)');
+        }, 300);
+      } else {
+        console.warn('⚠️ [Apple Login] No session created');
+        Alert.alert('Login Issue', 'Authentication succeeded but no session was created.');
+      }
+    } catch (error: any) {
+      if (error.code === 'ERR_REQUEST_CANCELED') {
+        Alert.alert('Sign-In Cancelled', 'The Apple sign-in process was cancelled.');
+      } else {
+        console.error('❌ [Apple Login] Error:', error);
+        Alert.alert('Apple Sign-In Error', 'An unexpected error occurred. Please try again.');
+      }
+    }
+  };
+
   const renderSocialLogins = () => (
     <View style={{ flex: 1 }}>
       <View style={styles.topContent}>
@@ -304,9 +426,14 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
             style={[styles.buttonIcon, { width: 24, height: 24 }]}
             resizeMode="contain"
           />
-          {/* <Ionicons name="logo-google" size={24} color="#DB4437" style={styles.buttonIcon} /> */}
           <Text style={styles.buttonText}>Continue with Google</Text>
         </TouchableOpacity>
+        {Platform.OS === 'ios' && (
+          <TouchableOpacity style={styles.button} onPress={handleAppleLogin}>
+            <Ionicons name="logo-apple" size={24} color="black" style={styles.buttonIcon} />
+            <Text style={styles.buttonText}>Continue with Apple</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={styles.bottomSection}>
@@ -325,8 +452,6 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
           </Text>
         </View>
 
-        {/* <View style={styles.divider} /> */}
-
         <View style={styles.signupContainer}>
           <Text style={styles.signupText}>
             Don&apos;t have an account?
@@ -341,7 +466,6 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
 
   const renderPhoneLogin = () => (
     <View style={styles.emailLoginContainer}>
-      {/* AuthForm handles its own validation and rendering */}
       <AuthForm onAuthSuccess={closeSheet} showSignUpLink={false} hideSignInTitle={true} />
     </View>
   );
@@ -349,7 +473,6 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
   return (
     <Modal transparent visible={showInternalPopup} onRequestClose={closeSheet} animationType="none">
       <View style={styles.container}>
-        {/* Backdrop */}
         <TouchableWithoutFeedback onPress={closeSheet}>
           <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
         </TouchableWithoutFeedback>
@@ -357,17 +480,15 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.keyboardAvoidingView}
-          enabled={Platform.OS === 'ios'} // On Android, resize handles it better via manifest
+          enabled={Platform.OS === 'ios'}
         >
           <Animated.View
             style={[
               styles.sheet,
               { transform: [{ translateY: panY }] },
-              // Dynamic height for keyboard: expand to nearly full screen to allow scrolling
               isKeyboardVisible && { height: '100%', maxHeight: '100%', borderTopLeftRadius: 0, borderTopRightRadius: 0 }
             ]}
           >
-            {/* Header / Drag Handle area now handles gestures */}
             <View style={styles.sheetHeader} {...panResponderRef.panHandlers}>
               <View style={styles.dragHandle} />
               <TouchableOpacity onPress={closeSheet} style={styles.closeIcon}>
@@ -379,28 +500,14 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
             <ScrollView
               contentContainerStyle={[
                 styles.scrollContent,
-                isKeyboardVisible && { paddingBottom: 150 } // Add extra padding when keyboard is open
+                isKeyboardVisible && { paddingBottom: 150 }
               ]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* Header - Logo and Title */}
               <View style={styles.headerContent}>
                 <Image source={{ uri: 'https://res.cloudinary.com/dn93gd6yw/image/upload/v1764913053/weversity/aekx2f9ciildnnnmg62p.jpg' }} style={styles.logo} />
 
-                {/* 
-                    Logic for Title: 
-                    If showPhoneLogin is true, it should say 'Login to WeVersity' instead of 'Log in' 
-                    Wait, request says: "Heading Update: When the user clicks 'Use phone/email/username', the heading in the next view should say 'Login to WeVersity' instead of just 'Log in'."
-                    
-                    The previous code was:
-                    {!showPhoneLogin && <Text ...>Log in to WeVersity</Text>}
-                    {showPhoneLogin && <Text ...>Log in</Text>}
-
-                    So I should make both say 'Login to WeVersity' or similar.
-                    The request says "Login to WeVersity" for the internal view. 
-                    The main view already says "Log in to WeVersity".
-                 */}
                 <Text style={styles.title}>
                   {showPhoneLogin ? 'Login to WeVersity' : 'Log in to WeVersity'}
                 </Text>
@@ -468,14 +575,14 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   scrollContent: {
-    flexGrow: 1, // Important to allow bottom section to sit at bottom
+    flexGrow: 1,
     paddingBottom: 40,
   },
   title: {
     fontSize: 26,
-    fontWeight: '800', // Thicker font
+    fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 30, // Reduced margin
+    marginBottom: 30,
     color: '#000',
     marginTop: 10,
   },
@@ -484,7 +591,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   logo: {
-    width: 140, // Increased size as requested
+    width: 140,
     height: 140,
     resizeMode: 'contain',
     marginBottom: 0,
@@ -497,17 +604,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     padding: 16,
-    borderRadius: 8, // Less rounded than before
+    borderRadius: 8,
     marginBottom: 12,
-    justifyContent: 'flex-start', // Align left-center like designs usually do, or center if requested. Let's stick to center-ish or left. The image shows centered text relative to button, left icon.
-    // justifyContent: 'center', // Keeps it centered
+    justifyContent: 'flex-start',
     borderWidth: 1,
     borderColor: '#e0e0e0',
     position: 'relative',
   },
   buttonText: {
     textAlign: 'center',
-    flex: 1, // verification
+    flex: 1,
     fontSize: 15,
     fontWeight: '600',
     color: '#000',
@@ -517,8 +623,7 @@ const styles = StyleSheet.create({
     left: 15,
   },
   bottomSection: {
-    marginTop: 'auto', // Pushes to bottom
-    // paddingBottom: 20,
+    marginTop: 'auto',
   },
   legalContainer: {
     flexDirection: 'row',
@@ -532,7 +637,7 @@ const styles = StyleSheet.create({
   },
   legalText: {
     flex: 1,
-    color: '#8e8e8e', // Light gray text
+    color: '#8e8e8e',
     fontSize: 12,
     lineHeight: 16,
   },
@@ -556,15 +661,15 @@ const styles = StyleSheet.create({
     paddingTop: 15,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
-    paddingBottom: 10, // Extra safe space
-    marginBottom: 10, // from bottom of screen
+    paddingBottom: 10,
+    marginBottom: 10,
   },
   signupText: {
     fontSize: 15,
     color: '#000',
   },
   signupLink: {
-    color: '#8A2BE2', // Changed to Purple as requested
+    color: '#8A2BE2',
     fontWeight: 'bold',
     fontSize: 15,
   },

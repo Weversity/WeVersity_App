@@ -364,37 +364,52 @@ export const videoService = {
 
   uploadCommentImage: async (fileUri) => {
     try {
-      const uploadPreset = CLOUDINARY_UPLOAD_PRESET;
+      if (!fileUri) return null;
+
+      // 1. Normalize URI for Android (FormData expects file:// for local files)
+      const normalizedUri = fileUri.startsWith('content://') || fileUri.startsWith('file://')
+        ? fileUri
+        : `file://${fileUri}`;
+
+      console.log('--- Cloudinary: Uploading Comment Image ---');
+      console.log('🔹 Path:', normalizedUri);
+
+      // 2. Use 'weversity_unsigned' preset which is confirmed working for images
+      const uploadPreset = 'weversity_unsigned';
       const data = new FormData();
 
-      // Support for Expo/React Native FormData
+      // @ts-ignore - React Native FormData expects an object for files
       data.append('file', {
-        uri: fileUri,
+        uri: normalizedUri,
         type: 'image/jpeg',
         name: 'comment_image.jpg',
       });
       data.append('upload_preset', uploadPreset);
       data.append('resource_type', 'image');
+      data.append('folder', 'comments_media'); // Organize in Cloudinary
 
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-        {
-          method: 'POST',
-          body: data,
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
+      const cloudName = CLOUDINARY_CLOUD_NAME;
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
+
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        body: data,
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
 
       const result = await response.json();
+
       if (result.secure_url) {
+        console.log('✅ Comment Image Upload Success:', result.secure_url);
         return result.secure_url;
       } else {
+        console.error('❌ Cloudinary Error Details:', result);
         throw new Error(result.error?.message || 'Cloudinary upload failed');
       }
     } catch (error) {
-      console.error('❌ Cloudinary Error:', error.message);
+      console.error('❌ uploadCommentImage Error:', error.message);
       throw error;
     }
   },

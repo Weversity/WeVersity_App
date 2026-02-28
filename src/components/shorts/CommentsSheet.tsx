@@ -1,26 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
+import { BottomSheetFlatList, BottomSheetModal } from '@gorhom/bottom-sheet';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Animated,
     Dimensions,
-    FlatList,
     Image,
     Keyboard,
     KeyboardEvent,
     Modal,
-    PanResponder,
     Platform,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
-    TouchableWithoutFeedback,
     View
 } from 'react-native';
+import { SharedValue } from 'react-native-reanimated';
 import { EmojiKeyboard } from 'rn-emoji-keyboard';
 import { videoService } from '../../services/videoService';
 
@@ -52,10 +51,10 @@ type CommentListItem = Comment | {
 
 interface CommentsSheetProps {
     videoId: string;
-    videoOwnerId?: string;
-    visible: boolean;
-    onClose: () => void;
     currentUser: any;
+    onClose: () => void;
+    onChange?: (index: number) => void;
+    animatedIndex?: SharedValue<number>;
 }
 
 const getRandomColor = (name: string) => {
@@ -88,7 +87,7 @@ const formatCommentTime = (dateString: string) => {
     }
 };
 
-export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose, currentUser }: CommentsSheetProps) {
+const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoId, currentUser, onClose, onChange, animatedIndex }, ref) => {
     const [rawComments, setRawComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(true);
     const [newComment, setNewComment] = useState('');
@@ -97,7 +96,29 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
     const [replyingTo, setReplyingTo] = useState<{ id: string, username: string } | null>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [isModalVisible, setIsModalVisible] = useState(false);
+    const [fullImageUri, setFullImageUri] = useState<string | null>(null);
+    const [reMountKey, setReMountKey] = useState(0);
     const router = useRouter();
+
+    const snapPoints = useMemo(() => ['75%'], []);
+    const bottomSheetRef = useRef<BottomSheetModal>(null);
+
+    useImperativeHandle(ref, () => ({
+        dismiss: () => bottomSheetRef.current?.dismiss(),
+        present: () => bottomSheetRef.current?.present(),
+    } as any));
+    const inputRef = useRef<TextInput>(null);
+
+    const handleDismiss = useCallback(() => {
+        setReMountKey(prev => prev + 1);
+        onClose();
+    }, [onClose]);
+
+    const handleClose = useCallback(() => {
+        Keyboard.dismiss();
+        bottomSheetRef.current?.dismiss();
+    }, []);
 
     const checkAuth = () => {
         if (!currentUser) {
@@ -121,18 +142,12 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
         return true;
     };
 
-    // Dynamic Padding logic for seamless scrolling
     const [dynamicPadding, setDynamicPadding] = useState(100);
-
     const keyboardHeightRef = useRef(INITIAL_EMOJI_HEIGHT);
     const isKeyboardVisibleRef = useRef(false);
     const wantsEmojiRef = useRef(false);
     const isEmojiPickerVisibleRef = useRef(false);
-
     const keyboardTranslateY = useRef(new Animated.Value(0)).current;
-
-    const inputRef = useRef<TextInput>(null);
-    const flatListRef = useRef<FlatList>(null);
 
     const organizedList = useMemo(() => {
         const roots = rawComments.filter(c => !c.parent_id).sort((a, b) =>
@@ -211,12 +226,14 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
     }, []);
 
     useEffect(() => {
-        if (!showEmojiPicker && !isKeyboardVisibleRef.current) {
-            isEmojiPickerVisibleRef.current = false;
-            setDynamicPadding(100);
-            Animated.timing(keyboardTranslateY, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+        if (videoId) {
+            setLoading(true);
+            videoService.fetchComments(videoId).then(data => {
+                setRawComments(data);
+                setLoading(false);
+            }).catch(() => setLoading(false));
         }
-    }, [showEmojiPicker]);
+    }, [videoId]);
 
     const toggleEmojiPicker = useCallback(() => {
         if (showEmojiPicker) {
@@ -234,69 +251,91 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
         }
     }, [showEmojiPicker]);
 
-    const toggleThread = (parentId: string) => {
-        setExpandedParents(prev => {
-            const next = new Set(prev);
-            if (next.has(parentId)) next.delete(parentId);
-            else next.add(parentId);
-            return next;
-        });
-    };
-
-    const panResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => false,
-            onMoveShouldSetPanResponder: (_, { dy, dx }) => dy > 10 && Math.abs(dx) < 10,
-            onPanResponderRelease: (_, { dy }) => { if (dy > 150) onClose(); },
-        })
-    ).current;
-
-    useEffect(() => {
-        if (visible) {
-            setLoading(true);
-            videoService.fetchComments(videoId).then(data => {
-                setRawComments(data);
-                setLoading(false);
-            }).catch(() => setLoading(false));
-        }
-    }, [visible, videoId]);
-
     const handleSend = async () => {
-        if (!checkAuth()) return;
-        if ((!newComment.trim() && !selectedImage) || !currentUser) return;
+        if (!checkAuth() || (!newComment.trim() && !selectedImage)) return;
+
+        setSending(true);
         const tempId = Date.now().toString();
-        const content = newComment.trim();
-        const parentId = replyingTo?.id || null;
         const optimisticComment: Comment = {
-            id: tempId, content, image_url: selectedImage || undefined,
-            created_at: new Date().toISOString(), parent_id: parentId,
+            id: tempId,
+            content: newComment.trim(),
+            created_at: new Date().toISOString(),
+            image_url: selectedImage || undefined,
             user: {
-                id: currentUser.id,
-                first_name: currentUser.user_metadata?.first_name || 'Me',
-                last_name: currentUser.user_metadata?.last_name || '',
-                avatar_url: currentUser.user_metadata?.avatar_url
+                id: currentUser?.id || '',
+                first_name: currentUser?.user_metadata?.first_name || 'You',
+                last_name: currentUser?.user_metadata?.last_name || '',
+                avatar_url: currentUser?.user_metadata?.avatar_url || ''
             }
         };
-        if (parentId) setExpandedParents(prev => new Set(prev).add(parentId));
-        setRawComments(prev => [optimisticComment, ...prev]);
-        setNewComment(''); setSelectedImage(null); setReplyingTo(null);
-        setShowEmojiPicker(false); isEmojiPickerVisibleRef.current = false;
-        setSending(true); Keyboard.dismiss();
+
+        if (replyingTo) {
+            // This part assumes organizedList is a state variable, but it's a useMemo.
+            // This will cause a runtime error if not adjusted elsewhere in the code.
+            // Applying faithfully as per instructions.
+            // setOrganizedList(prev => {
+            //     const parentIndex = prev.findIndex(item => !('isToggle' in item) && item.id === replyingTo.id);
+            //     if (parentIndex === -1) return prev;
+            //     const newList = [...prev];
+            //     newList.splice(parentIndex + 1, 0, { ...optimisticComment, parent_id: replyingTo.id });
+            //     return newList;
+            // });
+            // For now, we'll optimistically add to rawComments and let useMemo re-calculate.
+            setRawComments(prev => [{ ...optimisticComment, parent_id: replyingTo.id }, ...prev]);
+            setExpandedParents(prev => new Set(prev).add(replyingTo.id)); // Ensure parent is expanded
+        } else {
+            setRawComments(prev => [optimisticComment, ...prev]);
+        }
+
+        const currentMessage = newComment;
+        const currentImage = selectedImage;
+        const currentReplyTo = replyingTo;
+
+        setNewComment('');
+        setSelectedImage(null);
+        setReplyingTo(null);
+        Keyboard.dismiss();
+
         try {
-            let uploadedUrl = null;
-            if (selectedImage) uploadedUrl = await videoService.uploadCommentImage(selectedImage);
-            // @ts-ignore
-            const savedComment = await videoService.addComment(videoId, currentUser.id, content, parentId, uploadedUrl);
-            if (savedComment) setRawComments(prev => prev.map(c => c.id === tempId ? savedComment : c));
-        } catch (error) {
-            setRawComments(prev => prev.filter(c => c.id !== tempId));
-        } finally { setSending(false); }
+            let uploadedImageUrl = undefined;
+            if (currentImage) {
+                console.log('📤 Uploading image for comment...');
+                uploadedImageUrl = await videoService.uploadCommentImage(currentImage);
+
+                if (!uploadedImageUrl) {
+                    throw new Error('Upload failed: No URL returned from server');
+                }
+            }
+
+            const savedComment = await videoService.addComment(
+                videoId,
+                currentUser!.id,
+                currentMessage,
+                (currentReplyTo?.id as any) || null,
+                uploadedImageUrl
+            );
+
+            // Update the rawComments with the actual saved comment
+            setRawComments(prev => prev.map(item => item.id === tempId ? savedComment : item));
+        } catch (error: any) {
+            console.error('Failed to send comment:', error);
+            // Revert optimistic update if sending fails
+            setRawComments(prev => prev.filter(item => item.id !== tempId));
+            Alert.alert('Error', error.message || 'Failed to post comment. Please try again.');
+        } finally {
+            setSending(false);
+        }
     };
 
     const renderItem = ({ item }: { item: CommentListItem }) => {
         if ('isToggle' in item) {
             return (
-                <TouchableOpacity onPress={() => toggleThread(item.parentId)} style={styles.toggleRow}>
+                <TouchableOpacity onPress={() => setExpandedParents(prev => {
+                    const next = new Set(prev);
+                    if (next.has(item.parentId)) next.delete(item.parentId);
+                    else next.add(item.parentId);
+                    return next;
+                })} style={styles.toggleRow}>
                     <View style={styles.toggleLine} /><Text style={styles.toggleText}>
                         {item.expanded ? 'Show less' : `View ${item.remainingCount} more replies`}
                     </Text><Ionicons name={item.expanded ? "chevron-up" : "chevron-down"} size={14} color="#888" />
@@ -318,7 +357,17 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
                         <Text style={styles.timeLabel}>{formatCommentTime(item.created_at)}</Text>
                     </View>
                     {item.content ? <Text style={styles.commentText}>{item.content}</Text> : null}
-                    {item.image_url && <Image source={{ uri: item.image_url }} style={styles.commentImage} />}
+                    {item.image_url && (
+                        <TouchableOpacity
+                            onPress={() => {
+                                setFullImageUri(item.image_url!);
+                                setIsModalVisible(true);
+                            }}
+                            activeOpacity={0.8}
+                        >
+                            <Image source={{ uri: item.image_url }} style={styles.commentImage} />
+                        </TouchableOpacity>
+                    )}
                     <View style={styles.commentMeta}>
                         {!item.parent_id && (
                             <TouchableOpacity onPress={() => {
@@ -336,94 +385,168 @@ export default function CommentsSheet({ videoId, videoOwnerId, visible, onClose,
     };
 
     return (
-        <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose} statusBarTranslucent={true}>
-            <View style={styles.overlay}>
-                <TouchableWithoutFeedback onPress={onClose}><View style={styles.backdrop} /></TouchableWithoutFeedback>
-                <View style={styles.sheetContainer}>
-                    <View {...panResponder.panHandlers} style={styles.dragHandleContainer}><View style={styles.dragHandle} /></View>
-                    <View style={styles.header}>
-                        <Text style={styles.headerTitle}>{rawComments.length} comments</Text>
-                        <TouchableOpacity onPress={onClose}><Ionicons name="close" size={24} color="#000" /></TouchableOpacity>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        {loading ? <ActivityIndicator style={{ marginTop: 50 }} color="#8A2BE2" /> : (
-                            <FlatList
-                                ref={flatListRef}
-                                data={organizedList}
-                                keyExtractor={(item, index) => 'isToggle' in item ? `toggle-${item.parentId}-${index}` : item.id}
-                                renderItem={renderItem}
-                                contentContainerStyle={[styles.listContent, { paddingBottom: dynamicPadding }]}
-                                keyboardShouldPersistTaps="always"
-                                showsVerticalScrollIndicator={false}
-                            />
-                        )}
-                    </View>
-                    {/* Fixed Interaction Layer with Correct Conditional Rendering */}
-                    <View style={styles.interactionWrapper}>
-                        <Animated.View style={[styles.inputLiftWrapper, { transform: [{ translateY: keyboardTranslateY }] }]}>
-                            {replyingTo && (
-                                <View style={styles.replyBar}>
-                                    <Text style={styles.replyingToText}>Replying to @{replyingTo.username}</Text>
-                                    <TouchableOpacity onPress={() => setReplyingTo(null)}><Ionicons name="close-circle" size={20} color="#666" /></TouchableOpacity>
-                                </View>
-                            )}
-                            <View style={styles.outerInputContainer}>
-                                <View style={styles.inputWrapper}>
-                                    <TextInput
-                                        ref={inputRef}
-                                        style={styles.input}
-                                        placeholder="Add comment..."
-                                        placeholderTextColor="#888"
-                                        value={newComment}
-                                        onChangeText={setNewComment}
-                                        onFocus={() => {
-                                            if (!checkAuth()) return;
-                                            wantsEmojiRef.current = false;
-                                        }}
-                                        multiline
-                                    />
-                                    <View style={styles.inputActions}>
-                                        <TouchableOpacity onPress={async () => {
-                                            const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
-                                            if (!res.canceled) setSelectedImage(res.assets[0].uri);
-                                        }} style={styles.actionIcon}><Ionicons name="image-outline" size={24} color="#000" /></TouchableOpacity>
-                                        <TouchableOpacity onPress={toggleEmojiPicker} style={styles.actionIcon}>
-                                            <Ionicons name={showEmojiPicker ? "keypad-outline" : "happy-outline"} size={26} color="#000" />
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-                                <TouchableOpacity onPress={handleSend} disabled={sending}><Ionicons name="arrow-up-circle" size={42} color={newComment.trim() ? "#8A2BE2" : "#ccc"} /></TouchableOpacity>
-                            </View>
-                        </Animated.View>
+        <BottomSheetModal
+            ref={bottomSheetRef}
+            key={`${videoId}-${reMountKey}`}
+            snapPoints={snapPoints}
+            animateOnMount={false}
+            overDragResistanceFactor={2.5}
+            enablePanDownToClose
+            enableDynamicSizing={false}
+            onDismiss={handleDismiss}
+            onChange={onChange}
+            animatedIndex={animatedIndex}
+            handleIndicatorStyle={styles.dragHandle}
+            backgroundStyle={styles.sheetBackground}
+        >
+            <View style={{ flex: 1 }} pointerEvents="box-none">
+                <View style={styles.header}>
+                    <View style={{ width: 40 }} />
+                    <Text style={styles.headerTitle}>{rawComments.length} comments</Text>
+                    <TouchableOpacity
+                        style={styles.closeButton}
+                        hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+                        onPress={handleClose}
+                    >
+                        <Ionicons name="close" size={24} color="#333" />
+                    </TouchableOpacity>
+                </View>
 
-                        {/* REQUIREMENT: Conditionally render absolute container to avoid blocking FlatList scroll */}
-                        {showEmojiPicker && (
-                            <View style={[styles.emojiAreaStable, { height: keyboardHeightRef.current }]}>
-                                <EmojiKeyboard
-                                    onEmojiSelected={(e) => setNewComment(p => p + e.emoji)}
-                                    hideHeader={false} categoryPosition="top" enableSearchBar={true}
-                                    styles={{
-                                        container: { backgroundColor: '#f8f8f8', height: keyboardHeightRef.current, borderTopLeftRadius: 15, borderTopRightRadius: 15 },
-                                        searchBar: { container: { backgroundColor: '#eee', marginHorizontal: 15, borderRadius: 20 } }
-                                    }}
-                                />
+                <View style={{ flex: 1 }}>
+                    {loading ? <ActivityIndicator style={{ marginTop: 50 }} color="#8A2BE2" /> : (
+                        <BottomSheetFlatList
+                            data={organizedList}
+                            keyExtractor={(item: CommentListItem, index: number) => 'isToggle' in item ? `toggle-${item.parentId}-${index}` : item.id}
+                            renderItem={renderItem}
+                            contentContainerStyle={[styles.listContent, { paddingBottom: dynamicPadding }]}
+                            keyboardShouldPersistTaps="always"
+                            showsVerticalScrollIndicator={false}
+                        />
+                    )}
+                </View>
+
+                <View style={styles.interactionWrapper}>
+                    <Animated.View style={[styles.inputLiftWrapper, { transform: [{ translateY: keyboardTranslateY }] }]}>
+                        {replyingTo && (
+                            <View style={styles.replyBar}>
+                                <Text style={styles.replyingToText}>Replying to @{replyingTo.username}</Text>
+                                <TouchableOpacity onPress={() => setReplyingTo(null)}><Ionicons name="close-circle" size={20} color="#666" /></TouchableOpacity>
                             </View>
                         )}
-                    </View>
+                        {selectedImage && (
+                            <View style={styles.imagePreviewWrapper}>
+                                <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
+                                <TouchableOpacity
+                                    style={styles.removeImageButton}
+                                    onPress={() => setSelectedImage(null)}
+                                >
+                                    <Ionicons name="close-circle" size={24} color="rgba(0,0,0,0.6)" />
+                                </TouchableOpacity>
+                                {sending && (
+                                    <View style={styles.uploadOverlay}>
+                                        <ActivityIndicator color="#fff" />
+                                    </View>
+                                )}
+                            </View>
+                        )}
+                        <View style={styles.outerInputContainer}>
+                            <View style={styles.inputWrapper}>
+                                <TextInput
+                                    ref={inputRef}
+                                    style={styles.input}
+                                    placeholder="Add comment..."
+                                    placeholderTextColor="#888"
+                                    value={newComment}
+                                    onChangeText={setNewComment}
+                                    onFocus={() => {
+                                        if (!checkAuth()) return;
+                                        wantsEmojiRef.current = false;
+                                    }}
+                                    multiline
+                                    autoCorrect={false}
+                                    spellCheck={false}
+                                    autoCapitalize="none"
+                                    keyboardType="default"
+                                />
+                                <View style={styles.inputActions}>
+                                    <TouchableOpacity onPress={async () => {
+                                        const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
+                                        if (!res.canceled) setSelectedImage(res.assets[0].uri);
+                                    }} style={styles.actionIcon}><Ionicons name="image-outline" size={24} color="#000" /></TouchableOpacity>
+                                    <TouchableOpacity onPress={toggleEmojiPicker} style={styles.actionIcon}>
+                                        <Ionicons name={showEmojiPicker ? "keypad-outline" : "happy-outline"} size={26} color="#000" />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                            <TouchableOpacity onPress={handleSend} disabled={sending}>
+                                {sending ? (
+                                    <ActivityIndicator size="small" color="#8A2BE2" style={{ marginHorizontal: 10 }} />
+                                ) : (
+                                    <Ionicons name="arrow-up-circle" size={42} color={newComment.trim() || selectedImage ? "#8A2BE2" : "#ccc"} />
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </Animated.View>
+
+                    {showEmojiPicker && (
+                        <View style={[styles.emojiAreaStable, { height: keyboardHeightRef.current }]}>
+                            <EmojiKeyboard
+                                onEmojiSelected={(e) => setNewComment(p => p + e.emoji)}
+                                hideHeader={false} categoryPosition="top" enableSearchBar={true}
+                                styles={{
+                                    container: { backgroundColor: '#f8f8f8', height: keyboardHeightRef.current, borderTopLeftRadius: 15, borderTopRightRadius: 15 },
+                                    searchBar: { container: { backgroundColor: '#eee', marginHorizontal: 15, borderRadius: 20 } }
+                                }}
+                            />
+                        </View>
+                    )}
                 </View>
             </View>
-        </Modal>
+
+            {/* Full Screen Image Modal */}
+            <Modal visible={isModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsModalVisible(false)}>
+                <View style={styles.modalOverlay}>
+                    <TouchableOpacity
+                        style={styles.modalCloseButton}
+                        onPress={() => setIsModalVisible(false)}
+                        activeOpacity={0.7}
+                    >
+                        <Ionicons name="close-circle" size={40} color="white" />
+                    </TouchableOpacity>
+                    <Image
+                        source={{ uri: fullImageUri || '' }}
+                        style={styles.fullScreenImage}
+                        resizeMode="contain"
+                    />
+                </View>
+            </Modal>
+        </BottomSheetModal>
     );
-}
+});
+
+export default CommentsSheet;
 
 const styles = StyleSheet.create({
-    overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-    backdrop: { flex: 1 },
-    sheetContainer: { height: SCREEN_HEIGHT * 0.8, backgroundColor: '#fff', borderTopLeftRadius: 25, borderTopRightRadius: 25, overflow: 'hidden' },
-    dragHandleContainer: { paddingVertical: 12, alignItems: 'center' },
-    dragHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#eee' },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 15, paddingBottom: 15, borderBottomWidth: 0.5, borderBottomColor: '#f0f0f0' },
+    sheetBackground: { borderRadius: 25 },
+    dragHandle: { width: 40, backgroundColor: '#eee' },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 15,
+        paddingVertical: 12,
+        borderBottomWidth: 0.5,
+        borderBottomColor: '#f0f0f0',
+        zIndex: 100,
+        backgroundColor: '#fff',
+    },
     headerTitle: { fontSize: 14, fontWeight: 'bold', color: '#333', flex: 1, textAlign: 'center' },
+    closeButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     listContent: { padding: 16 },
     commentItem: { flexDirection: 'row', marginBottom: 20 },
     replyIndentation: { marginLeft: 44 },
@@ -444,14 +567,58 @@ const styles = StyleSheet.create({
     toggleRow: { flexDirection: 'row', alignItems: 'center', marginLeft: 44, marginBottom: 20, gap: 8 },
     toggleLine: { width: 20, height: 1, backgroundColor: '#eee' },
     toggleText: { fontSize: 12, color: '#888', fontWeight: 'bold' },
-    interactionWrapper: { backgroundColor: '#fff', zIndex: 100 },
-    inputLiftWrapper: { backgroundColor: '#fff', zIndex: 110 },
+    interactionWrapper: { backgroundColor: '#fff', zIndex: 10 },
+    inputLiftWrapper: { backgroundColor: '#fff', zIndex: 11 },
     emojiAreaStable: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#f8f8f8', zIndex: 50 },
     replyBar: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, backgroundColor: '#f9f9f9', borderTopWidth: 0.5, borderTopColor: '#f0f0f0' },
     replyingToText: { fontSize: 12, color: '#333' },
     outerInputContainer: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 15, paddingVertical: 12, paddingBottom: 30, backgroundColor: '#fff', borderTopWidth: 0.5, borderTopColor: '#f0f0f0' },
+    imagePreviewWrapper: {
+        width: 80,
+        height: 80,
+        marginLeft: 15,
+        marginBottom: 10,
+        borderRadius: 10,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#ddd',
+        position: 'relative',
+    },
+    imagePreview: {
+        width: '100%',
+        height: '100%',
+    },
+    removeImageButton: {
+        position: 'absolute',
+        top: 2,
+        right: 2,
+        backgroundColor: 'rgba(255,255,255,0.8)',
+        borderRadius: 12,
+    },
+    uploadOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     inputWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f5f5', borderRadius: 25, paddingHorizontal: 15, marginRight: 10, minHeight: 48 },
     input: { flex: 1, fontSize: 15, color: '#111', paddingVertical: 10, maxHeight: 120 },
     inputActions: { flexDirection: 'row', alignItems: 'center' },
     actionIcon: { marginLeft: 15 },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalCloseButton: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 60 : 40,
+        right: 20,
+        zIndex: 10,
+    },
+    fullScreenImage: {
+        width: '100%',
+        height: '100%',
+    }
 });

@@ -30,6 +30,8 @@ export default function AllMentorsScreen() {
         if (!isRefreshing) setIsLoading(true);
         try {
             // @ts-ignore
+            const { courseService } = await import('@/src/services/courseService');
+            // @ts-ignore
             const { supabase } = await import('@/src/auth/supabase');
             let supabaseQuery = (supabase as any)
                 .from('profiles')
@@ -37,12 +39,7 @@ export default function AllMentorsScreen() {
                     id, 
                     first_name, 
                     last_name, 
-                    avatar_url,
-                    courses (
-                        id,
-                        enrollments (student_id),
-                        reviews (rating)
-                    )
+                    avatar_url
                 `)
                 .eq('role', 'instructor');
 
@@ -55,37 +52,13 @@ export default function AllMentorsScreen() {
             if (error) throw error;
 
             if (data) {
-                const mapped = data.map((p: any) => {
+                const mapped = await Promise.all(data.map(async (p: any) => {
                     const first = p.first_name || '';
                     const last = p.last_name || '';
                     const initials = (first?.[0] || '') + (last?.[0] || '');
 
-                    // Calculate Stats
-                    // CHANGED: Count Total Enrollments (Not Unique Students)
-                    let totalEnrollments = 0;
-                    let totalRatingSum = 0;
-                    let totalRatingCount = 0;
-
-                    if (p.courses && Array.isArray(p.courses)) {
-                        p.courses.forEach((c: any) => {
-                            // Enrollments - Count total enrollments
-                            if (c.enrollments && Array.isArray(c.enrollments)) {
-                                totalEnrollments += c.enrollments.length;
-                            }
-
-                            // Ratings
-                            if (c.reviews && Array.isArray(c.reviews)) {
-                                c.reviews.forEach((r: any) => {
-                                    if (r.rating) {
-                                        totalRatingSum += r.rating;
-                                        totalRatingCount++;
-                                    }
-                                });
-                            }
-                        });
-                    }
-
-                    const avgRating = totalRatingCount > 0 ? (totalRatingSum / totalRatingCount) : 0;
+                    // Calculate Stats using the SAME exact method as InstructorProfile and InstructorAnalytics
+                    const stats = await courseService.fetchInstructorStats(p.id);
 
                     return {
                         id: p.id,
@@ -93,10 +66,10 @@ export default function AllMentorsScreen() {
                         avatar: p.avatar_url,
                         initials: initials.toUpperCase() || 'IN',
                         specialty: 'Professional Mentor',
-                        followers: totalEnrollments, // Reflects Total Enrollments
-                        rating: Number(avgRating.toFixed(1))
+                        followers: stats.totalStudents || 0, // Reflects Total Enrollments
+                        rating: stats.courseRating || 0
                     };
-                });
+                }));
                 setInstructors(mapped);
             }
         } catch (error) {

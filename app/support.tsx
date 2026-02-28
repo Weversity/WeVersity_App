@@ -1,9 +1,11 @@
+import { storage } from '@/src/components/chat/storage';
 import SupportChat from '@/src/components/SupportChat';
 import SupportForm from '@/src/components/SupportForm';
+import { supabase } from '@/src/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SupportScreen() {
@@ -11,23 +13,76 @@ export default function SupportScreen() {
   const [chatVisible, setChatVisible] = useState(false);
   const [initialEmail, setInitialEmail] = useState('');
   const [initialMessage, setInitialMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [hasPreviousChat, setHasPreviousChat] = useState(false);
   const params = useLocalSearchParams();
   const router = useRouter();
 
   useEffect(() => {
-    if (params.chat === 'true') {
-      setChatVisible(true);
-    }
+    const checkExistingChat = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const conversations = await storage.loadConversations(user.id);
+          if (conversations && conversations.length > 0) {
+            setHasPreviousChat(true);
+            setInitialEmail(conversations[0].email);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking existing chat:', error);
+      } finally {
+        setLoading(false);
+        if (params.chat === 'true') {
+          setChatVisible(true);
+        }
+      }
+    };
+
+    checkExistingChat();
   }, [params]);
 
-  const handleStartChat = (email: string, message: string) => {
-    setInitialEmail(email);
-    setInitialMessage(message);
-    setFormVisible(false);
-    // Use a timeout to allow the first modal to close before the second one opens
-    setTimeout(() => {
+  const handleContactPress = () => {
+    if (hasPreviousChat) {
       setChatVisible(true);
-    }, 500);
+    } else {
+      setFormVisible(true);
+    }
+  };
+
+  const handleStartChat = async (email: string, message: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert('Please login to start a chat.');
+        return;
+      }
+
+      setLoading(true);
+      // Create a new conversation in SQL
+      const newConv = await storage.createNewConversation(user.id, email, message.substring(0, 30));
+      if (newConv) {
+        // Save the first message
+        await storage.saveMessage(newConv.id, message, 'user');
+
+        setInitialEmail(email);
+        setInitialMessage(''); // Message already saved
+        setHasPreviousChat(true);
+        setFormVisible(false);
+
+        // Short delay for UI smoothness
+        setTimeout(() => {
+          setChatVisible(true);
+          setLoading(false);
+        }, 500);
+      } else {
+        setLoading(false);
+        alert('Failed to start chat. Please try again.');
+      }
+    } catch (error) {
+      setLoading(false);
+      console.error('Error starting chat:', error);
+    }
   };
 
   const handleClose = () => {
@@ -37,6 +92,14 @@ export default function SupportScreen() {
       setChatVisible(false);
     }
   };
+
+  if (loading && !chatVisible && !formVisible) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#8A2BE2" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -53,7 +116,7 @@ export default function SupportScreen() {
           <Ionicons name="headset-outline" size={80} color="#8A2BE2" />
           <Text style={styles.title}>How can we help?</Text>
           <Text style={styles.subtitle}>Our support team is here for you 24/7.</Text>
-          <TouchableOpacity style={styles.button} onPress={() => setFormVisible(true)}>
+          <TouchableOpacity style={styles.button} onPress={handleContactPress}>
             <Text style={styles.buttonText}>Contact Support</Text>
           </TouchableOpacity>
         </View>
@@ -79,6 +142,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F4F2F8',
+  },
+  center: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',

@@ -5,7 +5,8 @@ import ChatBox from './chat/ChatBox';
 interface SupportChatProps {
     visible: boolean;
     onClose: () => void;
-    initialMessage?: string; // Kept for compatibility, though ChatBox handles its own state
+    initialEmail?: string;
+    initialMessage?: string;
 }
 
 const suggestedQuestions = [
@@ -16,7 +17,7 @@ const suggestedQuestions = [
     'How do I go live as an instructor?',
 ];
 
-const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose }) => {
+const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose, initialEmail, initialMessage }) => {
     return (
         <Modal
             animationType="slide"
@@ -29,6 +30,8 @@ const SupportChat: React.FC<SupportChatProps> = ({ visible, onClose }) => {
             <ChatBox
                 onClose={onClose}
                 suggestedQuestions={suggestedQuestions}
+                initialEmail={initialEmail}
+                initialMessage={initialMessage}
             />
         </Modal>
     );

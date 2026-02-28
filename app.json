@@ -7,7 +7,6 @@
     "icon": "./assets/images/adaptive-icon.png",
     "scheme": "weversityexpo",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "icon": "./assets/images/ios-dark.png",
@@ -28,7 +27,6 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "org.weversity.app",
       "googleServicesFile": "./google-services.json",
@@ -56,6 +54,7 @@
     "plugins": [
       "expo-router",
       "@react-native-google-signin/google-signin",
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {

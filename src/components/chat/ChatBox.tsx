@@ -23,9 +23,11 @@ import { Conversation, Message, MessageSender } from './types';
 interface ChatBoxProps {
     onClose: () => void;
     suggestedQuestions: string[];
+    initialEmail?: string;
+    initialMessage?: string;
 }
 
-const ChatBox: React.FC<ChatBoxProps> = ({ onClose, suggestedQuestions }) => {
+const ChatBox: React.FC<ChatBoxProps> = ({ onClose, suggestedQuestions, initialEmail, initialMessage }) => {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
     const [isInputFocused, setIsInputFocused] = useState(false);
@@ -47,19 +49,26 @@ const ChatBox: React.FC<ChatBoxProps> = ({ onClose, suggestedQuestions }) => {
             const history = await storage.loadConversations(user.id);
             setConversations(history);
 
-            if (history.length > 0) {
+            if (initialEmail) {
+                setEmail(initialEmail);
+                setShowEmailInput(false);
+                if (history.length > 0) {
+                    setCurrentConversation(history[0]);
+                }
+            } else if (history.length > 0) {
                 // Auto-fetch email from most recent history
                 const recentConv = history[0];
                 setEmail(recentConv.email);
                 setCurrentConversation(recentConv);
+                setShowEmailInput(false);
             } else {
-                // No history, we will need to ask for email on first message
+                // No history and no initial email, we will need to ask for email on first message
                 setShowEmailInput(true);
             }
             setLoading(false);
         };
         init();
-    }, []);
+    }, [initialEmail]);
 
     const handleNewChat = useCallback(async () => {
         if (!user) return;

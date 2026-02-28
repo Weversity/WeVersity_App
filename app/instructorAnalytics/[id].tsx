@@ -1,5 +1,7 @@
 // @ts-ignore
 import { supabase } from '@/src/auth/supabase';
+// @ts-ignore
+import { courseService } from '@/src/services/courseService';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -99,14 +101,9 @@ export default function InstructorAnalyticsScreen() {
                 .order('created_at', { ascending: false });
 
             let processedCourses: Course[] = [];
-            let allCourseIds: any[] = [];
-            let totalRatingSum = 0;
-            let totalRatingCount = 0;
 
             if (coursesData) {
                 processedCourses = coursesData.map((c: any) => {
-                    allCourseIds.push(c.id);
-
                     // Calculate average rating for this specific course
                     let courseRatingSum = 0;
                     let courseRatingCount = 0;
@@ -115,10 +112,6 @@ export default function InstructorAnalyticsScreen() {
                             if (r.rating) {
                                 courseRatingSum += r.rating;
                                 courseRatingCount++;
-
-                                // Global accumulator
-                                totalRatingSum += r.rating;
-                                totalRatingCount++;
                             }
                         });
                     }
@@ -144,27 +137,35 @@ export default function InstructorAnalyticsScreen() {
             // 3. Calculate Stats
             const totalCourses = processedCourses.length;
 
-            // 4. Determine Global Stats via Service to ensure consistency
-            // Import courseService dynamically to avoid top-level issues if any
-            // @ts-ignore
-            const { courseService } = await import('@/src/services/courseService');
-
             // Ensure ID is a string (handle array case from expo-router)
             const instructorId = Array.isArray(id) ? id[0] : id;
 
             if (instructorId) {
                 const serviceStats = await courseService.fetchInstructorStats(instructorId);
-                const totalStudents = serviceStats.totalStudents || 0;
-                const overallRating = serviceStats.courseRating || 0;
+
+                // Fetch Exact Enrollments using Instructor's course IDs (Total Sales, not just Unique Students)
+                const instructorCourseIds = processedCourses.map(c => c.id);
+                let exactTotalStudents = serviceStats.totalStudents || 0;
+
+                if (instructorCourseIds.length > 0) {
+                    const { count, error: countError } = await supabase
+                        .from('enrollments')
+                        .select('id', { count: 'exact', head: true })
+                        .in('course_id', instructorCourseIds);
+
+                    if (!countError && count !== null) {
+                        exactTotalStudents = count;
+                    }
+                }
 
                 setStats({
-                    totalCourses,
-                    overallRating,
-                    totalStudents,
+                    totalCourses: processedCourses.length,
+                    overallRating: serviceStats.courseRating,
+                    totalStudents: exactTotalStudents,
                 });
             } else {
                 setStats({
-                    totalCourses,
+                    totalCourses: 0,
                     overallRating: 0,
                     totalStudents: 0,
                 });
@@ -202,6 +203,14 @@ export default function InstructorAnalyticsScreen() {
         const badgeTextColor = isPublished ? '#2E7D32' : '#EF6C00'; // Dark Green vs Dark Orange
         const statusText = item.status || 'Draft';
 
+        const displayPrice = (price: any) => {
+            const p = String(price).replace(/[^0-9.]/g, ''); // Sirf numbers rakho
+            if (!price || p === '0' || p === '0.00' || price === 'Free') {
+                return 'Free';
+            }
+            return `$${price}`;
+        };
+
         return (
             <TouchableOpacity
                 style={styles.courseCard}
@@ -230,7 +239,7 @@ export default function InstructorAnalyticsScreen() {
                                 {item.reviewCount ? ` (${item.reviewCount})` : ''}
                             </Text>
                         </View>
-                        <Text style={styles.priceText}>{item.price === '0' || item.price === 'Free' ? 'Free' : `$${item.price}`}</Text>
+                        <Text style={styles.priceText}>{displayPrice(item.price)}</Text>
                     </View>
                 </View>
             </TouchableOpacity>

@@ -3,12 +3,14 @@ import 'react-native-get-random-values';
 global.Buffer = Buffer;
 
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import '../src/lib/polyfills';
 
@@ -136,18 +138,22 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <CoursesProvider>
-          <AuthProvider>
-            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-              <InitialLayout />
-              <StatusBar style="auto" />
-            </ThemeProvider>
-          </AuthProvider>
-        </CoursesProvider>
-      </QueryClientProvider>
-    </ErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <CoursesProvider>
+            <AuthProvider>
+              <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                <BottomSheetModalProvider>
+                  <InitialLayout />
+                  <StatusBar style="auto" />
+                </BottomSheetModalProvider>
+              </ThemeProvider>
+            </AuthProvider>
+          </CoursesProvider>
+        </QueryClientProvider>
+      </ErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
 

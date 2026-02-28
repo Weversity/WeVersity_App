@@ -234,6 +234,14 @@ const stripHtmlTags = (htmlString: string) => {
     return cleanText.trim();
 };
 
+export const displayPrice = (price: any) => {
+    const p = String(price).replace(/[^0-9.]/g, ''); // Sirf numbers rakho
+    if (!price || p === '0' || p === '0.00' || price === 'Free') {
+        return 'Free';
+    }
+    return `$${price}`;
+};
+
 const CourseDetailsStackOptions = ({ title }: { title: string | undefined }) => ({
     title: title || 'Course Details',
     headerStyle: { backgroundColor: '#8A2BE2' },
@@ -348,7 +356,7 @@ export default function CourseDetailsScreen() {
                 let instructorAvatar = course?.instructorAvatar;
                 let instructorInitials = course?.instructorInitials || 'IN';
                 let currentDescription = course?.description || '';
-                let priceDisplay = course?.price || 'Free';
+                let priceDisplay = displayPrice((course?.price == 0 || !course?.price) ? 'Free' : course.price);
                 let tools = course?.tools || [];
                 let categoryDisplay = course?.categories || 'General';
                 let whatWillILearn: string[] | null = null;
@@ -358,7 +366,7 @@ export default function CourseDetailsScreen() {
                     const data = fullCourseData;
                     if (data.title) image = data.thumbnail || data.image || image; // Update image if available
                     currentDescription = data.description || '';
-                    priceDisplay = (data as any).price || 'Free';
+                    priceDisplay = displayPrice((data as any).price || 'Free');
                     tools = (data as any).tools || [];
                     categoryDisplay = (data as any).categories || 'General';
                     const rawPoints = (data as any).what_you_will_learn;

@@ -279,8 +279,8 @@ export const courseService = {
                 });
 
                 if (!analyticsError && analyticsData) {
-                    // Normalize data structure
-                    totalStudents = analyticsData.totalStudents || analyticsData.total_students || 0;
+                    // Override totalStudents with the Edge Function ONLY as a fallback
+                    // totalStudents = analyticsData.totalStudents || analyticsData.total_students || 0;
 
                     // Handle rating which might be string or number
                     const rawRating = analyticsData.courseRating || analyticsData.average_rating || 0;
@@ -288,16 +288,15 @@ export const courseService = {
 
                     totalReviews = parseInt(String(analyticsData.totalReviews || analyticsData.total_reviews || 0));
 
-                    if (totalStudents > 0 || avgRating > 0) edgeFunctionSuccess = true;
+                    if (avgRating > 0 || totalReviews > 0) edgeFunctionSuccess = true;
                 }
             } catch (edgeError) {
                 // Silent fallback
             }
 
-            // STEP 2: Manual Fallback (If Edge Function fails or returns empty)
-            if (!edgeFunctionSuccess) {
-                // A. Calculate Total Enrollments (Not Unique Students)
-                // Use a direct join query to find all enrollments for courses by this instructor
+            // ALWAYS Calculate Total Enrollments (Not Unique Students) Unconditionally
+            // Use a direct join query to find all enrollments for courses by this instructor
+            try {
                 const { data: enrollmentData, error: enrollmentError } = await supabase
                     .from('enrollments')
                     .select(`
@@ -309,9 +308,14 @@ export const courseService = {
                     .eq('courses.instructor_id', instructorId);
 
                 if (enrollmentData) {
-                    // CHANGED: Count total enrollments instead of unique students
                     totalStudents = enrollmentData.length;
                 }
+            } catch (err) {
+                console.error("Error fetching absolute total students", err);
+            }
+
+            // STEP 2: Manual Fallback for Ratings (If Edge Function fails or returns empty)
+            if (!edgeFunctionSuccess) {
 
                 // B. Calculate Ratings & Reviews
                 const { data: courses } = await supabase

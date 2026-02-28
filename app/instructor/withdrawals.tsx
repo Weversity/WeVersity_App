@@ -94,7 +94,9 @@ const WithdrawalsScreen = () => {
                 <View style={styles.cardsContainer}>
                     <LinearGradient colors={['#8A2BE2', '#9D50E5']} style={styles.mainCard}>
                         <Text style={styles.cardLabelWhite}>Total Balance</Text>
-                        <Text style={styles.cardValueWhite}>${dummyEarnings.totalBalance}</Text>
+                        <Text style={styles.cardValueWhite}>
+                            {dummyEarnings.totalBalance === "0.00" || dummyEarnings.totalBalance === "0" ? 'No Earnings' : `$${dummyEarnings.totalBalance}`}
+                        </Text>
                         <View style={styles.cardFooter}>
                             <Text style={styles.cardSublabelWhite}>Ready to withdraw</Text>
                             <Ionicons name="wallet-outline" size={24} color="rgba(255,255,255,0.6)" />
@@ -107,14 +109,18 @@ const WithdrawalsScreen = () => {
                                 <Ionicons name="time-outline" size={20} color="#8A2BE2" />
                             </View>
                             <Text style={styles.cardLabel}>Pending</Text>
-                            <Text style={styles.cardValue}>${dummyEarnings.pendingApproval}</Text>
+                            <Text style={styles.cardValue}>
+                                {dummyEarnings.pendingApproval === "0.00" || dummyEarnings.pendingApproval === "0" ? 'No Earnings' : `$${dummyEarnings.pendingApproval}`}
+                            </Text>
                         </View>
                         <View style={styles.smallCard}>
                             <View style={[styles.smallCardIconBg, { backgroundColor: '#E8F5E9' }]}>
                                 <Ionicons name="stats-chart" size={20} color="#2E7D32" />
                             </View>
                             <Text style={styles.cardLabel}>Lifetime</Text>
-                            <Text style={styles.cardValue}>${dummyEarnings.lifetimeEarnings}</Text>
+                            <Text style={styles.cardValue}>
+                                {dummyEarnings.lifetimeEarnings === "0.00" || dummyEarnings.lifetimeEarnings === "0" ? 'No Earnings' : `$${dummyEarnings.lifetimeEarnings}`}
+                            </Text>
                         </View>
                     </View>
                 </View>

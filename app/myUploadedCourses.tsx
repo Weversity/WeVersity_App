@@ -15,6 +15,14 @@ interface UploadedCourse {
     price: number | null;
 }
 
+const displayPrice = (price: any) => {
+    const p = String(price).replace(/[^0-9.]/g, ''); // Sirf numbers rakho
+    if (!price || p === '0' || p === '0.00' || price === 'Free') {
+        return 'Free';
+    }
+    return `$${price}`;
+};
+
 export default function MyUploadedCoursesScreen() {
     const router = useRouter();
     const { user } = useAuth();
@@ -84,9 +92,9 @@ export default function MyUploadedCoursesScreen() {
                         </Text>
                     </View>
 
-                    <View style={[styles.priceBadgePillRow, (item.price === 0 || !item.price) ? styles.badgeFree : styles.badgePaid]}>
+                    <View style={[styles.priceBadgePillRow, displayPrice(item.price) === 'Free' ? styles.badgeFree : styles.badgePaid]}>
                         <Text style={styles.priceBadgeText}>
-                            {(item.price === 0 || !item.price) ? '$0' : `$${item.price}`}
+                            {displayPrice(item.price)}
                         </Text>
                     </View>
                 </View>

@@ -244,6 +244,14 @@ interface InstructorStats {
   totalReviews: number;
 }
 
+export const displayPrice = (price: any) => {
+  const p = String(price).replace(/[^0-9.]/g, ''); // Sirf numbers rakho
+  if (!price || p === '0' || p === '0.00' || price === 'Free') {
+    return 'Free';
+  }
+  return `$${price}`;
+};
+
 const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const { user, profile } = useAuth();
   const [menuVisible, setMenuVisible] = useState(false);
@@ -1021,9 +1029,9 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                       </Text>
                     </View>
 
-                    <View style={[styles.priceBadgePillRow, (course.price === 0 || !course.price) ? styles.badgeFree : styles.badgePaid]}>
+                    <View style={[styles.priceBadgePillRow, displayPrice(course.price) === 'Free' ? styles.badgeFree : styles.badgePaid]}>
                       <Text style={styles.priceBadgeText}>
-                        {(course.price === 0 || !course.price) ? '$0' : `$${course.price}`}
+                        {displayPrice(course.price)}
                       </Text>
                     </View>
                   </View>
