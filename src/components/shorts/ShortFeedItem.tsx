@@ -378,6 +378,7 @@ export default function ShortFeedItem({
                     videoId={item.id}
                     onClose={() => setShowComments(false)}
                     currentUser={user}
+                    videoOwnerId={item.instructor_id || item.instructor?.id}
                     animatedIndex={animatedIndex}
                     onChange={(index) => {
                         if (index === -1) setShowComments(false);

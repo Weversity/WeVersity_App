@@ -40,6 +40,8 @@ interface Comment {
     created_at: string;
     user: UserProfile;
     parent_id?: string | null;
+    likes_count: number;
+    user_has_liked: boolean;
 }
 
 type CommentListItem = Comment | {
@@ -55,6 +57,7 @@ interface CommentsSheetProps {
     onClose: () => void;
     onChange?: (index: number) => void;
     animatedIndex?: SharedValue<number>;
+    videoOwnerId?: string;
 }
 
 const getRandomColor = (name: string) => {
@@ -87,7 +90,7 @@ const formatCommentTime = (dateString: string) => {
     }
 };
 
-const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoId, currentUser, onClose, onChange, animatedIndex }, ref) => {
+const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoId, currentUser, onClose, onChange, animatedIndex, videoOwnerId }, ref) => {
     const [rawComments, setRawComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(true);
     const [newComment, setNewComment] = useState('');
@@ -226,14 +229,24 @@ const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoI
     }, []);
 
     useEffect(() => {
-        if (videoId) {
+        // Ensure videoId is a string if it's coming from query params
+        const idToFetch = Array.isArray(videoId) ? videoId[0] : videoId;
+
+        if (idToFetch) {
+            console.log(`🎬 CommentsSheet: Fetching for videoId: ${idToFetch}`);
             setLoading(true);
-            videoService.fetchComments(videoId).then(data => {
+            videoService.fetchComments(idToFetch, currentUser?.id).then(data => {
+                console.log(`🎬 CommentsSheet: Received ${data?.length || 0} comments`);
                 setRawComments(data);
                 setLoading(false);
-            }).catch(() => setLoading(false));
+            }).catch((err) => {
+                console.error('🎬 CommentsSheet: Fetch Error:', err);
+                setLoading(false);
+            });
+        } else {
+            console.warn('🎬 CommentsSheet: No videoId provided');
         }
-    }, [videoId]);
+    }, [videoId, currentUser?.id]);
 
     const toggleEmojiPicker = useCallback(() => {
         if (showEmojiPicker) {
@@ -266,7 +279,9 @@ const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoI
                 first_name: currentUser?.user_metadata?.first_name || 'You',
                 last_name: currentUser?.user_metadata?.last_name || '',
                 avatar_url: currentUser?.user_metadata?.avatar_url || ''
-            }
+            },
+            likes_count: 0,
+            user_has_liked: false
         };
 
         if (replyingTo) {
@@ -327,6 +342,97 @@ const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoI
         }
     };
 
+    const handleDeleteComment = async (commentId: string) => {
+        Alert.alert(
+            'Delete Comment?',
+            'Are you sure you want to remove this comment?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        // Optimistic update
+                        const originalComments = [...rawComments];
+                        setRawComments(prev => prev.filter(c => c.id !== commentId));
+
+                        try {
+                            await videoService.deleteComment(commentId);
+                        } catch (error: any) {
+                            console.error('Failed to delete comment:', error);
+                            setRawComments(originalComments);
+                            Alert.alert('Error', 'Failed to delete comment. Please try again.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleToggleLike = async (comment: Comment) => {
+        if (!checkAuth()) {
+            console.log('🎬 handleToggleLike: Auth check failed');
+            return;
+        }
+
+        const commentId = comment.id;
+        const userId = currentUser?.id;
+        const wasLiked = comment.user_has_liked;
+
+        console.log(`🎬 handleToggleLike: Starting for ID: ${commentId}, currently liked: ${wasLiked}`);
+
+        // Optimistic Update
+        setRawComments(prev => prev.map(c => {
+            if (c.id === commentId) {
+                return {
+                    ...c,
+                    user_has_liked: !wasLiked,
+                    likes_count: Math.max(0, (c.likes_count || 0) + (wasLiked ? -1 : 1))
+                };
+            }
+            return c;
+        }));
+
+        try {
+            if (!userId) throw new Error('User ID is missing');
+
+            const result = await videoService.toggleCommentLike(commentId, userId);
+            console.log('🎬 handleToggleLike: Success from server:', result);
+
+            // Sync with actual result from server
+            setRawComments(prev => prev.map(c => {
+                if (c.id === commentId) {
+                    return {
+                        ...c,
+                        user_has_liked: result.liked,
+                        likes_count: result.likes_count
+                    };
+                }
+                return c;
+            }));
+        } catch (error: any) {
+            console.error('🎬 handleToggleLike: Error caught:', error.message || error);
+
+            // Revert on error
+            setRawComments(prev => prev.map(c => {
+                if (c.id === commentId) {
+                    return {
+                        ...c,
+                        user_has_liked: wasLiked,
+                        likes_count: comment.likes_count
+                    };
+                }
+                return c;
+            }));
+
+            Alert.alert(
+                'Action Failed',
+                'Something went wrong while liking. If this persists, the system might be updating. Please try again.',
+                [{ text: 'OK' }]
+            );
+        }
+    };
+
     const renderItem = ({ item }: { item: CommentListItem }) => {
         if ('isToggle' in item) {
             return (
@@ -353,9 +459,35 @@ const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoI
                 </View>
                 <View style={styles.commentContent}>
                     <View style={styles.commentHeaderRow}>
-                        <Text style={styles.username}>{item.user.first_name} {item.user.last_name}</Text>
-                        <Text style={styles.timeLabel}>{formatCommentTime(item.created_at)}</Text>
+                        <View style={styles.headerLeft}>
+                            <Text style={styles.username}>{item.user.first_name} {item.user.last_name}</Text>
+                            <Text style={styles.timeLabel}>{formatCommentTime(item.created_at)}</Text>
+                        </View>
+                        <View style={styles.headerRightGroup}>
+                            {(currentUser?.id === item.user.id || currentUser?.id === videoOwnerId) && (
+                                <TouchableOpacity
+                                    onPress={() => handleDeleteComment(item.id)}
+                                    style={styles.deleteButtonHeader}
+                                >
+                                    <Ionicons name="trash-outline" size={16} color="rgba(255, 77, 77, 0.7)" />
+                                </TouchableOpacity>
+                            )}
+                            <View style={styles.likeContainer}>
+                                <TouchableOpacity
+                                    onPress={() => handleToggleLike(item as Comment)}
+                                    style={styles.likeButton}
+                                >
+                                    <Ionicons
+                                        name={item.user_has_liked ? "heart" : "heart-outline"}
+                                        size={18}
+                                        color={item.user_has_liked ? "#FF4D4D" : "#888"}
+                                    />
+                                </TouchableOpacity>
+                                <Text style={styles.likeCount}>{item.likes_count || 0}</Text>
+                            </View>
+                        </View>
                     </View>
+
                     {item.content ? <Text style={styles.commentText}>{item.content}</Text> : null}
                     {item.image_url && (
                         <TouchableOpacity
@@ -368,6 +500,7 @@ const CommentsSheet = forwardRef<BottomSheetModal, CommentsSheetProps>(({ videoI
                             <Image source={{ uri: item.image_url }} style={styles.commentImage} />
                         </TouchableOpacity>
                     )}
+
                     <View style={styles.commentMeta}>
                         {!item.parent_id && (
                             <TouchableOpacity onPress={() => {
@@ -557,10 +690,42 @@ const styles = StyleSheet.create({
     avatarFallbackSmall: { width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
     avatarInitial: { color: '#fff', fontWeight: 'bold' },
     commentContent: { flex: 1 },
-    commentHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    username: { fontSize: 12, fontWeight: '700', color: '#111' },
-    timeLabel: { fontSize: 11, color: '#888' },
-    commentText: { fontSize: 14, color: '#222', marginTop: 2 },
+    commentHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 2
+    },
+    headerLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6
+    },
+    username: { fontSize: 13, fontWeight: '700', color: '#111' },
+    timeLabel: { fontSize: 11, color: '#888', marginLeft: 2 },
+    headerRightGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 15
+    },
+    likeContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 32,
+    },
+    likeButton: {
+        padding: 0,
+    },
+    likeCount: {
+        fontSize: 10,
+        color: '#888',
+        marginTop: -3,
+        fontWeight: '500',
+    },
+    deleteButtonHeader: {
+        padding: 4,
+    },
+    commentText: { fontSize: 14, color: '#222', marginTop: 1, lineHeight: 18 },
     commentImage: { width: '100%', height: 200, borderRadius: 12, marginTop: 10 },
     commentMeta: { flexDirection: 'row', gap: 15, marginTop: 5 },
     replyLink: { fontSize: 12, color: '#888', fontWeight: '700' },

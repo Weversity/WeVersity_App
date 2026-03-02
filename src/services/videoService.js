@@ -340,26 +340,74 @@ export const videoService = {
     return error ? null : (data ? data.type : null);
   },
 
-  fetchComments: async (videoId) => {
-    // Fetch all comments (roots and replies) for this video
-    // In a flat list, we'll need to handle the visual indentation in the UI
-    const { data, error } = await supabase
-      .from('comments')
-      .select('*, user:profiles(id, first_name, last_name, avatar_url, occupation)')
-      .eq('video_id', videoId)
-      .order('created_at', { ascending: false }); // Newest roots at top
-    if (error) throw error;
-    return data;
+  fetchComments: async (videoId, userId = null) => {
+    try {
+      console.log(`📥 Fetching comments for video ${videoId} (User: ${userId})`);
+
+      // Fetch all comments (roots and replies) for this video
+      // Including comment_likes to get count and check if current user liked it
+      let query = supabase
+        .from('comments')
+        .select(`
+          *, 
+          user:profiles(id, first_name, last_name, avatar_url, occupation),
+          comment_likes(user_id)
+        `)
+        .eq('video_id', videoId)
+        .order('created_at', { ascending: false });
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('❌ Supabase fetchComments Error:', error.message);
+
+        // Fallback: Fetch without likes join if that's what caused the failure
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('comments')
+          .select('*, user:profiles(id, first_name, last_name, avatar_url, occupation)')
+          .eq('video_id', videoId)
+          .order('created_at', { ascending: false });
+
+        if (fallbackError) {
+          console.error('❌ Fallback fetchComments failed:', fallbackError.message);
+          throw fallbackError;
+        }
+
+        console.log('✅ Fallback fetch successful (without likes)');
+        return (fallbackData || []).map(comment => ({
+          ...comment,
+          likes_count: 0,
+          user_has_liked: false
+        }));
+      }
+
+      console.log(`✅ Successfully fetched ${data?.length || 0} comments`);
+
+      // Transform data to include likes_count and user_has_liked
+      return (data || []).map(comment => ({
+        ...comment,
+        likes_count: comment.comment_likes?.length || 0,
+        user_has_liked: !!(userId && comment.comment_likes?.some(like => like.user_id === userId))
+      }));
+    } catch (err) {
+      console.error('❌ Critical error in fetchComments:', err.message);
+      return []; // Return empty array instead of crashing UI
+    }
   },
 
   fetchReplies: async (parentId) => {
-    const { data, error } = await supabase
-      .from('comments')
-      .select('*, user:profiles(id, first_name, last_name, avatar_url, occupation)')
-      .eq('parent_id', parentId)
-      .order('created_at', { ascending: true });
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .select('*, user:profiles(id, first_name, last_name, avatar_url, occupation)')
+        .eq('parent_id', parentId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    } catch (err) {
+      console.error('❌ fetchReplies Error:', err.message);
+      return [];
+    }
   },
 
   uploadCommentImage: async (fileUri) => {
@@ -415,18 +463,65 @@ export const videoService = {
   },
 
   addComment: async (videoId, userId, content, parentId = null, imageUrl = null) => {
-    const { data, error } = await supabase
+    try {
+      console.log(`📤 Adding comment to video ${videoId}`);
+      const { data, error } = await supabase
+        .from('comments')
+        .insert([{
+          video_id: videoId,
+          user_id: userId,
+          content,
+          parent_id: parentId,
+          image_url: imageUrl
+        }])
+        .select('*, user:profiles(id, first_name, last_name, avatar_url)')
+        .single();
+
+      if (error) {
+        console.error('❌ Supabase addComment Error:', error.message);
+        throw error;
+      }
+
+      console.log('✅ Comment added successfully:', data?.id);
+      return data;
+    } catch (err) {
+      console.error('❌ addComment Critical Error:', err.message);
+      throw err;
+    }
+  },
+
+  deleteComment: async (commentId) => {
+    const { error } = await supabase
       .from('comments')
-      .insert([{
-        video_id: videoId,
-        user_id: userId,
-        content,
-        parent_id: parentId,
-        image_url: imageUrl
-      }])
-      .select('*, user:profiles(id, first_name, last_name, avatar_url)').single();
+      .delete()
+      .eq('id', commentId);
     if (error) throw error;
-    return data;
+    return true;
+  },
+
+  toggleCommentLike: async (commentId, userId) => {
+    try {
+      console.log(`👍 Toggling like for comment: ${commentId} (User: ${userId})`);
+
+      // Explicitly calling RPC on public schema (Supabase default)
+      // Parameter names MUST match the SQL function exactly: p_comment_id, p_user_id
+      const { data, error } = await supabase.rpc('toggle_comment_like', {
+        p_comment_id: commentId,
+        p_user_id: userId
+      });
+
+      if (error) {
+        console.error('❌ Supabase toggleCommentLike RPC Error:', error.message);
+        // If you see 'function does not exist', the SQL migration needs to be run.
+        throw error;
+      }
+
+      console.log('✅ toggleCommentLike result:', data);
+      return data; // Returns { liked: boolean, likes_count: number }
+    } catch (err) {
+      console.error('❌ Critical error in toggleCommentLike:', err.message);
+      throw err;
+    }
   },
 
   fetchPublicProfile: async (userId) => {
