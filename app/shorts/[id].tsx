@@ -1,9 +1,9 @@
 import ShortFeedItem from '@/src/components/shorts/ShortFeedItem';
 import { videoService } from '@/src/services/videoService';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function SingleShortScreen() {
     const { id } = useLocalSearchParams();
@@ -79,6 +79,7 @@ export default function SingleShortScreen() {
 
     return (
         <View style={styles.container}>
+            <Stack.Screen options={{ headerShown: false }} />
             <StatusBar barStyle="light-content" backgroundColor="black" translucent />
 
             {/* Back Button Overlay */}
@@ -92,6 +93,8 @@ export default function SingleShortScreen() {
                 isMuted={isMuted}
                 setIsMuted={setIsMuted}
                 onRefresh={() => { }} // No refresh needed for single item
+                containerHeight={Dimensions.get('window').height - (StatusBar.currentHeight || 0)}
+                containerWidth={Dimensions.get('window').width}
             />
         </View>
     );
@@ -122,9 +125,9 @@ const styles = StyleSheet.create({
     },
     topBackButton: {
         position: 'absolute',
-        top: 50,
+        top: 40,
         left: 20,
-        zIndex: 10,
+        zIndex: 999,
         padding: 8,
         backgroundColor: 'rgba(0,0,0,0.3)',
         borderRadius: 20,

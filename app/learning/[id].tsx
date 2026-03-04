@@ -39,6 +39,9 @@ interface Lesson {
     video_link?: string;
     lessons?: Lesson[];
     isCompleted?: boolean;
+    order?: number;
+    position?: number;
+    index?: number;
 }
 
 interface Section {
@@ -103,9 +106,17 @@ const processCourseContent = (content: any): Section[] => {
             lessons = sectionData.lessons || sectionData.data || sectionData.items || [];
         }
 
+        const sortedLessons = Array.isArray(lessons)
+            ? lessons.map(processLesson).sort((a, b) => {
+                const orderA = a.order || a.position || a.index || 0;
+                const orderB = b.order || b.position || b.index || 0;
+                return orderA - orderB;
+            })
+            : [];
+
         return {
             title,
-            data: Array.isArray(lessons) ? lessons.map(processLesson) : [],
+            data: sortedLessons,
             isExpanded: index === 0,
         };
     });
@@ -809,7 +820,7 @@ const styles = StyleSheet.create({
     emptyStateText: { textAlign: 'center', color: '#888', marginTop: 20, fontSize: 15 },
     header: { height: 100, paddingTop: 40, backgroundColor: '#8A2BE2', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, justifyContent: 'space-between' },
     hamburgerBtn: { padding: 5 },
-    headerTitle: { color: '#fff', fontSize: 18, fontWeight: '600', flex: 1, textAlign: 'center', marginHorizontal: 10 },
+    headerTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', flex: 1, textAlign: 'center', marginHorizontal: 10 },
     backBtn: { padding: 5 },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
     sidebar: { position: 'absolute', top: 0, left: 0, bottom: 0, width: SIDEBAR_WIDTH, backgroundColor: '#fff', zIndex: 1001, elevation: 10 },

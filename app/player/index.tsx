@@ -1,29 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import { Dimensions, StatusBar, StyleSheet, TouchableOpacity, View } from 'react-native';
 import ShortFeedItem from '../../src/components/shorts/ShortFeedItem';
-import { useAuth } from '../../src/context/AuthContext';
-
 const { width, height } = Dimensions.get('window');
 
 export default function PlayerScreen() {
-    const { video_url, id, likes_count, description, instructor_id, instructor_name, instructor_avatar } = useLocalSearchParams();
+    const params = useLocalSearchParams();
+    const { video_url, id, likes_count, description, instructor_id, instructor_name, instructor_avatar, type } = params;
     const router = useRouter();
-    const { user } = useAuth();
 
-    // Reconstruct item object from params
-    // Note: params are strings, so parsing might be needed for complex objects or numbers
     const item = {
         id: id as string,
         video_url: video_url as string,
+        type: type as 'image' | 'video',
         likes_count: parseInt(likes_count as string || '0'),
         description: description as string,
         instructor_id: instructor_id as string,
         instructor: {
             id: instructor_id as string,
             first_name: instructor_name as string,
-            // avatar_url might need decoding if it contains special chars, usually ok
             avatar_url: instructor_avatar as string
         }
     };
@@ -32,6 +28,7 @@ export default function PlayerScreen() {
 
     return (
         <View style={styles.container}>
+            <Stack.Screen options={{ headerShown: false }} />
             <StatusBar barStyle="light-content" backgroundColor="black" />
 
             {/* Simple Back Overlay */}
@@ -45,6 +42,8 @@ export default function PlayerScreen() {
                 isMuted={isMuted}
                 setIsMuted={setIsMuted}
                 onRefresh={() => { }}
+                containerHeight={height - (StatusBar.currentHeight || 0)}
+                containerWidth={width}
             />
         </View>
     );
@@ -57,9 +56,9 @@ const styles = StyleSheet.create({
     },
     backButton: {
         position: 'absolute',
-        top: 50,
+        top: 40,
         left: 20,
-        zIndex: 10,
+        zIndex: 999,
         shadowColor: "#000",
         shadowOffset: {
             width: 0,

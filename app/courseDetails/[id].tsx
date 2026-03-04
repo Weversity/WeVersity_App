@@ -5,6 +5,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { courseService } from '@/src/services/courseService';
 import { Course, Lesson, LessonType, Review, Section } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -322,8 +323,16 @@ export default function CourseDetailsScreen() {
             // The relational fetch already returns a normalized Section[] format
             transformedSections = contentToProcess;
 
-            // Calculate total lessons
+            // Calculate total lessons and sort items
             transformedSections.forEach(section => {
+                if (section.data) {
+                    // Force sorting by order OR position OR index for robustness
+                    section.data.sort((a, b) => {
+                        const orderA = a.order || a.position || a.index || 0;
+                        const orderB = b.order || b.position || b.index || 0;
+                        return orderA - orderB;
+                    });
+                }
                 lessonCount += section.data?.length || 0;
             });
 
@@ -516,29 +525,32 @@ export default function CourseDetailsScreen() {
         // Add id, fullCourseData, contentData, and parsed result as dependencies
     }, [fullCourseData, contentData, processedContent, id]);
 
-    useEffect(() => {
-        const fetchEnrollment = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user && id) {
-                const { data: enrollData } = await supabase
-                    .from('enrollments')
-                    .select('student_id, course_id, completed_lessons')
-                    .eq('student_id', user.id)
-                    .eq('course_id', id)
-                    .maybeSingle();
+    const fetchEnrollment = useCallback(async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && id) {
+            const { data: enrollData } = await supabase
+                .from('enrollments')
+                .select('student_id, course_id, completed_lessons')
+                .eq('student_id', user.id)
+                .eq('course_id', id)
+                .maybeSingle();
 
-                if (enrollData) {
-                    setIsEnrolled(true);
-                    let completedIds: string[] = [];
-                    if (enrollData.completed_lessons && Array.isArray(enrollData.completed_lessons)) {
-                        completedIds = enrollData.completed_lessons.map(String);
-                    }
-                    setCompletedLessonIds(completedIds);
+            if (enrollData) {
+                setIsEnrolled(true);
+                let completedIds: string[] = [];
+                if (enrollData.completed_lessons && Array.isArray(enrollData.completed_lessons)) {
+                    completedIds = enrollData.completed_lessons.map(String);
                 }
+                setCompletedLessonIds(completedIds);
             }
-        };
-        fetchEnrollment();
+        }
     }, [id]);
+
+    useFocusEffect(
+        useCallback(() => {
+            fetchEnrollment();
+        }, [fetchEnrollment])
+    );
 
     useEffect(() => {
         if (course && course.lessonCount > 0 && completedLessonIds.length > 0) {
@@ -649,7 +661,7 @@ export default function CourseDetailsScreen() {
             <Stack.Screen options={CourseDetailsStackOptions({ title: course.title })} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
                 <View style={styles.header}>
-                    <Image source={{ uri: course.image }} style={styles.headerImg} />
+                    <Image source={{ uri: course.image }} style={styles.headerImg} resizeMode="cover" />
                     <TouchableOpacity style={styles.backButtonFloating} onPress={() => router.back()}>
                         <Ionicons name="chevron-back" size={24} color="#fff" />
                     </TouchableOpacity>
@@ -1031,8 +1043,8 @@ const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     error: { color: 'red', marginBottom: 20 },
     backBtn: { backgroundColor: '#8A2BE2', padding: 10, borderRadius: 5 },
-    header: { height: 250 },
-    headerImg: { width: '100%', height: '100%' },
+    header: { width: '100%', backgroundColor: '#eee' },
+    headerImg: { width: '100%', aspectRatio: 16 / 9 },
     backButtonFloating: {
         position: 'absolute',
         top: 40,

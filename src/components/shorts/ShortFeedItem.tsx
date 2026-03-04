@@ -42,8 +42,8 @@ interface ShortFeedItemProps {
     isMuted: boolean;
     setIsMuted: (muted: boolean) => void;
     onCommentsVisibilityChange?: (visible: boolean) => void;
-    containerHeight: number;
-    containerWidth: number;
+    containerHeight?: number;
+    containerWidth?: number;
 }
 
 const getRandomColor = (name: string) => {
@@ -122,8 +122,8 @@ export default function ShortFeedItem({
     isMuted,
     setIsMuted,
     onCommentsVisibilityChange,
-    containerHeight,
-    containerWidth
+    containerHeight = Dimensions.get('window').height,
+    containerWidth = Dimensions.get('window').width
 }: ShortFeedItemProps) {
     const router = useRouter();
     const { user } = useAuth();
@@ -148,7 +148,7 @@ export default function ShortFeedItem({
         const translateY = interpolate(
             animatedIndex.value,
             [-1, 0],
-            [0, -containerHeight * 0.4],
+            [0, -(containerHeight ?? height) * 0.4],
             Extrapolate.CLAMP
         );
         const borderRadius = interpolate(

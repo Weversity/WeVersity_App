@@ -18,6 +18,9 @@ export interface Lesson {
     items?: Lesson[]; // Added items as optional for flexibility
     isCompleted?: boolean;
     is_free?: boolean;
+    order?: number;
+    position?: number;
+    index?: number;
     [key: string]: any;
 }
 
@@ -25,6 +28,7 @@ export interface Section {
     title: string;
     data: Lesson[];
     isExpanded?: boolean;
+    order?: number;
 }
 
 export interface UserProfile {

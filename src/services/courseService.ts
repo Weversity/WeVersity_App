@@ -180,8 +180,9 @@ export const courseService = {
                 const topicIds = topics.map(t => t.id);
                 const { data: items, error: itemsError } = await supabase
                     .from('curriculum_items')
-                    .select('id, topic_id, title, type, content, video_url, meta_data')
-                    .in('topic_id', topicIds);
+                    .select('id, topic_id, title, type, content, video_url, meta_data, order')
+                    .in('topic_id', topicIds)
+                    .order('order', { ascending: true });
 
                 if (itemsError) throw itemsError;
 

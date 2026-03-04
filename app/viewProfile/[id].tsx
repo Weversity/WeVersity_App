@@ -39,6 +39,19 @@ const getInitials = (firstName?: string, lastName?: string) => {
     return ((firstName?.[0] || '') + (lastName?.[0] || '')).toUpperCase() || '?';
 };
 
+const getThumbnailUrl = (url: string, type: 'image' | 'video') => {
+    if (!url) return '';
+    if (type === 'image') return url;
+
+    // Cloudinary video thumbnail trick: change extension to .jpg
+    // Also works for most CDNs if they auto-generate thumbnails
+    if (url.includes('cloudinary.com')) {
+        return url.replace(/\.[^/.]+$/, ".jpg");
+    }
+
+    return url;
+};
+
 export default function ViewProfile() {
     const { id, mode } = useLocalSearchParams();
     const router = useRouter();
@@ -192,7 +205,8 @@ export default function ViewProfile() {
                 description: item.description || '',
                 instructor_id: item.instructor_id,
                 instructor_name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim(),
-                instructor_avatar: profile?.avatar_url || ''
+                instructor_avatar: profile?.avatar_url || '',
+                type: item.type
             }
         } as any);
     };
@@ -376,7 +390,7 @@ export default function ViewProfile() {
                         activeOpacity={0.9}
                     >
                         <Image
-                            source={{ uri: item.video_url }}
+                            source={{ uri: getThumbnailUrl(item.video_url, item.type) }}
                             style={styles.gridImage}
                         />
                         <View style={styles.gridOverlay}>
