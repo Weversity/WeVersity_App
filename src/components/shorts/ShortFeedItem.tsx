@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Dimensions, Image, Animated as RNAnimated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Image, Animated as RNAnimated, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { Extrapolate, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
@@ -285,6 +285,16 @@ export default function ShortFeedItem({
         } catch (error) { console.error("Reaction failed", error); }
     };
 
+    const handleShare = async () => {
+        try {
+            await Share.share({
+                message: `Check out this WeVersity Short!\nhttps://weversity.org/shorts/${item.id}`,
+            });
+        } catch (error: any) {
+            console.error("Error sharing:", error.message);
+        }
+    };
+
     return (
         <View style={[styles.container, { height: containerHeight, width: containerWidth, backgroundColor: 'black' }]}>
             <Animated.View style={[{ width: containerWidth, height: containerHeight, position: 'absolute', top: 0, left: 0, zIndex: 1 }, videoAnimatedStyle]}>
@@ -351,6 +361,13 @@ export default function ShortFeedItem({
                         <View style={styles.iconCircle}>
                             <Ionicons name="chatbox-ellipses-outline" size={24} color="white" />
                         </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+                        <View style={styles.iconCircle}>
+                            <Ionicons name="share-social-outline" size={24} color="white" />
+                        </View>
+                        <Text style={styles.actionText}>Share</Text>
                     </TouchableOpacity>
 
                     {isVideo && (

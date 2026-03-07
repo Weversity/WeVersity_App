@@ -1,0 +1,14 @@
+[
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "org.weversity.app",
+            "sha256_cert_fingerprints": [
+                "45:6D:DF:6F:41:4D:25:90:D5:77:F0:6A:74:2F:73:25:95:50:42:AA:56:1F:DC:79:77:6D:5C:5D:D0:4C:E8:ED"
+            ]
+        }
+    }
+]

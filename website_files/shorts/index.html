@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>WeVersity Shorts Redirect</title>
+    <style>
+        body { background-color: #000; color: #fff; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    </style>
+    <script>
+        // Universal App Redirect - No UI, Immediate Redirect
+        var userAgent = navigator.userAgent || navigator.vendor || window.opera;
+
+        if (/android/i.test(userAgent)) {
+            // Android -> Google Play Store
+            window.location.replace("https://play.google.com/store/apps/details?id=org.weversity.app");
+        } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+            // iOS -> Apple App Store
+            // NOTE: Replace YOUR_APP_STORE_ID with the actual App ID
+            window.location.replace("https://apps.apple.com/app/idYOUR_APP_STORE_ID");
+        } else {
+            // Desktop/Fallback -> Homepage
+            window.location.replace("https://weversity.org");
+        }
+    </script>
+</head>
+<body>
+    <p>Redirecting...</p>
+</body>
+</html>
