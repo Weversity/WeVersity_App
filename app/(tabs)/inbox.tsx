@@ -21,6 +21,40 @@ import {
 } from 'react-native';
 import { TabBar, TabView } from 'react-native-tab-view';
 
+const formatChatTime = (dateInput: string | number | null | undefined): { timeStr: string, timestamp: number } => {
+  if (!dateInput) return { timeStr: '', timestamp: 0 };
+
+  const dateObj = new Date(dateInput);
+  if (isNaN(dateObj.getTime())) return { timeStr: '', timestamp: 0 };
+
+  const now = new Date();
+  const timestamp = dateObj.getTime();
+
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfMessageDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()).getTime();
+
+  const diffTime = startOfToday - startOfMessageDay;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  let timeStr = '';
+
+  if (diffDays <= 0) {
+    timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } else if (diffDays === 1) {
+    timeStr = 'Yesterday';
+  } else if (diffDays > 1 && diffDays < 7) {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    timeStr = days[dateObj.getDay()];
+  } else {
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const year = dateObj.getFullYear();
+    timeStr = `${day}/${month}/${year}`;
+  }
+
+  return { timeStr, timestamp };
+};
+
 // Guest View Component for Unauthorized Users
 const GuestView = ({ onGoToProfile }: { onGoToProfile: () => void }) => {
   return (
@@ -126,25 +160,28 @@ const ConversationItem = memo(({ item, onPress }: { item: Conversation; onPress:
 
       <View style={styles.conversationContent}>
         <View style={styles.topRow}>
-          <Text style={styles.name} numberOfLines={2}>
+          <Text style={styles.name} numberOfLines={1}>
             {item.name}
           </Text>
-          <View style={styles.metaContainer}>
-            <Text style={[styles.time, item.unread > 0 && styles.activeTime]}>{item.time}</Text>
-          </View>
+          <Text style={[styles.time, item.unread > 0 && styles.activeTime]}>{item.time}</Text>
         </View>
         <View style={styles.bottomRow}>
-          <Text style={styles.messagePreview} numberOfLines={2}>
-            {item.message}
+          <Text style={[styles.messagePreview, item.unread > 0 && { fontWeight: '700', color: '#111827' }]} numberOfLines={1}>
+            {item.senderName ? (
+              <Text style={{ color: item.unread > 0 ? '#111827' : '#8A2BE2', fontWeight: item.unread > 0 ? '700' : '600' }}>{item.senderName}: </Text>
+            ) : null}
+            {item.messageContent ? item.messageContent : item.message}
           </Text>
-          {item.unread > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadText}>{item.unread}</Text>
-            </View>
-          )}
-          {item.unread === 0 && item.isRead && (
-            <Ionicons name="checkmark-done" size={16} color="#6C63FF" style={styles.readIcon} />
-          )}
+          <View style={styles.rightBadgeContainer}>
+            {item.unread > 0 && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadText}>{item.unread}</Text>
+              </View>
+            )}
+            {item.unread === 0 && item.isRead && (
+              <Ionicons name="checkmark-done" size={16} color="#8A2BE2" style={styles.readIcon} />
+            )}
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -158,9 +195,9 @@ const renderEmptyMessages = (message: string) => (
   </View>
 );
 
-const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+const ChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
-    data={conversations}
+    data={conversations.filter(c => !c.isGroup)}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
     contentContainerStyle={styles.listContent}
@@ -168,7 +205,21 @@ const AllChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: {
     refreshControl={
       <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
     }
-    ListEmptyComponent={() => renderEmptyMessages('No messages found.')}
+    ListEmptyComponent={() => renderEmptyMessages('No direct messages yet. Start a conversation!')}
+  />
+));
+
+const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+  <FlatList
+    data={conversations.filter(c => c.unread > 0)}
+    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
+    keyExtractor={(item) => item.id}
+    contentContainerStyle={styles.listContent}
+    showsVerticalScrollIndicator={false}
+    refreshControl={
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+    }
+    ListEmptyComponent={() => renderEmptyMessages('You are all caught up!')}
   />
 ));
 
@@ -182,7 +233,7 @@ const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }
     refreshControl={
       <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
     }
-    ListEmptyComponent={() => renderEmptyMessages('No community updates yet.')}
+    ListEmptyComponent={() => renderEmptyMessages('No community groups found.')}
   />
 ));
 
@@ -198,8 +249,9 @@ export default function InboxScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [routes] = useState([
-    { key: 'all', title: 'Chats' },
-    { key: 'communities', title: 'Communities' },
+    { key: 'chats', title: 'First chat' },
+    { key: 'unread', title: 'Unread' },
+    { key: 'communities', title: 'Community' },
   ]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -207,29 +259,53 @@ export default function InboxScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
 
-  // Restore the format helper
   const formatConversation = useCallback((conv: any): Conversation => {
     const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
     const isMe = msg.sender_id === user?.id;
-    let timeStr = '';
-    let timestamp = 0;
-    try {
-      const dateInput = msg.created_at || new Date().toISOString();
-      const dateObj = new Date(dateInput);
-      if (!isNaN(dateObj.getTime())) {
-        timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        timestamp = dateObj.getTime();
-      } else {
-        timeStr = 'Now';
-        timestamp = Date.now();
-      }
-    } catch (e) {
-      timeStr = '';
+
+    const { timeStr, timestamp } = formatChatTime(msg.created_at || new Date().toISOString());
+
+    let rawContent = msg.content || '';
+    if (rawContent === 'Tap to join the discussion' || rawContent === 'Tap to join') {
+      rawContent = '';
     }
+
+    const isImage = rawContent && (
+      rawContent.startsWith('file://') ||
+      (rawContent.includes('res.cloudinary.com') && !rawContent.includes('/video/upload/')) ||
+      rawContent.match(/\.(jpeg|jpg|gif|png|webp)$/i)
+    );
+
+    const isVideo = rawContent && (
+      (rawContent.includes('res.cloudinary.com') && rawContent.includes('/video/upload/')) ||
+      rawContent.match(/\.(mp4|mov|m4v)$/i)
+    );
+
+    if (isVideo) {
+      rawContent = '🎥 Video';
+    } else if (isImage) {
+      rawContent = '📷 Photo';
+    } else if (!rawContent) {
+      rawContent = 'No messages yet';
+    }
+
+    let sName = '';
+    if (isMe) {
+      sName = 'You';
+    } else if (conv.last_sender_name) {
+      sName = conv.last_sender_name;
+    } else if (msg.sender_name) {
+      sName = msg.sender_name;
+    }
+
+    let finalMessageStr = sName ? `${sName}: ${rawContent}` : rawContent;
+
     return {
       id: conv.id,
       name: conv.name || 'Group Chat',
-      message: (isMe ? 'You: ' : '') + (msg.content || 'Tap to view'),
+      message: finalMessageStr,
+      senderName: sName,
+      messageContent: rawContent,
       time: timeStr,
       unread: conv.unread_count || 0,
       avatar: conv.avatar,
@@ -252,7 +328,41 @@ export default function InboxScreen() {
 
       console.log('🔄 [Inbox] Fetching conversations...');
       const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
-      const mapped = inboxData.map(formatConversation);
+
+      const enhancedInboxData = await Promise.all(inboxData.map(async (conv) => {
+        let msg = conv.last_message || { content: '', created_at: null, sender_id: null };
+        if (!msg.content || msg.content === 'Tap to join the discussion' || msg.content === 'Tap to join') {
+          try {
+            const messages = await chatService.fetchConversationMessages(conv.id);
+            if (messages && messages.length > 0) {
+              const latestMsg = messages[messages.length - 1];
+              conv.last_message = {
+                content: latestMsg.content,
+                created_at: latestMsg.created_at,
+                sender_id: latestMsg.sender_id,
+              };
+              conv.last_sender_name = latestMsg.sender ? `${latestMsg.sender.first_name} ${latestMsg.sender.last_name || ''}`.trim() : null;
+            }
+          } catch (e) {
+            console.log('Failed to fetch messages for conv', conv.id);
+          }
+        }
+        return conv;
+      }));
+
+      let mapped = enhancedInboxData.map(formatConversation);
+
+      // Add Dummy Data for testing First Chat and Unread tabs
+      const dummyChats: Conversation[] = [
+        { id: 'dummy-1', name: 'Alex Rivera', message: 'Hey, did you see the new post? I...', time: formatChatTime(Date.now() - 5 * 60000).timeStr, unread: 2, avatar: 'https://i.pravatar.cc/150?u=alex', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 5 * 60000, system: false, online: true },
+        { id: 'dummy-2', name: 'Jordan Smith', message: 'The meeting has been rescheduled to...', time: formatChatTime(Date.now() - 24 * 60 * 60000).timeStr, unread: 0, avatar: 'https://i.pravatar.cc/150?u=jordan', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 24 * 60 * 60000, system: false, online: false },
+        { id: 'dummy-3', name: 'Sarah Chen', message: 'Can you send me those design...', time: formatChatTime(Date.now() - 120 * 60000).timeStr, unread: 1, avatar: 'https://i.pravatar.cc/150?u=sarah', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 120 * 60000, system: false, online: true },
+        { id: 'dummy-4', name: 'Marcus Wright', message: 'That\'s a great idea, let\'s discuss it in th...', time: formatChatTime(Date.now() - 3 * 24 * 60 * 60000).timeStr, unread: 0, avatar: 'https://i.pravatar.cc/150?u=marcus', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 3 * 24 * 60 * 60000, system: false, online: false },
+        { id: 'dummy-5', name: 'Elena Gilbert', message: '📷 Photo', time: formatChatTime(Date.now() - 10 * 24 * 60 * 60000).timeStr, unread: 0, avatar: 'https://i.pravatar.cc/150?u=elena', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 10 * 24 * 60 * 60000, system: false, online: false },
+      ];
+
+      mapped = [...dummyChats, ...mapped];
+
       setConversations(mapped.sort((a: Conversation, b: Conversation) => b.timestamp - a.timestamp));
     } catch (error) {
       console.error('❌ [Inbox] Error fetching chats:', error);
@@ -267,6 +377,13 @@ export default function InboxScreen() {
     if (!user) return;
     loadChats(true);
   }, [user?.id]); // Only run on mount or if user ID changes (Login/Logout)
+
+  // Refetch when screen comes into focus to ensure new conversations (like accepted requests) appear
+  useEffect(() => {
+    if (user && isFocused) {
+      loadChats(false);
+    }
+  }, [isFocused, user, loadChats]);
 
   // 2. Realtime Subscription Effect
   useEffect(() => {
@@ -284,14 +401,16 @@ export default function InboxScreen() {
           name: existing?.name || newMessage.group_name || 'Community Chat',
           avatar: existing?.avatar,
           message: (isMe ? 'You: ' : '') + newMessage.content,
-          time: new Date(newMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          senderName: isMe ? 'You' : (newMessage.sender_name || ''),
+          messageContent: newMessage.content,
+          time: formatChatTime(newMessage.created_at).timeStr,
           unread: isMe ? 0 : (existing?.unread || 0) + 1,
           avatarColor: '#F3F4F6',
           system: false,
           isGroup: existing?.isGroup || !!newMessage.group_id,
-          timestamp: new Date(newMessage.created_at).getTime()
+          timestamp: formatChatTime(newMessage.created_at).timestamp
         };
-        return [updatedConv, ...others];
+        return [updatedConv, ...others].sort((a, b) => b.timestamp - a.timestamp);
       });
     });
 
@@ -329,8 +448,10 @@ export default function InboxScreen() {
 
   const renderScene = useCallback(({ route }: { route: { key: string } }) => {
     switch (route.key) {
-      case 'all':
-        return <AllChatsRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
+      case 'chats':
+        return <ChatsRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
+      case 'unread':
+        return <UnreadRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       case 'communities':
         return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       default:
@@ -623,7 +744,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   activeTime: {
-    color: '#6C63FF',
+    color: '#8A2BE2',
     fontWeight: '600',
   },
   bottomRow: {
@@ -640,7 +761,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   unreadBadge: {
-    backgroundColor: '#6C63FF',
+    backgroundColor: '#8A2BE2',
     minWidth: 20,
     height: 20,
     borderRadius: 10,
@@ -653,6 +774,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 11,
     fontWeight: 'bold',
+  },
+  rightBadgeContainer: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minWidth: 40,
   },
   readIcon: {
     marginTop: 2,

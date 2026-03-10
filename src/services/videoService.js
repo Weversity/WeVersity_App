@@ -568,4 +568,22 @@ export const videoService = {
       return true;
     }
   },
+
+  fetchFollowersList: async (targetUserId, viewerUserId) => {
+    const { data, error } = await supabase.rpc('get_followers_with_status', {
+      target_user_id: targetUserId,
+      viewer_user_id: viewerUserId
+    });
+    if (error) throw error;
+    return data || [];
+  },
+
+  fetchFollowingList: async (targetUserId, viewerUserId) => {
+    const { data, error } = await supabase.rpc('get_following_with_status', {
+      target_user_id: targetUserId,
+      viewer_user_id: viewerUserId
+    });
+    if (error) throw error;
+    return data || [];
+  },
 };

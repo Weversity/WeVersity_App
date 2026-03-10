@@ -11,9 +11,11 @@ import {
     StatusBar,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
+import Modal from 'react-native-modal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/context/AuthContext';
 // @ts-ignore
@@ -67,6 +69,21 @@ export default function ViewProfile() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [isFollowing, setIsFollowing] = useState(false);
+    const [isFollowingViewer, setIsFollowingViewer] = useState(false);
+
+    // New Modal States
+    const [isSocialModalVisible, setIsSocialModalVisible] = useState(false);
+    const [socialTab, setSocialTab] = useState<'followers' | 'following'>('followers');
+    const [socialSearchQuery, setSocialSearchQuery] = useState('');
+    const [followersList, setFollowersList] = useState<any[]>([]);
+    const [followingList, setFollowingList] = useState<any[]>([]);
+    const [isSocialLoading, setIsSocialLoading] = useState(false);
+    const [showFollowersTooltip, setShowFollowersTooltip] = useState(true);
+
+    const [isChatModalVisible, setIsChatModalVisible] = useState(false);
+    // Removed follow/unfollow modal states for Optimistic UI
+    const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
+    const [successType, setSuccessType] = useState<'chat' | 'follow'>('chat');
 
 
     // CRITICAL: Prevent infinite re-render loop with fetch guard
@@ -160,37 +177,97 @@ export default function ViewProfile() {
     const checkFollowStatus = async () => {
         try {
             if (!user?.id || !id) return;
-            const status = await videoService.checkIsFollowing(user.id, id as string);
-            setIsFollowing(status);
+            const [iFollowThem, theyFollowMe] = await Promise.all([
+                videoService.checkIsFollowing(user.id, id as string),
+                videoService.checkIsFollowing(id as string, user.id)
+            ]);
+            setIsFollowing(iFollowThem);
+            setIsFollowingViewer(theyFollowMe);
         } catch (error) {
             console.error("Failed to check follow status", error);
         }
     };
 
-    const handleFollow = async () => {
+    const fetchSocialData = async () => {
+        if (!id || !user?.id) return;
+        setIsSocialLoading(true);
+        try {
+            const [followers, following] = await Promise.all([
+                videoService.fetchFollowersList(id as string, user.id),
+                videoService.fetchFollowingList(id as string, user.id)
+            ]);
+            setFollowersList(followers);
+            setFollowingList(following);
+        } catch (error) {
+            console.error("Failed to fetch social data", error);
+        } finally {
+            setIsSocialLoading(false);
+        }
+    };
+
+    const openSocialModal = (tab: 'followers' | 'following') => {
+        setShowFollowersTooltip(false);
+        setSocialTab(tab);
+        fetchSocialData();
+        setIsSocialModalVisible(true);
+    };
+
+    const handleSocialToggle = async (targetUser: any) => {
         if (!user?.id) {
             Alert.alert(
                 "Login Required",
-                "Please login to follow instructors",
-                [
-                    { text: "OK", style: "cancel" }
-                ]
+                "Please login to follow users",
+                [{ text: "OK", style: "cancel" }]
             );
             return;
         }
 
-        // Optimistic Update
-        const previousState = isFollowing;
-        setIsFollowing(!previousState);
-        setFollowersCount(prev => previousState ? prev - 1 : prev + 1);
+        const isMainProfile = targetUser.id === (profile?.id || id);
+        const currentFollowState = isMainProfile ? isFollowing : targetUser.is_followed_by_viewer;
+        const newFollowState = !currentFollowState;
 
-        try {
-            await videoService.toggleFollow(user.id, id as string);
-        } catch (error) {
-            console.error("Follow failed", error);
-            setIsFollowing(previousState);
-            setFollowersCount(prev => previousState ? prev + 1 : prev - 1);
+        // Optimistic UI Update - Lists
+        const toggleUserInList = (list: any[]) =>
+            list.map((u) => {
+                if (u.id === targetUser.id) {
+                    return { ...u, is_followed_by_viewer: newFollowState };
+                }
+                return u;
+            });
+
+        setFollowersList(prev => toggleUserInList(prev));
+        setFollowingList(prev => toggleUserInList(prev));
+
+        // Optimistic UI Update - Main Profile
+        if (isMainProfile) {
+            setIsFollowing(newFollowState);
+            setFollowersCount(prev => newFollowState ? prev + 1 : Math.max(0, prev - 1));
         }
+
+        // Background API call
+        try {
+            await videoService.toggleFollow(user.id, targetUser.id);
+        } catch (error) {
+            console.error("Social toggle failed", error);
+            // Revert optimistic update
+            setFollowersList(prev => toggleUserInList(prev)); // Toggle again to revert
+            setFollowingList(prev => toggleUserInList(prev));
+            if (isMainProfile) {
+                setIsFollowing(currentFollowState);
+                setFollowersCount(prev => currentFollowState ? prev + 1 : Math.max(0, prev - 1));
+            }
+        }
+    };
+
+    const handleFollow = () => {
+        handleSocialToggle({ id: id as string, is_followed_by_viewer: isFollowing });
+    };
+
+    const handleSendChatRequest = () => {
+        setIsChatModalVisible(false);
+        setSuccessType('chat');
+        setIsSuccessModalVisible(true);
+        // Here you would typically call an API to send the request
     };
 
     const handleVideoPress = (item: any) => {
@@ -248,30 +325,31 @@ export default function ViewProfile() {
         return (
             <View style={styles.headerContainer}>
                 <View style={styles.profileSection}>
-                    <View style={styles.avatarWrapper}>
-                        {displayProfile?.avatar_url ? (
-                            <Image
-                                source={{ uri: displayProfile.avatar_url }}
-                                style={styles.avatar}
-                            />
-                        ) : (
-                            <View style={[
-                                styles.avatar,
-                                styles.avatarPlaceholder,
-                                { backgroundColor: getRandomColor(displayProfile?.first_name || 'User') }
-                            ]}>
-                                <Text style={styles.avatarInitial}>
-                                    {getInitials(displayProfile?.first_name, displayProfile?.last_name)}
-                                </Text>
-                            </View>
-                        )}
+                    <View style={styles.avatarFloatingDisc}>
+                        <View style={styles.avatarContainer}>
+                            {displayProfile?.avatar_url ? (
+                                <Image
+                                    source={{ uri: displayProfile.avatar_url }}
+                                    style={styles.avatar}
+                                />
+                            ) : (
+                                <View style={[
+                                    styles.avatar,
+                                    styles.avatarPlaceholder,
+                                    { backgroundColor: getRandomColor(displayProfile?.first_name || 'User') }
+                                ]}>
+                                    <Text style={styles.avatarInitial}>
+                                        {getInitials(displayProfile?.first_name, displayProfile?.last_name)}
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
                     </View>
 
                     <View style={styles.nameRow}>
                         <Text style={styles.name}>{displayProfile?.first_name} {displayProfile?.last_name}</Text>
-                        {/* Removed small edit button as requested */}
                     </View>
-                    <Text style={styles.role}>{displayProfile?.occupation || 'Member'}</Text>
+                    <Text style={styles.role}>{(displayProfile?.occupation || 'Member').toUpperCase()}</Text>
 
                     {/* Bio Section - TikTok Style with Refined Add Button */}
                     <View style={styles.bioContainer}>
@@ -305,17 +383,32 @@ export default function ViewProfile() {
                     </View>
 
                     <View style={styles.statsContainer}>
-                        <View style={styles.statBox}>
-                            <Text style={styles.statNumber}>{formatCount(followersCount)}</Text>
-                            <Text style={styles.statText}>FOLLOWERS</Text>
-                        </View>
+                        {isOwner ? (
+                            <TouchableOpacity style={styles.statBox} onPress={() => openSocialModal('followers')} activeOpacity={0.7}>
+                                {showFollowersTooltip && (
+                                    <View style={styles.tooltipContainer}>
+                                        <View style={styles.tooltipBubble}>
+                                            <Text style={styles.tooltipText}>See who follows you</Text>
+                                        </View>
+                                        <View style={styles.tooltipArrow} />
+                                    </View>
+                                )}
+                                <Text style={styles.statNumber}>{formatCount(followersCount)}</Text>
+                                <Text style={styles.statLabel}>FOLLOWERS</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.statBox}>
+                                <Text style={styles.statNumber}>{formatCount(followersCount)}</Text>
+                                <Text style={styles.statLabel}>FOLLOWERS</Text>
+                            </View>
+                        )}
                         <View style={styles.statBox}>
                             <Text style={styles.statNumber}>{shorts.length}</Text>
-                            <Text style={styles.statText}>SHORTS</Text>
+                            <Text style={styles.statLabel}>SHORTS</Text>
                         </View>
                         <View style={styles.statBox}>
                             <Text style={styles.statNumber}>{formatCount(totalLikes)}</Text>
-                            <Text style={styles.statText}>LIKES</Text>
+                            <Text style={styles.statLabel}>LIKES</Text>
                         </View>
                     </View>
 
@@ -334,24 +427,52 @@ export default function ViewProfile() {
                             <Text style={styles.editButtonText}>Edit Profile</Text>
                         </TouchableOpacity>
                     ) : (
-                        <TouchableOpacity onPress={handleFollow} activeOpacity={0.8}>
-                            <LinearGradient
-                                colors={isFollowing ? ['#333', '#444'] : ['#8A2BE2', '#FF007F']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.followButton}
+                        <View style={styles.actionRow}>
+                            {(() => {
+                                let mainBtnType = 'follow'; // Purple
+                                let mainBtnText = 'Follow';
+
+                                if (isFollowingViewer && isFollowing) {
+                                    mainBtnType = 'friends'; // Grey
+                                    mainBtnText = 'Friends';
+                                } else if (!isFollowingViewer && isFollowing) {
+                                    mainBtnType = 'following'; // Grey
+                                    mainBtnText = 'Following';
+                                } else if (isFollowingViewer && !isFollowing) {
+                                    mainBtnType = 'followBack'; // Purple
+                                    mainBtnText = 'Follow Back';
+                                }
+
+                                const isMainPurple = mainBtnType === 'followBack' || mainBtnType === 'follow';
+
+                                return (
+                                    <TouchableOpacity
+                                        onPress={handleFollow}
+                                        activeOpacity={0.8}
+                                        style={isMainPurple ? styles.followButtonSolid : styles.followingButton}
+                                    >
+                                        <Text style={isMainPurple ? styles.followButtonText : styles.followingButtonText}>
+                                            {mainBtnText}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })()}
+
+                            <TouchableOpacity
+                                onPress={() => setIsChatModalVisible(true)}
+                                style={styles.messageButton}
                             >
-                                <Text style={styles.followButtonText}>
-                                    {isFollowing ? 'Following' : 'Follow'}
-                                </Text>
-                            </LinearGradient>
-                        </TouchableOpacity>
+                                <Ionicons name="chatbubble-ellipses" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
+                                <Text style={styles.messageButtonText}>Message</Text>
+                            </TouchableOpacity>
+                        </View>
                     )}
                 </View>
 
                 <View style={styles.tabsContainer}>
                     <View style={styles.tabItem}>
-                        <Text style={styles.tabTextActive}>Shorts</Text>
+                        <Ionicons name="grid" size={24} color="#8A2BE2" style={{ marginBottom: 4 }} />
+                        <Text style={styles.tabTextActive}>SHORTS</Text>
                         <View style={styles.activeIndicator} />
                     </View>
                 </View>
@@ -381,7 +502,10 @@ export default function ViewProfile() {
                 keyExtractor={item => item.id}
                 numColumns={3}
                 ListHeaderComponent={renderHeader}
-                contentContainerStyle={{ paddingHorizontal: CONTAINER_PADDING }}
+                contentContainerStyle={{
+                    paddingHorizontal: CONTAINER_PADDING,
+                    paddingBottom: 50
+                }}
                 columnWrapperStyle={{ gap: COLUMN_GAP }}
                 renderItem={({ item }) => (
                     <TouchableOpacity
@@ -407,6 +531,233 @@ export default function ViewProfile() {
                 }
                 showsVerticalScrollIndicator={false}
             />
+
+            {/* Chat Request Modal */}
+            <Modal
+                isVisible={isChatModalVisible}
+                onBackdropPress={() => setIsChatModalVisible(false)}
+                onBackButtonPress={() => setIsChatModalVisible(false)}
+                animationIn="zoomIn"
+                animationOut="zoomOut"
+                backdropOpacity={0.5}
+                backdropColor="black"
+            >
+                <View style={styles.premiumModalContent}>
+                    <View style={styles.modalIconContainer}>
+                        <Ionicons name="chatbubble-ellipses" size={40} color="#8A2BE2" />
+                    </View>
+                    <Text style={styles.premiumModalTitle}>Send Chat Request</Text>
+                    <Text style={styles.premiumModalSubtitle}>
+                        Connect before starting a conversation. The user will need to accept your request.
+                    </Text>
+                    <View style={styles.premiumModalButtons}>
+                        <TouchableOpacity
+                            style={styles.premiumModalCancelButton}
+                            onPress={() => setIsChatModalVisible(false)}
+                        >
+                            <Text style={styles.premiumModalCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={handleSendChatRequest}
+                            style={styles.premiumModalConfirmWrapper}
+                        >
+                            <LinearGradient
+                                colors={['#8A2BE2', '#5D00B3']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.premiumModalConfirmButton}
+                            >
+                                <Text style={styles.premiumModalConfirmText}>Send Request</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Follow/Unfollow modals removed for optimistic TikTok-style UI */}
+
+            {/* Social Modal */}
+            <Modal
+                isVisible={isSocialModalVisible}
+                onBackdropPress={() => setIsSocialModalVisible(false)}
+                onBackButtonPress={() => setIsSocialModalVisible(false)}
+                style={styles.socialModal}
+                animationIn="slideInUp"
+                animationOut="slideOutDown"
+                backdropOpacity={0.5}
+                backdropColor="black"
+            >
+                <View style={styles.socialModalContent}>
+                    <View style={styles.socialModalHeader}>
+                        <View style={styles.dragHandle} />
+                        <View style={styles.searchContainer}>
+                            <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder={`Search ${socialTab}...`}
+                                placeholderTextColor="#999"
+                                value={socialSearchQuery}
+                                onChangeText={setSocialSearchQuery}
+                            />
+                            {socialSearchQuery.length > 0 && (
+                                <TouchableOpacity onPress={() => setSocialSearchQuery('')} style={styles.clearSearchButton}>
+                                    <Ionicons name="close-circle" size={16} color="#999" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+
+                    <View style={styles.socialTabsContainer}>
+                        <TouchableOpacity
+                            style={styles.socialTab}
+                            onPress={() => setSocialTab('following')}
+                        >
+                            <Text style={[styles.socialTabText, socialTab === 'following' && styles.socialTabTextActive]}>
+                                Following
+                            </Text>
+                            {socialTab === 'following' && <View style={styles.socialTabIndicator} />}
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.socialTab}
+                            onPress={() => setSocialTab('followers')}
+                        >
+                            <Text style={[styles.socialTabText, socialTab === 'followers' && styles.socialTabTextActive]}>
+                                Followers
+                            </Text>
+                            {socialTab === 'followers' && <View style={styles.socialTabIndicator} />}
+                        </TouchableOpacity>
+                    </View>
+
+                    {isSocialLoading ? (
+                        <View style={styles.socialLoadingContainer}>
+                            <ActivityIndicator size="large" color="#8A2BE2" />
+                        </View>
+                    ) : (
+                        <FlatList
+                            data={(socialTab === 'followers' ? followersList : followingList).filter(u =>
+                                `${u.first_name} ${u.last_name}`.toLowerCase().includes(socialSearchQuery.toLowerCase())
+                            )}
+                            keyExtractor={item => item.id}
+                            contentContainerStyle={styles.socialListContainer}
+                            showsVerticalScrollIndicator={false}
+                            renderItem={({ item }) => {
+                                let btnType = 'follow'; // Purple
+                                let btnText = 'Follow';
+
+                                if (item.is_following_viewer && item.is_followed_by_viewer) {
+                                    btnType = 'friends'; // Grey
+                                    btnText = 'Friends';
+                                } else if (!item.is_following_viewer && item.is_followed_by_viewer) {
+                                    btnType = 'following'; // Grey
+                                    btnText = 'Following';
+                                } else if (item.is_following_viewer && !item.is_followed_by_viewer) {
+                                    btnType = 'followBack'; // Purple
+                                    btnText = 'Follow Back';
+                                }
+
+                                const isPurple = btnType === 'followBack' || btnType === 'follow';
+
+                                return (
+                                    <View style={styles.socialListItem}>
+                                        <TouchableOpacity
+                                            style={styles.socialListAvatarContainer}
+                                            onPress={() => {
+                                                setIsSocialModalVisible(false);
+                                                router.push(`/viewProfile/${item.id}` as any);
+                                            }}
+                                        >
+                                            {item.avatar_url ? (
+                                                <Image source={{ uri: item.avatar_url }} style={styles.socialListAvatar} />
+                                            ) : (
+                                                <View style={[styles.socialListAvatar, styles.avatarPlaceholder, { backgroundColor: getRandomColor(item.first_name || 'User') }]}>
+                                                    <Text style={styles.socialListAvatarInitial}>{getInitials(item.first_name, item.last_name)}</Text>
+                                                </View>
+                                            )}
+                                        </TouchableOpacity>
+                                        <View style={styles.socialListInfo}>
+                                            <TouchableOpacity
+                                                onPress={() => {
+                                                    setIsSocialModalVisible(false);
+                                                    router.push(`/viewProfile/${item.id}` as any);
+                                                }}
+                                            >
+                                                <Text style={styles.socialListName} numberOfLines={1}>
+                                                    {item.first_name} {item.last_name}
+                                                </Text>
+                                            </TouchableOpacity>
+                                            {item.occupation && (
+                                                <Text style={styles.socialListOccupation} numberOfLines={1}>
+                                                    {item.occupation}
+                                                </Text>
+                                            )}
+                                        </View>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.socialListButton,
+                                                isPurple ? styles.socialListButtonPurple : styles.socialListButtonGrey
+                                            ]}
+                                            onPress={() => handleSocialToggle(item)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Text style={[
+                                                styles.socialListButtonText,
+                                                isPurple ? styles.socialListButtonTextPurple : styles.socialListButtonTextGrey
+                                            ]}>
+                                                {btnText}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                );
+                            }}
+                            ListEmptyComponent={
+                                <View style={styles.socialEmptyContainer}>
+                                    <Text style={styles.socialEmptyText}>No users found</Text>
+                                </View>
+                            }
+                        />
+                    )}
+                </View>
+            </Modal>
+
+            {/* Success Modal */}
+            <Modal
+                isVisible={isSuccessModalVisible}
+                onBackdropPress={() => setIsSuccessModalVisible(false)}
+                onBackButtonPress={() => setIsSuccessModalVisible(false)}
+                animationIn="zoomIn"
+                animationOut="zoomOut"
+                backdropOpacity={0.5}
+                backdropColor="black"
+            >
+                <View style={styles.premiumModalContent}>
+                    <View style={styles.modalIconContainer}>
+                        <Ionicons name="checkmark-circle" size={50} color="#4CAF50" />
+                    </View>
+                    <Text style={styles.premiumModalTitle}>
+                        {successType === 'chat' ? 'Chat request sent' : 'Followed successfully'}
+                    </Text>
+                    <Text style={styles.premiumModalSubtitle}>
+                        {successType === 'chat'
+                            ? 'Your chat request has been sent. You will be notified when it is accepted.'
+                            : 'You are now following this user successfully.'}
+                    </Text>
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setIsSuccessModalVisible(false)}
+                        style={styles.premiumModalOkWrapper}
+                    >
+                        <LinearGradient
+                            colors={['#8A2BE2', '#5D00B3']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={styles.premiumModalOkButton}
+                        >
+                            <Text style={styles.premiumModalConfirmText}>OK</Text>
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -454,25 +805,31 @@ const styles = StyleSheet.create({
         paddingBottom: 20,
         backgroundColor: '#fff',
     },
-    avatarWrapper: {
-        width: 110,
+    avatarFloatingDisc: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: '#fff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 20,
+        // Even darker, centered neon glow
+        shadowColor: '#5D00B3',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 1,
+        shadowRadius: 25,
+        elevation: 20,
+    },
+    avatarContainer: {
+        width: 110, // Creates a 5px gap ( (120 - 110) / 2 = 5 )
         height: 110,
         borderRadius: 55,
-        backgroundColor: '#fff',
-        padding: 4,
-        elevation: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 5 },
-        shadowOpacity: 0.2,
-        shadowRadius: 5,
-        marginBottom: 15,
+        overflow: 'hidden',
+        backgroundColor: '#f0f0f0',
     },
     avatar: {
         width: '100%',
         height: '100%',
-        borderRadius: 55,
-        borderWidth: 2,
-        borderColor: '#fff',
     },
     avatarPlaceholder: {
         justifyContent: 'center',
@@ -489,9 +846,10 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     name: {
-        fontSize: 22,
-        fontWeight: 'bold',
+        fontSize: 18,
+        fontWeight: '600',
         color: '#000',
+        textAlign: 'center',
     },
     smallEditButton: {
         backgroundColor: '#f0f0f0',
@@ -506,10 +864,12 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     role: {
-        fontSize: 14,
-        color: '#666',
-        fontWeight: '500',
-        marginBottom: 10,
+        fontSize: 12,
+        color: '#8A2BE2',
+        fontWeight: 'bold',
+        marginBottom: 8,
+        textAlign: 'center',
+        letterSpacing: 2,
     },
     // New Bio Styles
     bioContainer: {
@@ -526,10 +886,11 @@ const styles = StyleSheet.create({
     bioText: {
         fontSize: 14,
         lineHeight: 20,
-        color: '#444',
+        color: '#666',
         textAlign: 'center',
     },
     noBioText: {
+        fontSize: 14,
         fontStyle: 'italic',
         color: '#999',
     },
@@ -548,24 +909,31 @@ const styles = StyleSheet.create({
     },
     statsContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-around',
-        width: '100%',
-        paddingHorizontal: 30,
+        justifyContent: 'space-between',
+        width: width * 0.92,
+        marginTop: 24,
         marginBottom: 25,
+        gap: 8,
     },
     statBox: {
+        flex: 1,
         alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+        borderRadius: 16,
+        backgroundColor: '#F8F8F8',
     },
     statNumber: {
         fontSize: 18,
         fontWeight: 'bold',
         color: '#000',
     },
-    statText: {
+    statLabel: {
         fontSize: 10,
         color: '#999',
         fontWeight: 'bold',
-        marginTop: 2,
+        marginTop: 4,
+        letterSpacing: 0.5,
     },
     followButton: {
         width: width * 0.8,
@@ -579,29 +947,156 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 5,
     },
+    actionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: width * 0.82,
+        justifyContent: 'space-between',
+        gap: 12,
+    },
+    followButtonSolid: {
+        flex: 1,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#8A2BE2',
+        justifyContent: 'center',
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#8A2BE2',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+    },
+    followingButton: {
+        flex: 1,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#f0f0f0',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#E0E0E0',
+    },
+    followingButtonText: {
+        color: '#000',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    messageButton: {
+        flex: 1,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#fff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: '#E0E0E0',
+        flexDirection: 'row',
+    },
+    messageButtonText: {
+        color: '#000',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
     followButtonText: {
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
     },
-    editButton: {
-        width: width * 0.8,
+    modalIconContainer: {
+        marginBottom: 15,
+        alignItems: 'center',
+    },
+    premiumModalContent: {
+        backgroundColor: '#fff',
+        borderRadius: 25,
+        padding: 25,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 5 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+        elevation: 10,
+    },
+    premiumModalTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#000',
+        marginBottom: 12,
+        textAlign: 'center',
+    },
+    premiumModalSubtitle: {
+        fontSize: 15,
+        color: '#666',
+        textAlign: 'center',
+        marginBottom: 25,
+        lineHeight: 22,
+        paddingHorizontal: 10,
+    },
+    premiumModalButtons: {
+        flexDirection: 'row',
+        width: '100%',
+        gap: 12,
+    },
+    premiumModalCancelButton: {
+        flex: 1,
         height: 50,
-        borderRadius: 15,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#f5f5f5',
+    },
+    premiumModalCancelText: {
+        fontSize: 16,
+        color: '#666',
+        fontWeight: 'bold',
+    },
+    premiumModalConfirmWrapper: {
+        flex: 1,
+        height: 50,
+        borderRadius: 12,
+        overflow: 'hidden',
+    },
+    premiumModalConfirmButton: {
+        width: '100%',
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    premiumModalConfirmText: {
+        fontSize: 16,
+        color: '#fff',
+        fontWeight: 'bold',
+    },
+    premiumModalOkWrapper: {
+        width: '100%',
+        height: 50,
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginTop: 10,
+    },
+    premiumModalOkButton: {
+        width: '100%',
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    editButton: {
+        width: width * 0.9,
+        height: 50,
+        borderRadius: 25,
         justifyContent: 'center',
         alignItems: 'center',
         flexDirection: 'row',
-        backgroundColor: '#fff',
-        borderWidth: 1,
-        borderColor: '#8A2BE2',
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
+        backgroundColor: '#8A2BE2',
+        elevation: 5,
+        shadowColor: '#8A2BE2',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
     },
     editButtonText: {
-        color: '#8A2BE2',
+        color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
     },
@@ -666,5 +1161,184 @@ const styles = StyleSheet.create({
         color: '#666',
         marginTop: 10,
         fontSize: 14,
+    },
+    socialModal: {
+        justifyContent: 'flex-end',
+        margin: 0,
+    },
+    socialModalContent: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        height: '80%',
+        paddingTop: 12,
+    },
+    socialModalHeader: {
+        paddingHorizontal: 20,
+        marginBottom: 10,
+    },
+    dragHandle: {
+        width: 40,
+        height: 5,
+        backgroundColor: '#E0E0E0',
+        borderRadius: 3,
+        alignSelf: 'center',
+        marginBottom: 15,
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F5F5F5',
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        height: 40,
+    },
+    searchIcon: {
+        marginRight: 8,
+    },
+    searchInput: {
+        flex: 1,
+        height: '100%',
+        color: '#000',
+        fontSize: 15,
+    },
+    clearSearchButton: {
+        padding: 4,
+    },
+    socialTabsContainer: {
+        flexDirection: 'row',
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+    },
+    socialTab: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: 12,
+    },
+    socialTabText: {
+        fontSize: 15,
+        color: '#999',
+        fontWeight: 'bold',
+    },
+    socialTabTextActive: {
+        color: '#8A2BE2',
+    },
+    socialTabIndicator: {
+        position: 'absolute',
+        bottom: 0,
+        width: '40%',
+        height: 3,
+        backgroundColor: '#8A2BE2',
+        borderRadius: 3,
+    },
+    socialLoadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    socialListContainer: {
+        paddingVertical: 10,
+    },
+    socialListItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+    },
+    socialListAvatarContainer: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        marginRight: 15,
+    },
+    socialListAvatar: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 25,
+    },
+    socialListAvatarInitial: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 18,
+    },
+    socialListInfo: {
+        flex: 1,
+        marginRight: 10,
+    },
+    socialListName: {
+        fontSize: 15,
+        fontWeight: 'bold',
+        color: '#000',
+        marginBottom: 2,
+    },
+    socialListOccupation: {
+        fontSize: 12,
+        color: '#666',
+    },
+    socialListButton: {
+        paddingHorizontal: 15,
+        paddingVertical: 8,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+        minWidth: 100,
+    },
+    socialListButtonPurple: {
+        backgroundColor: '#8A2BE2',
+    },
+    socialListButtonGrey: {
+        backgroundColor: '#F5F5F5',
+    },
+    socialListButtonText: {
+        fontWeight: 'bold',
+        fontSize: 13,
+    },
+    socialListButtonTextPurple: {
+        color: '#fff',
+    },
+    socialListButtonTextGrey: {
+        color: '#000',
+    },
+    socialEmptyContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
+    },
+    socialEmptyText: {
+        color: '#999',
+        fontSize: 14,
+    },
+    tooltipContainer: {
+        position: 'absolute',
+        top: -45,
+        alignItems: 'center',
+        width: 130,
+        zIndex: 100,
+        alignSelf: 'center',
+    },
+    tooltipBubble: {
+        backgroundColor: '#8A2BE2',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 8,
+    },
+    tooltipText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: 'bold',
+        textAlign: 'center',
+    },
+    tooltipArrow: {
+        width: 0,
+        height: 0,
+        backgroundColor: 'transparent',
+        borderStyle: 'solid',
+        borderLeftWidth: 6,
+        borderRightWidth: 6,
+        borderTopWidth: 6,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        borderTopColor: '#8A2BE2',
+        marginTop: -1,
     },
 });

@@ -98,6 +98,8 @@ export interface Conversation {
     system: boolean;
     online?: boolean;
     isRead?: boolean;
+    senderName?: string;
+    messageContent?: string;
 }
 
 export interface InstructorStats {

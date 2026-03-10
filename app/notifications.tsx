@@ -2,9 +2,12 @@
 import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, SectionList, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, SectionList, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import ReactNativeModal from 'react-native-modal';
+
 
 // Mapping of notification types to badge icons
 const badgeIconMap: { [key: string]: keyof typeof Ionicons.glyphMap } = {
@@ -36,7 +39,9 @@ interface Notification {
   course?: {
     title?: string;
   };
+  is_dummy?: boolean;
 }
+
 
 // Get relative time string (e.g., "2 days ago", "1 hour ago")
 const getRelativeTime = (dateString: string): string => {
@@ -101,6 +106,11 @@ const NotificationScreen = () => {
   const [isClearing, setIsClearing] = useState(false);
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customDays, setCustomDays] = useState('');
+  const [activeTab, setActiveTab] = useState<'All' | 'Requests'>('All');
+  const [actionStates, setActionStates] = useState<{ [key: string]: 'Accepted' | 'Declined' }>({});
+
+  const REQUEST_TYPES = ['chat_invitation', 'message_request'];
+
 
   // Reset unread count when screen is opened
   useEffect(() => {
@@ -195,11 +205,24 @@ const NotificationScreen = () => {
     };
   }, [user]);
 
+  const handleAccept = (id: string) => {
+    console.log('Accepted request:', id);
+    setActionStates(prev => ({ ...prev, [id]: 'Accepted' }));
+    Alert.alert('Success', 'Request Accepted');
+  };
+
+  const handleDecline = (id: string) => {
+    console.log('Declined request:', id);
+    setActionStates(prev => ({ ...prev, [id]: 'Declined' }));
+    Alert.alert('Declined', 'Request Declined');
+  };
+
+
   const handleClearNotifications = async (filterType: 'all' | 'custom', daysInput?: string) => {
     if (!user) return;
 
     if (filterType === 'custom' && (!daysInput || isNaN(parseInt(daysInput)))) {
-      Alert.alert('Error', 'Please enter a valid number of days.');
+      // Inline error feedback could be better, but keeping simple for now
       return;
     }
 
@@ -225,89 +248,68 @@ const NotificationScreen = () => {
         setNotifications(prev => prev.filter(n => new Date(n.created_at) >= thresholdDate!));
       }
 
-      if (showCustomModal) setShowCustomModal(false);
+      setShowCustomModal(false);
       setCustomDays('');
 
     } catch (error) {
       console.error('Error clearing notifications:', error);
-      Alert.alert('Error', 'Failed to clear notifications. Please check your internet connection and try again.');
     } finally {
       setIsClearing(false);
     }
   };
 
   const showClearOptions = () => {
-    Alert.alert(
-      'Clear Notifications',
-      'Choose an option to clear your notifications:',
-      [
-        {
-          text: 'Clear All',
-          onPress: () => handleClearNotifications('all'),
-          style: 'destructive',
-        },
-        {
-          text: 'Clear Older than Days...',
-          onPress: () => setShowCustomModal(true),
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ],
-      { cancelable: true }
-    );
+    setShowCustomModal(true);
   };
 
 
-  // Format notification text based on website style
-  const getNotificationText = (notification: Notification): string => {
-    const actorName = notification.actor
-      ? `${notification.actor.first_name} ${notification.actor.last_name}`
-      : 'Someone';
-
+  // Format notification action text
+  const getNotificationActionText = (notification: Notification): string => {
     const courseTitle = notification.course?.title || 'a course';
 
-    // Format based on notification type
     switch (notification.type) {
       case 'enrollment':
-        return `${actorName} has enrolled in your course: "${courseTitle}"`;
+        return `has enrolled in your course: "${courseTitle}"`;
       case 'announcement':
-        return `${actorName} posted an announcement in "${courseTitle}"`;
+        return `posted an announcement in "${courseTitle}"`;
       case 'comment':
-        return `${actorName} commented on "${courseTitle}"`;
+        return `commented on "${courseTitle}"`;
       case 'course_approval':
         return `Your course "${courseTitle}" has been approved`;
+      case 'message_request':
+        return `sent you a message request`;
+      case 'chat_invitation':
+        return `sent you a chat request`;
+      case 'payment':
+        return `sent you a payment`;
       case 'quiz_completion': {
         try {
           const data = typeof notification.content === 'string' ? JSON.parse(notification.content) : notification.content;
           const quizTitle = data.quiz_title || 'a quiz';
           const score = data.score !== undefined ? `${data.score}%` : 'N/A';
-          return `${actorName} has completed the quiz: "${quizTitle}" with score ${score}`;
+          return `has completed the quiz: "${quizTitle}" with score ${score}`;
         } catch {
-          return `${actorName} completed a quiz in "${courseTitle}"`;
+          return `completed a quiz in "${courseTitle}"`;
         }
       }
       case 'course_rating': {
         try {
           const data = typeof notification.content === 'string' ? JSON.parse(notification.content) : notification.content;
           const rating = data.rating || 'N/A';
-          return `${actorName} gave a ${rating} star review to "${courseTitle}"`;
+          return `gave a ${rating} star review to "${courseTitle}"`;
         } catch {
-          return `${actorName} rated "${courseTitle}"`;
+          return `rated "${courseTitle}"`;
         }
       }
       default:
-        // Fallback to parsing content
         if (typeof notification.content === 'string') {
           try {
             const parsed = JSON.parse(notification.content);
-            // Secondary check if it's a quiz/rating but type wasn't set correctly
             if (parsed.quiz_title) {
-              return `${actorName} has completed the quiz: "${parsed.quiz_title}" ${parsed.score ? `with score ${parsed.score}%` : ''}`;
+              return `has completed the quiz: "${parsed.quiz_title}" ${parsed.score ? `with score ${parsed.score}%` : ''}`;
             }
             if (parsed.rating) {
-              return `${actorName} gave a ${parsed.rating} star review to "${courseTitle}"`;
+              return `gave a ${parsed.rating} star review to "${courseTitle}"`;
             }
             return parsed.message || parsed.title || parsed.body || notification.content;
           } catch {
@@ -321,6 +323,7 @@ const NotificationScreen = () => {
         return 'New Notification';
     }
   };
+
 
   const getInitials = (firstName?: string, lastName?: string): string => {
     const first = firstName?.charAt(0)?.toUpperCase() || '';
@@ -338,7 +341,59 @@ const NotificationScreen = () => {
     return colors[index];
   };
 
-  const groupedNotifications = groupNotificationsByDate(notifications);
+  // Filter and prepare notifications
+  const getFilteredNotifications = () => {
+    let filtered = notifications;
+    if (activeTab === 'Requests') {
+      filtered = notifications.filter(n => REQUEST_TYPES.includes(n.type));
+
+      // Inject dummy data if empty for testing as requested
+      if (filtered.length === 0 && !loading) {
+        const dummyRequests: Notification[] = [
+          {
+            id: 'dummy-2',
+            recipient_id: user?.id || '',
+            content: 'sent you a message request',
+            type: 'chat_invitation',
+            created_at: new Date(Date.now() - 3600000).toISOString(),
+            actor: { first_name: 'Sara', last_name: 'Khan' },
+            is_dummy: true
+          }
+        ];
+        return dummyRequests;
+      }
+    }
+    return filtered;
+  };
+
+
+  const displayNotifications = getFilteredNotifications();
+  const groupedNotifications = groupNotificationsByDate(displayNotifications);
+
+  const pendingRequestsCount = notifications.filter(n =>
+    REQUEST_TYPES.includes(n.type) && !actionStates[n.id]
+  ).length;
+
+  const renderTabBar = () => (
+    <View style={styles.tabContainer}>
+      <TouchableOpacity
+        style={[styles.tabButton, activeTab === 'All' && styles.activeTab]}
+        onPress={() => setActiveTab('All')}
+      >
+        <Text style={[styles.tabText, activeTab === 'All' && styles.activeTabText]}>All</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.tabButton, activeTab === 'Requests' && styles.activeTab]}
+        onPress={() => setActiveTab('Requests')}
+      >
+        <View style={styles.tabLabelContainer}>
+          <Text style={[styles.tabText, activeTab === 'Requests' && styles.activeTabText]}>Requests</Text>
+          {pendingRequestsCount > 0 && <View style={styles.badgeDot} />}
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
 
   const renderItem = ({ item }: { item: Notification }) => {
     const actorName = item.actor
@@ -398,45 +453,96 @@ const NotificationScreen = () => {
       );
     };
 
+    const isInteractionType = REQUEST_TYPES.includes(item.type);
+    const actionStatus = actionStates[item.id];
+
     return (
-      <View
-        style={styles.notificationItem}
-      >
-        {/* Circular Avatar with Badge */}
-        <View style={styles.avatarContainer}>
-          {item.actor?.avatar_url ? (
-            <Image
-              source={{ uri: item.actor.avatar_url }}
-              style={styles.avatar}
-            />
-          ) : (
-            <View style={[styles.avatar, styles.initialsAvatar, { backgroundColor: avatarColor }]}>
-              <Text style={styles.initialsText}>{initials}</Text>
+      <View style={[styles.notificationItem, isInteractionType && styles.requestItem]}>
+        {isInteractionType && (
+          <Text style={styles.requestLabel}>CHAT REQUEST</Text>
+        )}
+
+
+        <View style={styles.itemRow}>
+          {/* Circular Avatar with Badge */}
+          <View style={styles.avatarContainer}>
+            {item.actor?.avatar_url ? (
+              <Image
+                source={{ uri: item.actor.avatar_url }}
+                style={styles.avatar}
+              />
+            ) : (
+              <View style={[styles.avatar, styles.initialsAvatar, { backgroundColor: avatarColor }]}>
+                <Text style={styles.initialsText}>{initials}</Text>
+              </View>
+            )}
+            <View style={styles.badgeContainer}>
+              <Ionicons
+                name={badgeIconMap[item.type] || badgeIconMap.default}
+                size={10}
+                color="#FFFFFF"
+              />
             </View>
-          )}
-          <View style={styles.badgeContainer}>
-            <Ionicons
-              name={badgeIconMap[item.type] || badgeIconMap.default}
-              size={10}
-              color="#FFFFFF"
-            />
           </View>
+
+          {/* Notification Content */}
+          <View style={styles.notificationTextContainer}>
+            {item.type === 'quiz_completion' ? renderQuizContent() : (
+              <Text style={styles.notificationTitle} numberOfLines={2}>
+                <Text style={styles.boldText}>{actorName}</Text> {getNotificationActionText(item)}
+              </Text>
+            )}
+            <Text style={styles.notificationTime}>
+              {getRelativeTime(item.created_at)}
+            </Text>
+          </View>
+
         </View>
 
-        {/* Notification Content */}
-        <View style={styles.notificationTextContainer}>
-          {item.type === 'quiz_completion' ? renderQuizContent() : (
-            <Text style={styles.notificationTitle} numberOfLines={2}>
-              {getNotificationText(item)}
-            </Text>
-          )}
-          <Text style={styles.notificationTime}>
-            {getRelativeTime(item.created_at)}
-          </Text>
-        </View>
+        {isInteractionType && (
+          <View style={styles.actionSection}>
+            {actionStatus ? (
+              <View style={styles.statusContainer}>
+                <Ionicons
+                  name={actionStatus === 'Accepted' ? "checkmark-circle" : "close-circle"}
+                  size={18}
+                  color={actionStatus === 'Accepted' ? "#4CAF50" : "#E74C3C"}
+                />
+                <Text style={[styles.statusText, { color: actionStatus === 'Accepted' ? "#4CAF50" : "#E74C3C" }]}>
+                  Request {actionStatus}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.requestButtons}>
+                <TouchableOpacity
+                  style={styles.declineButton}
+                  onPress={() => handleDecline(item.id)}
+                >
+                  <Text style={styles.declineButtonText}>Decline</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => handleAccept(item.id)}
+                  style={styles.acceptButtonWrapper}
+                >
+                  <LinearGradient
+                    colors={['#8A2BE2', '#5D00B3']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.acceptButton}
+                  >
+                    <Text style={styles.acceptButtonText}>Accept</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
       </View>
     );
   };
+
 
   const renderSectionHeader = ({ section: { title } }: { section: { title: string } }) => (
     <Text style={styles.sectionHeader}>{title}</Text>
@@ -463,7 +569,10 @@ const NotificationScreen = () => {
         </TouchableOpacity>
       </View>
 
+      {renderTabBar()}
+
       <View style={styles.contentArea}>
+
         <SectionList
           sections={groupedNotifications}
           renderItem={renderItem}
@@ -482,54 +591,91 @@ const NotificationScreen = () => {
         />
       </View>
 
-      {/* Custom Days Modal */}
-      <Modal
-        visible={showCustomModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowCustomModal(false)}
+      {/* Custom Universal Clear Modal */}
+      <ReactNativeModal
+        isVisible={showCustomModal}
+        onBackdropPress={() => setShowCustomModal(false)}
+        animationIn="zoomIn"
+        animationOut="zoomOut"
+        useNativeDriver
+        style={styles.modalFull}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Clear Older Notifications</Text>
-            <Text style={styles.modalSubtitle}>How many days old notifications do you want to keep?</Text>
+        <View style={styles.modalContent}>
+          {/* Circular Trash Icon */}
+          <View style={styles.modalIconContainer}>
+            <Ionicons name="trash-outline" size={32} color="#8A2BE2" />
+          </View>
 
-            <TextInput
-              style={styles.daysInput}
-              placeholder="Enter number of days"
-              placeholderTextColor="#999"
-              keyboardType="numeric"
-              value={customDays}
-              onChangeText={setCustomDays}
-              autoFocus={true}
-            />
+          <Text style={styles.modalTitle}>Clear Notifications</Text>
+          <Text style={styles.modalSubtitle}>How would you like to clear your notifications?</Text>
 
-            <View style={styles.modalButtons}>
+          {/* Option 1: Clear All */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => handleClearNotifications('all')}
+            style={styles.modalActionWrapper}
+          >
+            <LinearGradient
+              colors={['#8A2BE2', '#5D00B3']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.modalPrimaryButton}
+            >
+              <Text style={styles.modalPrimaryButtonText}>Clear All Notifications</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <View style={styles.modalDivider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Option 2: Clear Older Than */}
+          <View style={styles.customClearSection}>
+            <Text style={styles.customClearLabel}>Clear older than (days):</Text>
+            <View style={styles.customInputRow}>
+              <TextInput
+                style={styles.modalDaysInput}
+                placeholder="0"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                value={customDays}
+                onChangeText={setCustomDays}
+              />
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setShowCustomModal(false);
-                  setCustomDays('');
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
+                activeOpacity={0.8}
                 onPress={() => handleClearNotifications('custom', customDays)}
                 disabled={isClearing}
+                style={styles.confirmCustomWrapper}
               >
-                {isClearing ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.confirmButtonText}>Confirm Delete</Text>
-                )}
+                <LinearGradient
+                  colors={['#8A2BE2', '#5D00B3']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.confirmCustomButton}
+                >
+                  {isClearing ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.confirmCustomText}>Confirm</Text>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
+
+          <TouchableOpacity
+            style={styles.modalCancelButton}
+            onPress={() => {
+              setShowCustomModal(false);
+              setCustomDays('');
+            }}
+          >
+            <Text style={styles.modalCancelText}>Don't Clear</Text>
+          </TouchableOpacity>
         </View>
-      </Modal>
+      </ReactNativeModal>
     </View>
   );
 };
@@ -747,6 +893,206 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: '#8A2BE2',
+  },
+  tabText: {
+    fontSize: 15,
+    color: '#888888',
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: '#8A2BE2',
+    fontWeight: 'bold',
+  },
+  tabLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  badgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E74C3C',
+    marginLeft: 6,
+    marginBottom: 8,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  requestItem: {
+    flexDirection: 'column',
+    paddingTop: 12,
+  },
+  requestLabel: {
+    color: '#8A2BE2',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  actionSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    width: '100%',
+  },
+  requestButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  declineButton: {
+    flex: 1,
+    height: 40,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  declineButtonText: {
+    color: '#666666',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  acceptButtonWrapper: {
+    flex: 1,
+  },
+  acceptButton: {
+    height: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  acceptButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.05)',
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalFull: {
+    margin: 20,
+    justifyContent: 'center',
+  },
+  modalIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: -10,
+  },
+  modalActionWrapper: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  modalPrimaryButton: {
+    height: 54,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  modalPrimaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E0E0E0',
+  },
+  dividerText: {
+    marginHorizontal: 15,
+    color: '#999',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  customClearSection: {
+    width: '100%',
+    marginBottom: 25,
+  },
+  customClearLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 10,
+    fontWeight: '500',
+  },
+  customInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalDaysInput: {
+    flex: 1,
+    height: 50,
+    backgroundColor: '#F5F8FF',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#8A2BE2',
+    borderWidth: 1.5,
+    borderColor: '#E8D8FF',
+  },
+  confirmCustomWrapper: {
+    flex: 1.5,
+  },
+  confirmCustomButton: {
+    height: 50,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmCustomText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  modalCancelButton: {
+    paddingVertical: 10,
+  },
+  modalCancelText: {
+    color: '#999',
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });
+
 
 export default NotificationScreen;
