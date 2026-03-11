@@ -149,7 +149,9 @@ const ConversationItem = memo(({ item, onPress }: { item: Conversation; onPress:
             resizeMode="cover"
           />
         ) : item.isGroup ? (
-          <Ionicons name="people" size={24} color="#555" />
+          <View style={styles.groupPlaceholder}>
+            <Ionicons name="people" size={24} color="#8A2BE2" />
+          </View>
         ) : item.system ? (
           <Ionicons name="notifications" size={24} color="#555" />
         ) : (
@@ -163,17 +165,17 @@ const ConversationItem = memo(({ item, onPress }: { item: Conversation; onPress:
           <Text style={styles.name} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={[styles.time, item.unread > 0 && styles.activeTime]}>{item.time}</Text>
+          <Text style={[styles.time, (item.unread ?? 0) > 0 && styles.activeTime]}>{item.time}</Text>
         </View>
         <View style={styles.bottomRow}>
-          <Text style={[styles.messagePreview, item.unread > 0 && { fontWeight: '700', color: '#111827' }]} numberOfLines={1}>
-            {item.senderName ? (
-              <Text style={{ color: item.unread > 0 ? '#111827' : '#8A2BE2', fontWeight: item.unread > 0 ? '700' : '600' }}>{item.senderName}: </Text>
+          <Text style={[styles.messagePreview, (item.unread ?? 0) > 0 && { fontWeight: '700', color: '#111827' }]} numberOfLines={1}>
+            {item.isGroup && item.senderName ? (
+              <Text style={{ color: (item.unread ?? 0) > 0 ? '#111827' : '#8A2BE2', fontWeight: (item.unread ?? 0) > 0 ? '700' : '600' }}>{item.senderName}: </Text>
             ) : null}
             {item.messageContent ? item.messageContent : item.message}
           </Text>
           <View style={styles.rightBadgeContainer}>
-            {item.unread > 0 && (
+            {(item.unread ?? 0) > 0 && (
               <View style={styles.unreadBadge}>
                 <Text style={styles.unreadText}>{item.unread}</Text>
               </View>
@@ -211,7 +213,7 @@ const ChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { co
 
 const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
   <FlatList
-    data={conversations.filter(c => c.unread > 0)}
+    data={conversations.filter(c => (c.unread ?? 0) > 0)}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
     contentContainerStyle={styles.listContent}
@@ -257,7 +259,6 @@ export default function InboxScreen() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [searchVisible, setSearchVisible] = useState(false);
 
   const formatConversation = useCallback((conv: any): Conversation => {
     const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
@@ -300,17 +301,36 @@ export default function InboxScreen() {
 
     let finalMessageStr = sName ? `${sName}: ${rawContent}` : rawContent;
 
+    // Direct Chat Mapping Logic
+    let displayName = conv.name || 'Chat';
+    let displayAvatar = conv.avatar || null;
+    const isActuallyGroup = !!conv.isGroup;
+
+    if (!isActuallyGroup && conv.members && conv.members.length > 0) {
+      const otherMember = conv.members.find((m: any) => {
+        // Strict check: Safely extract the ID depending on how the data was mapped
+        const memberId = m.user?.id || m.user_id || m.id;
+        return memberId && memberId !== user?.id; // Only return if it's definitely the OTHER person
+      });
+      
+      const userData = otherMember?.user || otherMember?.profile || otherMember;
+      if (userData) {
+        displayName = `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.name || displayName;
+        displayAvatar = userData.avatar_url || userData.avatar || displayAvatar;
+      }
+    }
+
     return {
       id: conv.id,
-      name: conv.name || 'Group Chat',
+      name: displayName,
       message: finalMessageStr,
       senderName: sName,
       messageContent: rawContent,
       time: timeStr,
       unread: conv.unread_count || 0,
-      avatar: conv.avatar,
+      avatar: displayAvatar,
       avatarColor: '#F3F4F6',
-      isGroup: !!conv.isGroup,
+      isGroup: isActuallyGroup,
       timestamp: timestamp,
       system: false
     };
@@ -347,21 +367,20 @@ export default function InboxScreen() {
             console.log('Failed to fetch messages for conv', conv.id);
           }
         }
+
+        // Ensure members are present for 1-on-1 identification
+        if (!conv.isGroup && (!conv.members || conv.members.length === 0)) {
+          try {
+            conv.members = await chatService.fetchGroupMembers(conv.id);
+          } catch (e) {
+            console.log('Failed to fetch members for conv', conv.id);
+          }
+        }
+
         return conv;
       }));
 
       let mapped = enhancedInboxData.map(formatConversation);
-
-      // Add Dummy Data for testing First Chat and Unread tabs
-      const dummyChats: Conversation[] = [
-        { id: 'dummy-1', name: 'Alex Rivera', message: 'Hey, did you see the new post? I...', time: formatChatTime(Date.now() - 5 * 60000).timeStr, unread: 2, avatar: 'https://i.pravatar.cc/150?u=alex', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 5 * 60000, system: false, online: true },
-        { id: 'dummy-2', name: 'Jordan Smith', message: 'The meeting has been rescheduled to...', time: formatChatTime(Date.now() - 24 * 60 * 60000).timeStr, unread: 0, avatar: 'https://i.pravatar.cc/150?u=jordan', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 24 * 60 * 60000, system: false, online: false },
-        { id: 'dummy-3', name: 'Sarah Chen', message: 'Can you send me those design...', time: formatChatTime(Date.now() - 120 * 60000).timeStr, unread: 1, avatar: 'https://i.pravatar.cc/150?u=sarah', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 120 * 60000, system: false, online: true },
-        { id: 'dummy-4', name: 'Marcus Wright', message: 'That\'s a great idea, let\'s discuss it in th...', time: formatChatTime(Date.now() - 3 * 24 * 60 * 60000).timeStr, unread: 0, avatar: 'https://i.pravatar.cc/150?u=marcus', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 3 * 24 * 60 * 60000, system: false, online: false },
-        { id: 'dummy-5', name: 'Elena Gilbert', message: '📷 Photo', time: formatChatTime(Date.now() - 10 * 24 * 60 * 60000).timeStr, unread: 0, avatar: 'https://i.pravatar.cc/150?u=elena', avatarColor: '#F3F4F6', isGroup: false, timestamp: Date.now() - 10 * 24 * 60 * 60000, system: false, online: false },
-      ];
-
-      mapped = [...dummyChats, ...mapped];
 
       setConversations(mapped.sort((a: Conversation, b: Conversation) => b.timestamp - a.timestamp));
     } catch (error) {
@@ -799,4 +818,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  groupPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  }
 });

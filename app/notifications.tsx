@@ -1,6 +1,7 @@
 // @ts-ignore
 import { supabase } from '@/src/auth/supabase';
 import { useAuth } from '@/src/context/AuthContext';
+import { chatService } from '@/src/services/chatService';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
@@ -19,6 +20,10 @@ const badgeIconMap: { [key: string]: keyof typeof Ionicons.glyphMap } = {
   payment: 'wallet',
   quiz_completion: 'trophy-outline',
   course_rating: 'star-outline',
+  chat_invitation: 'chatbubbles',
+  message_request: 'chatbubbles',
+  request_accepted: 'checkmark-done-circle',
+  request_declined: 'close-circle',
   default: 'notifications',
 };
 
@@ -32,6 +37,7 @@ interface Notification {
   course_id?: string;
   created_at: string;
   actor?: {
+    id?: string;
     avatar_url?: string;
     first_name?: string;
     last_name?: string;
@@ -143,7 +149,7 @@ const NotificationScreen = () => {
           .from('notifications')
           .select(`
             *,
-            actor:profiles!actor_id(avatar_url, first_name, last_name),
+            actor:profiles!actor_id(id, avatar_url, first_name, last_name),
             course:courses(title)
           `)
           .eq('recipient_id', user.id)
@@ -205,16 +211,36 @@ const NotificationScreen = () => {
     };
   }, [user]);
 
-  const handleAccept = (id: string) => {
-    console.log('Accepted request:', id);
-    setActionStates(prev => ({ ...prev, [id]: 'Accepted' }));
-    Alert.alert('Success', 'Request Accepted');
+  const handleAccept = async (item: Notification) => {
+    if (!user) return;
+    const actorId = item.actor?.id || item.actor_id;
+    if (!actorId) return;
+
+    try {
+      console.log('Accepted request for sender:', actorId);
+      setActionStates(prev => ({ ...prev, [item.id]: 'Accepted' }));
+      await chatService.updateChatRequestStatus('accepted', actorId, user.id);
+      Alert.alert('Success', 'Request Accepted');
+    } catch (error) {
+      console.error('Error in handleAccept:', error);
+      setActionStates(prev => { const st = { ...prev }; delete st[item.id]; return st; });
+      Alert.alert('Error', 'Could not accept request');
+    }
   };
 
-  const handleDecline = (id: string) => {
-    console.log('Declined request:', id);
-    setActionStates(prev => ({ ...prev, [id]: 'Declined' }));
-    Alert.alert('Declined', 'Request Declined');
+  const handleDecline = async (item: Notification) => {
+    if (!user) return;
+    const actorId = item.actor?.id || item.actor_id;
+    if (!actorId) return;
+
+    try {
+      console.log('Declined request for sender:', actorId);
+      setActionStates(prev => ({ ...prev, [item.id]: 'Declined' }));
+      await chatService.updateChatRequestStatus('declined', actorId, user.id);
+    } catch (error) {
+      console.error('Error in handleDecline:', error);
+      setActionStates(prev => { const st = { ...prev }; delete st[item.id]; return st; });
+    }
   };
 
 
@@ -280,6 +306,9 @@ const NotificationScreen = () => {
         return `sent you a message request`;
       case 'chat_invitation':
         return `sent you a chat request`;
+      case 'request_accepted':
+      case 'request_declined':
+        return typeof notification.content === 'string' ? notification.content : `responded to your chat request`;
       case 'payment':
         return `sent you a payment`;
       case 'quiz_completion': {
@@ -346,22 +375,6 @@ const NotificationScreen = () => {
     let filtered = notifications;
     if (activeTab === 'Requests') {
       filtered = notifications.filter(n => REQUEST_TYPES.includes(n.type));
-
-      // Inject dummy data if empty for testing as requested
-      if (filtered.length === 0 && !loading) {
-        const dummyRequests: Notification[] = [
-          {
-            id: 'dummy-2',
-            recipient_id: user?.id || '',
-            content: 'sent you a message request',
-            type: 'chat_invitation',
-            created_at: new Date(Date.now() - 3600000).toISOString(),
-            actor: { first_name: 'Sara', last_name: 'Khan' },
-            is_dummy: true
-          }
-        ];
-        return dummyRequests;
-      }
     }
     return filtered;
   };
@@ -516,14 +529,14 @@ const NotificationScreen = () => {
               <View style={styles.requestButtons}>
                 <TouchableOpacity
                   style={styles.declineButton}
-                  onPress={() => handleDecline(item.id)}
+                  onPress={() => handleDecline(item)}
                 >
                   <Text style={styles.declineButtonText}>Decline</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  onPress={() => handleAccept(item.id)}
+                  onPress={() => handleAccept(item)}
                   style={styles.acceptButtonWrapper}
                 >
                   <LinearGradient

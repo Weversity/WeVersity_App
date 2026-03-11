@@ -21,6 +21,7 @@ import { useAuth } from '../../src/context/AuthContext';
 // @ts-ignore
 import { supabase } from '../../src/lib/supabase';
 // @ts-ignore
+import { chatService } from '../../src/services/chatService';
 import { videoService } from '../../src/services/videoService';
 
 const { width } = Dimensions.get('window');
@@ -85,6 +86,9 @@ export default function ViewProfile() {
     const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
     const [successType, setSuccessType] = useState<'chat' | 'follow'>('chat');
 
+    const [chatRequestStatus, setChatRequestStatus] = useState<'none' | 'pending' | 'accepted' | 'declined'>('none');
+    const [sendingRequest, setSendingRequest] = useState(false);
+
 
     // CRITICAL: Prevent infinite re-render loop with fetch guard
     const isFetchingRef = React.useRef(false);
@@ -109,6 +113,7 @@ export default function ViewProfile() {
 
         if (user) {
             checkFollowStatus();
+            checkChatStatus();
         }
     }, [id, user?.updated_at]); // Depend on updated_at to catch profile changes, avoiding object ref loops
 
@@ -188,6 +193,19 @@ export default function ViewProfile() {
         }
     };
 
+    const checkChatStatus = async () => {
+        try {
+            if (!user?.id || !id) return;
+            if (isOwner) return;
+            const request = await chatService.checkChatRequestStatus(user.id, id as string);
+            if (request) {
+                setChatRequestStatus(request.status);
+            }
+        } catch (error) {
+            console.error("Failed to check chat request status", error);
+        }
+    };
+
     const fetchSocialData = async () => {
         if (!id || !user?.id) return;
         setIsSocialLoading(true);
@@ -263,11 +281,23 @@ export default function ViewProfile() {
         handleSocialToggle({ id: id as string, is_followed_by_viewer: isFollowing });
     };
 
-    const handleSendChatRequest = () => {
-        setIsChatModalVisible(false);
-        setSuccessType('chat');
-        setIsSuccessModalVisible(true);
-        // Here you would typically call an API to send the request
+    const handleSendChatRequest = async () => {
+        if (!user || !profile?.id) return;
+        try {
+            setSendingRequest(true);
+            const success = await chatService.sendChatRequest(user.id, profile.id);
+            if (success) {
+                setChatRequestStatus('pending');
+                setIsChatModalVisible(false);
+                setSuccessType('chat');
+                setIsSuccessModalVisible(true);
+            }
+        } catch (error) {
+            console.error('Error sending chat request:', error);
+            Alert.alert('Error', 'Could not send chat request. Please try again.');
+        } finally {
+            setSendingRequest(false);
+        }
     };
 
     const handleVideoPress = (item: any) => {
@@ -458,13 +488,31 @@ export default function ViewProfile() {
                                 );
                             })()}
 
-                            <TouchableOpacity
-                                onPress={() => setIsChatModalVisible(true)}
-                                style={styles.messageButton}
-                            >
-                                <Ionicons name="chatbubble-ellipses" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
-                                <Text style={styles.messageButtonText}>Message</Text>
-                            </TouchableOpacity>
+                            {chatRequestStatus === 'pending' ? (
+                                <TouchableOpacity
+                                    disabled={true}
+                                    style={[styles.messageButton, { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }]}
+                                >
+                                    <Ionicons name="time-outline" size={20} color="#9CA3AF" style={{ marginRight: 8 }} />
+                                    <Text style={[styles.messageButtonText, { color: '#9CA3AF' }]}>Requested</Text>
+                                </TouchableOpacity>
+                            ) : chatRequestStatus === 'accepted' ? (
+                                <TouchableOpacity
+                                    onPress={() => router.push('/(tabs)/inbox' as any)}
+                                    style={styles.messageButton}
+                                >
+                                    <Ionicons name="chatbubbles" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
+                                    <Text style={styles.messageButtonText}>Chat</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity
+                                    onPress={() => setIsChatModalVisible(true)}
+                                    style={styles.messageButton}
+                                >
+                                    <Ionicons name="chatbubble-ellipses" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
+                                    <Text style={styles.messageButtonText}>Message</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     )}
                 </View>

@@ -16,7 +16,13 @@ export const chatService = {
                 // Instructor: Fetch groups where creator_id is current user, include course details
                 const { data, error } = await supabase
                     .from('chat_groups')
-                    .select('*, courses(title, image_url)')
+                    .select(`
+                        *,
+                        courses(title, image_url),
+                        members:group_members(
+                            user:profiles(id, first_name, last_name, avatar_url)
+                        )
+                    `)
                     .eq('creator_id', currentUserId)
                     .order('created_at', { ascending: false });
 
@@ -30,7 +36,10 @@ export const chatService = {
                     .select(`
                         group:chat_groups(
                             *,
-                            courses(title, image_url)
+                            courses(title, image_url),
+                            members:group_members(
+                                user:profiles(id, first_name, last_name, avatar_url)
+                            )
                         )
                     `)
                     .eq('user_id', currentUserId);
@@ -41,11 +50,22 @@ export const chatService = {
 
             // Map groups to a standard format for the Inbox
             return groups.map(group => {
-                // Determine Name: Course Title > Group Name > Fallback
-                const displayName = group.courses?.title || group.name || 'Community Chat';
+                let displayName = group.courses?.title || (group as any).name;
+                let displayAvatar = group.courses?.image_url || (group as any).image;
 
-                // Determine Avatar: Course Image > Group Image > Fallback
-                const displayAvatar = group.courses?.image_url || group.image || null;
+                // If not a course chat, it's a 1-on-1 chat
+                if (!group.courses && group.members) {
+                    const otherMember = group.members.find((m: any) => 
+                        m.user?.id && m.user.id !== currentUserId
+                    )?.user;
+                    if (otherMember) {
+                        displayName = `${otherMember.first_name || ''} ${otherMember.last_name || ''}`.trim() || 'User';
+                        displayAvatar = otherMember.avatar_url;
+                    }
+                }
+
+                displayName = displayName || 'Chat';
+                displayAvatar = displayAvatar || null;
 
                 return {
                     id: group.id,
@@ -55,7 +75,7 @@ export const chatService = {
                         content: 'Tap to join the discussion',
                         created_at: group.created_at || new Date().toISOString()
                     },
-                    isGroup: true
+                    isGroup: !!group.courses // It's a group if it belongs to a course
                 };
             });
 
@@ -307,7 +327,81 @@ export const chatService = {
             console.error('Error in uploadAttachment:', error.message);
             return null;
         }
+    },
+
+    // ==========================================
+    // 1-on-1 Chat Requests
+    // ==========================================
+
+    async checkChatRequestStatus(userId1: string, userId2: string): Promise<any> {
+        try {
+            const { data, error } = await supabase
+                .from('chat_requests')
+                .select('*')
+                .or(`and(sender_id.eq.${userId1},receiver_id.eq.${userId2}),and(sender_id.eq.${userId2},receiver_id.eq.${userId1})`)
+                .single();
+            if (error && error.code !== 'PGRST116') { // PGRST116 is "No rows found"
+                throw error;
+            }
+            return data;
+        } catch (error: any) {
+            console.error('Error in checkChatRequestStatus:', error.message);
+            return null;
+        }
+    },
+
+    async sendChatRequest(senderId: string, receiverId: string): Promise<boolean> {
+        try {
+            // Insert request
+            const { error: reqError } = await supabase
+                .from('chat_requests')
+                .insert([{ sender_id: senderId, receiver_id: receiverId, status: 'pending' }]);
+
+            if (reqError) throw reqError;
+
+            // Send Notification to receiver
+            await supabase
+                .from('notifications')
+                .insert([{
+                    recipient_id: receiverId,
+                    actor_id: senderId,
+                    type: 'chat_invitation',
+                    content: 'sent you a chat request'
+                }]);
+
+            return true;
+        } catch (error: any) {
+            console.error('Error in sendChatRequest:', error.message);
+            return false;
+        }
+    },
+
+    async updateChatRequestStatus(status: 'accepted' | 'declined', senderId: string, receiverId: string): Promise<boolean> {
+        try {
+            const { error: updateError } = await supabase
+                .from('chat_requests')
+                .update({ status })
+                .eq('sender_id', senderId)
+                .eq('receiver_id', receiverId);
+
+            if (updateError) throw updateError;
+
+            const dateStr = new Date().toLocaleDateString();
+
+            // Send Notification back to original sender
+            await supabase
+                .from('notifications')
+                .insert([{
+                    recipient_id: senderId,
+                    actor_id: receiverId,
+                    type: status === 'accepted' ? 'request_accepted' : 'request_declined',
+                    content: `has ${status} your chat request sent on ${dateStr}`
+                }]);
+
+            return true;
+        } catch (error: any) {
+            console.error('Error in updateChatRequestStatus:', error.message);
+            return false;
+        }
     }
-
-
 };

@@ -192,10 +192,25 @@ export default function ChatScreen() {
         setMessages(conversationMessages || []);
 
         if (details) {
+          let displayName = details.name;
+          let displayImage = details.image;
+
+          // Identity logic for 1-on-1 chats
+          // If the chat is not a course-linked group and has members
+          if (!details.courses && groupMembers && groupMembers.length > 0) {
+            const otherMember = groupMembers.find((m: any) =>
+              (m.id || m.user_id) !== user?.id
+            );
+            if (otherMember) {
+              displayName = otherMember.name || `${otherMember.first_name || ''} ${otherMember.last_name || ''}`.trim() || 'User';
+              displayImage = otherMember.avatar || otherMember.avatar_url || displayImage;
+            }
+          }
+
           setGroupInfo({
             id: details.id,
-            name: details.name,
-            image: details.image,
+            name: displayName,
+            image: displayImage,
             description: details.description
           });
         }
@@ -499,7 +514,7 @@ export default function ChatScreen() {
               <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.7)" />
             </View>
           )}
-          {!isMyMessage && (
+          {!isMyMessage && (members.length > 2 || !!(groupInfo as any)?.courses) && (
             <Text style={styles.senderName}>
               {members.find(m => m.id === item.sender_id)?.name || (item.sender ? `${item.sender.first_name} ${item.sender.last_name || ''}`.trim() : 'User')}
             </Text>
@@ -1046,6 +1061,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 16,
     marginHorizontal: 5,
+    textAlignVertical: 'center', // Fix for Android alignment
   },
   iconButton: {
     padding: 8,
