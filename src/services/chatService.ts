@@ -48,6 +48,22 @@ export const chatService = {
                 groups = data ? data.map(item => item.group).filter(Boolean) : [];
             }
 
+            // 1. Fetch unread counts for all these groups using the RPC
+            const { data: unreadData, error: unreadError } = await supabase
+                .rpc('get_unread_counts', { p_user_id: currentUserId });
+
+            if (unreadError) {
+                console.warn('chatService: Failed to fetch unread counts.', unreadError);
+            }
+
+            // Create a lookup map for quick access
+            const unreadCountsMap = new Map();
+            if (unreadData) {
+                unreadData.forEach((row: any) => {
+                    unreadCountsMap.set(row.group_id, row.unread_count);
+                });
+            }
+
             // Map groups to a standard format for the Inbox
             return groups.map(group => {
                 let displayName = group.courses?.title || (group as any).name;
@@ -75,7 +91,8 @@ export const chatService = {
                         content: 'Tap to join the discussion',
                         created_at: group.created_at || new Date().toISOString()
                     },
-                    isGroup: !!group.courses // It's a group if it belongs to a course
+                    isGroup: !!group.courses, // It's a group if it belongs to a course
+                    unread_count: unreadCountsMap.get(group.id) || 0 // Map the unread count
                 };
             });
 
@@ -141,6 +158,25 @@ export const chatService = {
             .subscribe();
 
         return channel;
+    },
+
+    // Mark a chat group as read for the current user
+    async markChatAsRead(groupId: string, userId: string): Promise<boolean> {
+        try {
+            const { error } = await supabase.rpc('mark_chat_read', {
+                p_group_id: groupId,
+                p_user_id: userId
+            });
+
+            if (error) {
+                console.error('Error in markChatAsRead API call:', error.message);
+                return false;
+            }
+            return true;
+        } catch (error: any) {
+            console.error('Error in markChatAsRead:', error.message);
+            return false;
+        }
     },
 
     // Delete a message

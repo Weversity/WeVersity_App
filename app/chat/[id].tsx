@@ -183,10 +183,12 @@ export default function ChatScreen() {
       try {
         setLoading(true);
 
-        const [conversationMessages, details, groupMembers] = await Promise.all([
+        // Fetch everything in parallel
+        const [conversationMessages, details, groupMembers, markedRead] = await Promise.all([
           chatService.fetchConversationMessages(id as string),
           chatService.fetchGroupDetails(id as string),
-          chatService.fetchGroupMembers(id as string)
+          chatService.fetchGroupMembers(id as string),
+          chatService.markChatAsRead(id as string, user.id) // Mark as read instantly on load
         ]);
 
         setMessages(conversationMessages || []);
@@ -226,6 +228,18 @@ export default function ChatScreen() {
 
     loadChatData();
   }, [id]);
+
+  // Mark chat as read when entering and leaving the screen
+  useEffect(() => {
+    if (id && user?.id) {
+      chatService.markChatAsRead(id as string, user.id);
+    }
+    return () => {
+      if (id && user?.id) {
+        chatService.markChatAsRead(id as string, user.id);
+      }
+    };
+  }, [id, user?.id]);
 
   // Real-time subscription
   useEffect(() => {
@@ -509,11 +523,6 @@ export default function ChatScreen() {
         ]}
       >
         <View style={styles.bubbleInnerContainer}>
-          {isMyMessage && (
-            <View style={{ position: 'absolute', right: 10, top: 8, zIndex: 1 }}>
-              <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.7)" />
-            </View>
-          )}
           {!isMyMessage && (members.length > 2 || !!(groupInfo as any)?.courses) && (
             <Text style={styles.senderName}>
               {members.find(m => m.id === item.sender_id)?.name || (item.sender ? `${item.sender.first_name} ${item.sender.last_name || ''}`.trim() : 'User')}
@@ -538,7 +547,10 @@ export default function ChatScreen() {
             )}
           </View>
 
-          <View style={styles.timeContainer}>
+          <View style={[styles.timeContainer, { flexDirection: 'row', justifyContent: isMyMessage ? 'space-between' : 'flex-end', alignItems: 'center', marginTop: 4 }]}>
+            {isMyMessage && (
+               <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.6)" style={{ marginRight: 8 }} />
+            )}
             <Text style={[styles.timeText, isMyMessage ? styles.myTimeText : styles.theirTimeText]}>
               {formatMessageTime(item.created_at)}
             </Text>
