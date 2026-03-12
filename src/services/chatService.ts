@@ -71,7 +71,7 @@ export const chatService = {
 
                 // If not a course chat, it's a 1-on-1 chat
                 if (!group.courses && group.members) {
-                    const otherMember = group.members.find((m: any) => 
+                    const otherMember = group.members.find((m: any) =>
                         m.user?.id && m.user.id !== currentUserId
                     )?.user;
                     if (otherMember) {

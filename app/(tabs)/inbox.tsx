@@ -1,6 +1,8 @@
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
 import { Conversation } from '@/src/types';
+import EmptyChatState from '@/src/components/chat/EmptyChatState';
+import UnreadEmptyState from '@/src/components/chat/UnreadEmptyState';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -197,31 +199,51 @@ const renderEmptyMessages = (message: string) => (
   </View>
 );
 
-const ChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
-  <FlatList
-    data={conversations.filter(c => !c.isGroup)}
-    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
-    keyExtractor={(item) => item.id}
-    contentContainerStyle={styles.listContent}
-    showsVerticalScrollIndicator={false}
-    refreshControl={
-      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
-    }
-    ListEmptyComponent={() => renderEmptyMessages('No direct messages yet. Start a conversation!')}
-  />
-));
+const ChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => {
+  const directChats = conversations.filter(c => !c.isGroup);
+  
+  if (directChats.length === 0) {
+    return (
+      <View style={{ flex: 1 }}>
+        <FlatList
+          data={[]}
+          renderItem={null}
+          ListEmptyComponent={EmptyChatState}
+          contentContainerStyle={{ flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+          }
+        />
+      </View>
+    );
+  }
 
-const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+  return (
+    <FlatList
+      data={directChats}
+      renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
+      keyExtractor={(item) => item.id}
+      contentContainerStyle={styles.listContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
+      }
+    />
+  );
+});
+
+const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh, onViewAll }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void; onViewAll: () => void }) => (
   <FlatList
     data={conversations.filter(c => (c.unread ?? 0) > 0)}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
-    contentContainerStyle={styles.listContent}
+    contentContainerStyle={[styles.listContent, conversations.filter(c => (c.unread ?? 0) > 0).length === 0 && { flexGrow: 1 }]}
     showsVerticalScrollIndicator={false}
     refreshControl={
       <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
     }
-    ListEmptyComponent={() => renderEmptyMessages('You are all caught up!')}
+    ListEmptyComponent={<UnreadEmptyState onViewAll={onViewAll} />}
   />
 ));
 
@@ -470,7 +492,7 @@ export default function InboxScreen() {
       case 'chats':
         return <ChatsRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       case 'unread':
-        return <UnreadRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
+        return <UnreadRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} onViewAll={() => setIndex(0)} />;
       case 'communities':
         return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       default:

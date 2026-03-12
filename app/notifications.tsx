@@ -113,7 +113,7 @@ const NotificationScreen = () => {
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customDays, setCustomDays] = useState('');
   const [activeTab, setActiveTab] = useState<'All' | 'Requests'>('All');
-  const [actionStates, setActionStates] = useState<{ [key: string]: 'Accepted' | 'Declined' }>({});
+  const [actionStates, setActionStates] = useState<{ [key: string]: { status: 'Accepted' | 'Declined', time: string } }>({});
 
   const REQUEST_TYPES = ['chat_invitation', 'message_request'];
 
@@ -156,7 +156,20 @@ const NotificationScreen = () => {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        if (data) setNotifications(data);
+        if (data) {
+          const initialActions: any = {};
+          data.forEach(n => {
+            let parsedContent: any = n.content;
+            if (typeof n.content === 'string') {
+              try { parsedContent = JSON.parse(n.content); } catch (e) { }
+            }
+            if (parsedContent?.action && parsedContent?.action_time) {
+              initialActions[n.id] = { status: parsedContent.action, time: parsedContent.action_time };
+            }
+          });
+          setActionStates(initialActions);
+          setNotifications(data);
+        }
       } catch (error) {
         console.error('Error fetching notifications:', error);
       } finally {
@@ -218,8 +231,27 @@ const NotificationScreen = () => {
 
     try {
       console.log('Accepted request for sender:', actorId);
-      setActionStates(prev => ({ ...prev, [item.id]: 'Accepted' }));
+      const actionTime = new Date().toLocaleString();
+      const initials = getInitials(item.actor?.first_name || '', item.actor?.last_name || '');
+      const nameForMsg = item.actor ? `${item.actor.first_name || ''} ${item.actor.last_name || ''}`.trim() : 'Someone';
+      const messageText = `You accepted ${nameForMsg}'s chat request on ${actionTime}`;
+
       await chatService.updateChatRequestStatus('accepted', actorId, user.id);
+
+      // Update notification in DB so it persists as accepted
+      const newType = 'request_accepted';
+      const newContent = { message: messageText };
+
+      await supabase.from('notifications').update({
+        content: newContent,
+        type: newType
+      }).eq('id', item.id);
+
+      // Optimistically update the UI by altering the local item
+      setNotifications(prev => prev.map(n =>
+        n.id === item.id ? { ...n, type: newType, content: newContent } : n
+      ));
+
       Alert.alert('Success', 'Request Accepted');
     } catch (error) {
       console.error('Error in handleAccept:', error);
@@ -235,8 +267,26 @@ const NotificationScreen = () => {
 
     try {
       console.log('Declined request for sender:', actorId);
-      setActionStates(prev => ({ ...prev, [item.id]: 'Declined' }));
+      const actionTime = new Date().toLocaleString();
+      const nameForMsg = item.actor ? `${item.actor.first_name || ''} ${item.actor.last_name || ''}`.trim() : 'Someone';
+      const messageText = `You declined ${nameForMsg}'s chat request on ${actionTime}`;
+
       await chatService.updateChatRequestStatus('declined', actorId, user.id);
+
+      // Update notification in DB so it persists
+      const newType = 'request_declined';
+      const newContent = { message: messageText };
+
+      await supabase.from('notifications').update({
+        content: newContent,
+        type: newType
+      }).eq('id', item.id);
+
+      // Optimistically update local item
+      setNotifications(prev => prev.map(n =>
+        n.id === item.id ? { ...n, type: newType, content: newContent } : n
+      ));
+
     } catch (error) {
       console.error('Error in handleDecline:', error);
       setActionStates(prev => { const st = { ...prev }; delete st[item.id]; return st; });
@@ -293,24 +343,52 @@ const NotificationScreen = () => {
   const getNotificationActionText = (notification: Notification): string => {
     const courseTitle = notification.course?.title || 'a course';
 
+    // Helper to safely extract message from website payloads
+    const getPayloadMessage = () => {
+      if (typeof notification.content === 'string') {
+        try {
+          const parsed = JSON.parse(notification.content);
+          return parsed.message || parsed.title || parsed.body || null;
+        } catch {
+          return notification.content;
+        }
+      }
+      if (typeof notification.content === 'object' && notification.content !== null) {
+        const content = notification.content as any;
+        return content.message || content.title || content.body || null;
+      }
+      return null;
+    };
+
     switch (notification.type) {
       case 'enrollment':
-        return `has enrolled in your course: "${courseTitle}"`;
+        return getPayloadMessage() || `has enrolled in your course: "${courseTitle}"`;
       case 'announcement':
-        return `posted an announcement in "${courseTitle}"`;
+        return getPayloadMessage() || `posted an announcement in "${courseTitle}"`;
       case 'comment':
-        return `commented on "${courseTitle}"`;
+        return getPayloadMessage() || `commented on "${courseTitle}"`;
       case 'course_approval':
-        return `Your course "${courseTitle}" has been approved`;
+        return getPayloadMessage() || `Your course "${courseTitle}" has been approved`;
       case 'message_request':
         return `sent you a message request`;
       case 'chat_invitation':
         return `sent you a chat request`;
-      case 'request_accepted':
-      case 'request_declined':
-        return typeof notification.content === 'string' ? notification.content : `responded to your chat request`;
+      case 'request_accepted': {
+        const msg = getPayloadMessage();
+        if (msg?.toLowerCase().startsWith('you ')) return msg;
+        const dateObj = new Date(notification.created_at);
+        const formattedDate = `${dateObj.getDate().toString().padStart(2, '0')}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}/${dateObj.getFullYear()}`;
+        return `has accepted your chat request on ${formattedDate}`;
+      }
+      case 'request_declined': {
+        const msg = getPayloadMessage();
+        if (msg?.toLowerCase().startsWith('you ')) return msg;
+        const dateObj = new Date(notification.created_at);
+        const formattedDate = `${dateObj.getDate().toString().padStart(2, '0')}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}/${dateObj.getFullYear()}`;
+        return `has declined your chat request on ${formattedDate}`;
+      }
       case 'payment':
-        return `sent you a payment`;
+        return getPayloadMessage() || `sent you a payment`;
       case 'quiz_completion': {
         try {
           const data = typeof notification.content === 'string' ? JSON.parse(notification.content) : notification.content;
@@ -374,7 +452,8 @@ const NotificationScreen = () => {
   const getFilteredNotifications = () => {
     let filtered = notifications;
     if (activeTab === 'Requests') {
-      filtered = notifications.filter(n => REQUEST_TYPES.includes(n.type));
+      const REQUEST_ACTION_TYPES = [...REQUEST_TYPES, 'request_accepted', 'request_declined'];
+      filtered = notifications.filter(n => REQUEST_ACTION_TYPES.includes(n.type));
     }
     return filtered;
   };
@@ -409,10 +488,28 @@ const NotificationScreen = () => {
 
 
   const renderItem = ({ item }: { item: Notification }) => {
-    const actorName = item.actor
+    let actorName = item.actor
       ? `${item.actor.first_name || ''} ${item.actor.last_name || ''}`.trim()
-      : 'Unknown';
-    const initials = getInitials(item.actor?.first_name, item.actor?.last_name);
+      : '';
+
+    // If actor is missing/Unknown, try to find a name from the payload, or default to "Someone"
+    if (!actorName) {
+      if (typeof item.content === 'object' && item.content !== null) {
+        const c = item.content as any;
+        actorName = c.sender_name || c.user_name || c.name || 'Someone';
+      } else if (typeof item.content === 'string') {
+        try {
+          const parsed = JSON.parse(item.content);
+          actorName = parsed.sender_name || parsed.user_name || parsed.name || 'Someone';
+        } catch {
+          actorName = 'Someone';
+        }
+      } else {
+        actorName = 'Someone';
+      }
+    }
+
+    const initials = getInitials(actorName, ''); // Use the resolved name for initials if needed
     const avatarColor = getAvatarColor(actorName);
 
     const renderQuizContent = () => {
@@ -466,12 +563,15 @@ const NotificationScreen = () => {
       );
     };
 
-    const isInteractionType = REQUEST_TYPES.includes(item.type);
-    const actionStatus = actionStates[item.id];
+    const REQUEST_ACTION_TYPES = [...REQUEST_TYPES, 'request_accepted', 'request_declined'];
+    const isRequestActionType = REQUEST_ACTION_TYPES.includes(item.type);
+    const actionText = getNotificationActionText(item);
+    const isSelfAction = actionText.toLowerCase().startsWith('you ');
+    const startsWithActor = actionText.toLowerCase().startsWith(actorName.toLowerCase());
 
     return (
-      <View style={[styles.notificationItem, isInteractionType && styles.requestItem]}>
-        {isInteractionType && (
+      <View style={[styles.notificationItem, isRequestActionType && styles.requestItem]}>
+        {isRequestActionType && (
           <Text style={styles.requestLabel}>CHAT REQUEST</Text>
         )}
 
@@ -502,7 +602,19 @@ const NotificationScreen = () => {
           <View style={styles.notificationTextContainer}>
             {item.type === 'quiz_completion' ? renderQuizContent() : (
               <Text style={styles.notificationTitle} numberOfLines={2}>
-                <Text style={styles.boldText}>{actorName}</Text> {getNotificationActionText(item)}
+                {!isSelfAction && !startsWithActor && (
+                  <Text style={styles.boldText}>{actorName} </Text>
+                )}
+                {isSelfAction ? (
+                  <Text>
+                    {actionText.replace(/this request/gi, `${actorName}'s chat request`).split(actorName).map((part, i, arr) => (
+                      <React.Fragment key={i}>
+                        {part}
+                        {i < arr.length - 1 && <Text style={styles.boldText}>{actorName}</Text>}
+                      </React.Fragment>
+                    ))}
+                  </Text>
+                ) : actionText}
               </Text>
             )}
             <Text style={styles.notificationTime}>
@@ -512,44 +624,31 @@ const NotificationScreen = () => {
 
         </View>
 
-        {isInteractionType && (
+        {!isSelfAction && REQUEST_TYPES.includes(item.type) && (
           <View style={styles.actionSection}>
-            {actionStatus ? (
-              <View style={styles.statusContainer}>
-                <Ionicons
-                  name={actionStatus === 'Accepted' ? "checkmark-circle" : "close-circle"}
-                  size={18}
-                  color={actionStatus === 'Accepted' ? "#4CAF50" : "#E74C3C"}
-                />
-                <Text style={[styles.statusText, { color: actionStatus === 'Accepted' ? "#4CAF50" : "#E74C3C" }]}>
-                  Request {actionStatus}
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.requestButtons}>
-                <TouchableOpacity
-                  style={styles.declineButton}
-                  onPress={() => handleDecline(item)}
-                >
-                  <Text style={styles.declineButtonText}>Decline</Text>
-                </TouchableOpacity>
+            <View style={styles.requestButtons}>
+              <TouchableOpacity
+                style={styles.declineButton}
+                onPress={() => handleDecline(item)}
+              >
+                <Text style={styles.declineButtonText}>Decline</Text>
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => handleAccept(item)}
-                  style={styles.acceptButtonWrapper}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => handleAccept(item)}
+                style={styles.acceptButtonWrapper}
+              >
+                <LinearGradient
+                  colors={['#8A2BE2', '#5D00B3']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.acceptButton}
                 >
-                  <LinearGradient
-                    colors={['#8A2BE2', '#5D00B3']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.acceptButton}
-                  >
-                    <Text style={styles.acceptButtonText}>Accept</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            )}
+                  <Text style={styles.acceptButtonText}>Accept</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
@@ -799,11 +898,12 @@ const styles = StyleSheet.create({
   notificationTextContainer: {
     flex: 1,
     justifyContent: 'center',
+    paddingRight: 8,
   },
   notificationTitle: {
     fontSize: 15,
     color: '#1A1A1A',
-    lineHeight: 20,
+    lineHeight: 22,
     marginBottom: 4,
   },
   notificationTime: {
@@ -1001,13 +1101,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(76, 175, 80, 0.05)',
-    paddingVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    gap: 6,
+    gap: 8,
+    width: '100%',
   },
   statusText: {
     fontSize: 14,
     fontWeight: '600',
+    flexShrink: 1,
+    textAlign: 'center',
   },
   modalFull: {
     margin: 20,
