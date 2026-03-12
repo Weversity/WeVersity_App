@@ -2,6 +2,7 @@
 import React, { createContext, useContext } from 'react';
 import { logout as authLogout } from '../auth/logout';
 import { useAuth as useSupabaseAuth } from '../auth/useAuth';
+import { supabase } from '../auth/supabase';
 
 
 // Redefine Role locally if needed or keep using string
@@ -43,7 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Keep localUser in sync with Supabase auth user while preserving optimistic metadata when id is unchanged.
   React.useEffect(() => {
-    setLocalUser((prev) => {
+    setLocalUser((prev: any) => {
       if (!baseUser) return null;
       if (!prev || prev.id !== baseUser.id) {
         // New or different user session – trust Supabase completely.
@@ -81,18 +82,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const fetchInitialCount = async () => {
       try {
-        const { supabase } = await import('../auth/supabase');
+        console.log('[AuthContext] Fetching unread count for user:', user.id);
         const { count, error } = await supabase
           .from('notifications')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact' }) // Minimal select
           .eq('recipient_id', user.id)
-          .eq('is_read', false); // FIXED: Only count unread
+          .eq('read', false);
 
-        if (!error && count !== null) {
+        if (error) {
+           console.error('[AuthContext] Error fetching count:', JSON.stringify(error, null, 2));
+           return;
+        }
+
+        if (count !== null) {
+          console.log('[AuthContext] New Unread Count:', count);
           setUnreadCount(count);
         }
       } catch (err) {
-        console.error('Error fetching unread count:', err);
+        console.error('[AuthContext] Exception in fetchInitialCount:', err);
       }
     };
 
@@ -101,33 +108,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 2. Real-time subscription
     let subscription: any;
     const setupRealtime = async () => {
-      const { supabase } = await import('../auth/supabase');
-      subscription = supabase
-        .channel(`unread-notifications-${user.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT', // Listen only to INSERT
-            schema: 'public',
-            table: 'notifications',
-            filter: `recipient_id=eq.${user.id}`,
-          },
-          (payload) => {
-            if (payload.eventType === 'INSERT') {
-              setUnreadCount((prev) => prev + 1);
+      try {
+        console.log('[AuthContext] Setting up real-time listener for user:', user.id);
+        
+        subscription = supabase
+          .channel(`notifications-global-${user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*', // Listen to INSERT, UPDATE, DELETE
+              schema: 'public',
+              table: 'notifications',
+              filter: `recipient_id=eq.${user.id}`,
+            },
+            (payload) => {
+              console.log('[AuthContext] Notification change detected:', payload.eventType);
+              fetchInitialCount();
             }
-          }
-        )
-        .subscribe();
+          )
+          .subscribe((status) => {
+            console.log('[AuthContext] Subscription status:', status);
+          });
+      } catch (err) {
+        console.error('[AuthContext] Error setting up realtime:', err);
+      }
     };
 
     setupRealtime();
 
     return () => {
       if (subscription) {
-        import('../auth/supabase').then(({ supabase }) => {
-          supabase.removeChannel(subscription);
-        });
+        supabase.removeChannel(subscription);
       }
     };
   }, [user]);
@@ -146,7 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateUser = (patch: { user_metadata?: Record<string, any> } & Record<string, any>) => {
-    setLocalUser((prev) => {
+    setLocalUser((prev: any) => {
       if (!prev) return prev;
 
       const { user_metadata, ...restPatch } = patch;

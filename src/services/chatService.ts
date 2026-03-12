@@ -388,14 +388,30 @@ export const chatService = {
 
     async sendChatRequest(senderId: string, receiverId: string): Promise<boolean> {
         try {
-            // Insert request
+            // Upsert request: if exists, reset to pending and update timestamp
             const { error: reqError } = await supabase
                 .from('chat_requests')
-                .insert([{ sender_id: senderId, receiver_id: receiverId, status: 'pending' }]);
+                .upsert(
+                    {
+                        sender_id: senderId,
+                        receiver_id: receiverId,
+                        status: 'pending',
+                        created_at: new Date().toISOString()
+                    },
+                    { onConflict: 'sender_id, receiver_id' }
+                );
 
             if (reqError) throw reqError;
 
-            // Send Notification to receiver
+            // 1. Delete old notification if exists to ensure receiver gets a fresh alert
+            await supabase
+                .from('notifications')
+                .delete()
+                .eq('recipient_id', receiverId)
+                .eq('actor_id', senderId)
+                .eq('type', 'chat_invitation');
+
+            // 2. Insert new notification
             await supabase
                 .from('notifications')
                 .insert([{

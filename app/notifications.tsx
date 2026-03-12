@@ -128,9 +128,9 @@ const NotificationScreen = () => {
       try {
         await supabase
           .from('notifications')
-          .update({ is_read: true })
+          .update({ read: true })
           .eq('recipient_id', user.id)
-          .eq('is_read', false);
+          .eq('read', false);
       } catch (err) {
         console.error('Error marking notifications as read:', err);
       }

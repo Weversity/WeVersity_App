@@ -736,17 +736,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fff',
   },
-  notificationBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#8A2BE2',
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
+
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 0,

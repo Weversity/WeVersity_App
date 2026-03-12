@@ -8,14 +8,17 @@ const NotificationIcon = () => {
     const router = useRouter();
     const { unreadCount } = useAuth();
 
+    console.log('Current Unread Count:', unreadCount);
+
     return (
         <TouchableOpacity
             style={styles.container}
             onPress={() => router.push('/notifications')}
+            activeOpacity={0.7}
         >
-            <View>
+            <View style={{ position: 'relative' }}>
                 <Ionicons name="notifications-outline" size={24} color="#fff" />
-                {unreadCount > 0 && <View style={styles.notificationBadge} />}
+                {unreadCount > 0 && <View style={styles.notificationDot} />}
             </View>
         </TouchableOpacity>
     );
@@ -27,15 +30,17 @@ const styles = StyleSheet.create({
     container: {
         padding: 5,
     },
-    notificationBadge: {
+    notificationDot: {
         position: 'absolute',
-        top: -4,
-        right: -2,
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#fff',
+        top: -1,
+        right: -1,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#FF3B30',
         borderWidth: 1.5,
-        borderColor: '#8A2BE2',
+        borderColor: '#8A2BE2', // Matches header purple
+        zIndex: 999,
+        elevation: 5,
     },
 });
