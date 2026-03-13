@@ -560,6 +560,11 @@ export default function ChatScreen() {
     );
   };
 
+  // Dynamic header status: 'Active Community' for groups/course-linked chats, 'Active' for 1-on-1
+  const activeStatusText = (members?.length ?? 0) > 2 || !!(groupInfo as any)?.courses
+    ? 'Active Community'
+    : 'Active';
+
   const getHeaderChar = (name?: string) => (name || 'C').charAt(0).toUpperCase();
 
   return (
@@ -591,7 +596,7 @@ export default function ChatScreen() {
               </Text>
               <View style={styles.activeStatusContainer}>
                 <View style={styles.activeDot} />
-                <Text style={styles.activeStatusText}>Active Community</Text>
+                <Text style={styles.activeStatusText}>{activeStatusText}</Text>
               </View>
             </View>
           </View>

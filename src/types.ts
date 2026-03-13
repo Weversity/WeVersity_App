@@ -91,6 +91,7 @@ export interface Conversation {
     message: string;
     time: string;
     unread: number;
+    unread_count: number;
     avatar?: string;
     avatarColor?: string;
     isGroup: boolean;

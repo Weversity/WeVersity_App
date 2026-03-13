@@ -1,8 +1,8 @@
+import EmptyChatState from '@/src/components/chat/EmptyChatState';
+import UnreadEmptyState from '@/src/components/chat/UnreadEmptyState';
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
 import { Conversation } from '@/src/types';
-import EmptyChatState from '@/src/components/chat/EmptyChatState';
-import UnreadEmptyState from '@/src/components/chat/UnreadEmptyState';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -201,7 +201,7 @@ const renderEmptyMessages = (message: string) => (
 
 const ChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => {
   const directChats = conversations.filter(c => !c.isGroup);
-  
+
   if (directChats.length === 0) {
     return (
       <View style={{ flex: 1 }}>
@@ -264,7 +264,7 @@ const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }
 export default function InboxScreen() {
   const router = useRouter();
   const layout = useWindowDimensions();
-  const { user } = useAuth();
+  const { user, setUnreadCount } = useAuth();
 
   // NOTE: isFocused can be used for manual refetch logic if needed, but per latest plan 
   // we primarily rely on mount/auth events to keep it simple.
@@ -272,15 +272,48 @@ export default function InboxScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
-  const [routes] = useState([
-    { key: 'chats', title: 'First chat' },
+  const [routes, setRoutes] = useState([
+    { key: 'chats', title: 'Chats' },
     { key: 'unread', title: 'Unread' },
-    { key: 'communities', title: 'Community' },
+    { key: 'communities', title: 'Groups' },
   ]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Calculate unread counts for each tab
+  const tabCounts = useMemo(() => {
+    const counts = { chats: 0, unread: 0, communities: 0 };
+    conversations.forEach(conv => {
+      const uCount = Number(conv.unread) || 0;
+      if (uCount > 0) {
+        if (conv.isGroup) {
+          counts.communities += uCount;
+        } else {
+          counts.chats += uCount;
+        }
+        counts.unread += uCount;
+      }
+    });
+    console.log('📊 [Inbox] Calculated Tab Counts:', counts);
+    return counts;
+  }, [conversations]);
+
+  // Sync routes when tabCounts change to force TabView re-render
+  useEffect(() => {
+    setRoutes(prev => prev.map(route => ({
+      ...route,
+      // Adding a dummy property to trigger state change
+      _v: tabCounts[route.key as keyof typeof tabCounts]
+    })));
+  }, [tabCounts]);
+
+  // Sync total unread to AuthContext → drives bottom-tab badge
+  useEffect(() => {
+    const total = conversations.reduce((sum, c) => sum + (Number(c.unread) || 0), 0);
+    setUnreadCount(total);
+  }, [conversations, setUnreadCount]);
 
   const formatConversation = useCallback((conv: any): Conversation => {
     const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
@@ -334,7 +367,7 @@ export default function InboxScreen() {
         const memberId = m.user?.id || m.user_id || m.id;
         return memberId && memberId !== user?.id; // Only return if it's definitely the OTHER person
       });
-      
+
       const userData = otherMember?.user || otherMember?.profile || otherMember;
       if (userData) {
         displayName = `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.name || displayName;
@@ -349,7 +382,8 @@ export default function InboxScreen() {
       senderName: sName,
       messageContent: rawContent,
       time: timeStr,
-      unread: conv.unread_count || 0,
+      unread: Number(conv.unread_count) || 0,
+      unread_count: Number(conv.unread_count) || 0,
       avatar: displayAvatar,
       avatarColor: '#F3F4F6',
       isGroup: isActuallyGroup,
@@ -368,8 +402,9 @@ export default function InboxScreen() {
         setRefreshing(true); // Silent background refresh or manual pull-to-refresh
       }
 
-      console.log('🔄 [Inbox] Fetching conversations...');
+      console.log(`🔄 [Inbox] Fetching conversations...`);
       const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
+      // console.log('📦 [Inbox] Raw API Data:', JSON.stringify(inboxData, null, 2));
 
       const enhancedInboxData = await Promise.all(inboxData.map(async (conv) => {
         let msg = conv.last_message || { content: '', created_at: null, sender_id: null };
@@ -403,6 +438,7 @@ export default function InboxScreen() {
       }));
 
       let mapped = enhancedInboxData.map(formatConversation);
+      console.log('✅ [Inbox] Mapped Conversations:', mapped.map(c => ({ name: c.name, unread: c.unread, isGroup: c.isGroup })));
 
       setConversations(mapped.sort((a: Conversation, b: Conversation) => b.timestamp - a.timestamp));
     } catch (error) {
@@ -446,6 +482,7 @@ export default function InboxScreen() {
           messageContent: newMessage.content,
           time: formatChatTime(newMessage.created_at).timeStr,
           unread: isMe ? 0 : (existing?.unread || 0) + 1,
+          unread_count: isMe ? 0 : (existing?.unread_count || 0) + 1,
           avatarColor: '#F3F4F6',
           system: false,
           isGroup: existing?.isGroup || !!newMessage.group_id,
@@ -484,6 +521,10 @@ export default function InboxScreen() {
   }, [searchQuery, conversations]);
 
   const handleChatPress = useCallback((id: string) => {
+    // Optimistic Update: Instantly clear unread count for the selected chat
+    setConversations(prev => prev.map(conv =>
+      conv.id === id ? { ...conv, unread: 0 } : conv
+    ));
     router.push(`/chat/${id}`);
   }, [router]);
 
@@ -500,16 +541,34 @@ export default function InboxScreen() {
     }
   }, [filteredConversations, handleChatPress, refreshing, onRefresh]);
 
+  const renderLabel = useCallback(({ route, focused, color }: any) => {
+    const count = tabCounts[route.key as keyof typeof tabCounts] || 0;
+    // console.log(`🏷️ [Inbox] Rendering Label for ${route.key}: count=${count}`);
+    return (
+      <View style={styles.tabLabelWrapper}>
+        <Text style={[styles.tabLabel, { color }, focused && { fontWeight: '800' }]}>
+          {route.title}
+        </Text>
+        {count > 0 ? (
+          <View style={styles.tabBadge}>
+            <Text style={styles.tabBadgeText}>{count}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }, [tabCounts]);
+
   const renderTabBar = useCallback((props: any) => (
     <TabBar
       {...props}
+      renderLabel={renderLabel}
       indicatorStyle={{ backgroundColor: 'white' }}
       style={{ backgroundColor: '#8A2BE2' }}
       labelStyle={{ fontWeight: '700' }}
       activeColor={'#fff'}
       inactiveColor={'#E0B0FF'}
     />
-  ), []);
+  ), [renderLabel]);
 
   return (
     <View style={styles.container}>
@@ -546,6 +605,7 @@ export default function InboxScreen() {
               </View>
             ) : (
               <TabView
+                key={'tab-view-' + JSON.stringify(tabCounts)}
                 navigationState={{ index, routes }}
                 renderScene={renderScene}
                 onIndexChange={setIndex}
@@ -847,5 +907,37 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3E8FF',
     justifyContent: 'center',
     alignItems: 'center',
-  }
+  },
+  tabLabelWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    minWidth: 80,
+    overflow: 'visible',
+  },
+  tabLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  tabBadge: {
+    backgroundColor: '#fff',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    marginLeft: 4,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  tabBadgeText: {
+    color: '#8A2BE2',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
 });
