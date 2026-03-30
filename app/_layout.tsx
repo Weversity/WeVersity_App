@@ -13,6 +13,9 @@ import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import '../src/lib/polyfills';
+import * as Notifications from 'expo-notifications';
+import { registerForPushNotificationsAsync, savePushTokenToBackend } from '@/src/services/pushNotifications';
+import { useRouter } from 'expo-router';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
@@ -136,6 +139,70 @@ function InitialLayout() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+
+  useEffect(() => {
+    let notificationListener: Notifications.Subscription;
+    let responseListener: Notifications.Subscription;
+
+    const setupNotifications = async () => {
+      try {
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          console.log('[RootLayout] Fetched Push Token, checking auth to save to backend...');
+          // Optional: If we want to strictly wait for `user.id`, we could move this logic
+          // into an auth-dependent effect or listen to auth state changes.
+          // For now, this just registers the device. The actual user save might need `user.id`.
+        }
+      } catch (error) {
+        console.error('[RootLayout] Error setting up notifications:', error);
+      }
+    };
+
+    setupNotifications();
+
+    // 1. Listener for when notification is received WHILE app is open (Foreground)
+    notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('[RootLayout] Foreground Notification Received:', notification.request.content.title);
+    });
+
+    // 2. Listener for when user TAPS on a notification (Background / Killed state)
+    responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('[RootLayout] User tapped notification:', response.notification.request.content.title);
+      const data = response.notification.request.content.data;
+      
+      console.log('[RootLayout] Deep linking data:', data);
+
+      if (data) {
+        const routeId = data.id;
+        switch (data.screen) {
+          case 'chat':
+            if (routeId) router.push(`/chat/${routeId}`);
+            break;
+          case 'course':
+            if (routeId) router.push(`/courseDetails/${routeId}`);
+            break;
+          case 'community':
+            // Update this path if your community screen route is different
+            router.push('/(tabs)/community' as any);
+            break;
+          case 'learning':
+            if (routeId) router.push(`/learning/${routeId}`);
+            break;
+          default:
+            router.push('/notifications');
+            break;
+        }
+      } else {
+        router.push('/notifications');
+      }
+    });
+
+    return () => {
+      if (notificationListener) notificationListener.remove();
+      if (responseListener) responseListener.remove();
+    };
+  }, [router]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -565,6 +565,40 @@ export const videoService = {
     } else {
       const { error } = await supabase.from('follows').insert([{ follower_id: followerId, following_id: followingId }]);
       if (error) throw error;
+
+      // --- SEND NOTIFICATION ---
+      try {
+        // Fetch follower details for the notification name
+        const { data: userA } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', followerId)
+          .single();
+        
+        const followerName = userA ? `${userA.first_name || ''} ${userA.last_name || ''}`.trim() : 'Someone';
+
+        // Check if mutual follow (follow back)
+        const userB_Follows_UserA = await videoService.checkIsFollowing(followingId, followerId);
+        
+        const notificationType = userB_Follows_UserA ? 'follow_back' : 'new_follower';
+        
+        // Using string Content to ensure Vercel microservice parses it safely for Push Body
+        const notificationBody = userB_Follows_UserA 
+            ? `${followerName} has followed you back.` 
+            : `${followerName} has started following you.`;
+
+        // Insert notification
+        await supabase.from('notifications').insert([{
+            recipient_id: followingId,
+            actor_id: followerId,
+            type: notificationType,
+            content: notificationBody,
+            read: false
+        }]);
+      } catch (err) {
+        console.error('Error inserting follow notification:', err);
+      }
+
       return true;
     }
   },

@@ -3,6 +3,7 @@ import React, { createContext, useContext } from 'react';
 import { logout as authLogout } from '../auth/logout';
 import { useAuth as useSupabaseAuth } from '../auth/useAuth';
 import { supabase } from '../auth/supabase';
+import { registerForPushNotificationsAsync, savePushTokenToBackend } from '../services/pushNotifications';
 
 
 // Redefine Role locally if needed or keep using string
@@ -61,6 +62,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [baseUser]);
 
+  // Register push token when localUser is updated and authenticates
+  React.useEffect(() => {
+    if (localUser?.id) {
+      const handlePushTokenRegistration = async () => {
+        try {
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            await savePushTokenToBackend(localUser.id, token);
+          }
+        } catch (error) {
+          console.error('[AuthContext] Push Token registration failed:', error);
+        }
+      };
+
+      handlePushTokenRegistration();
+    }
+  }, [localUser?.id]);
+
   const user = localUser ?? baseUser;
 
   // Derived state
@@ -86,7 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { count, error } = await supabase
           .from('notifications')
           .select('id', { count: 'exact' }) // Minimal select
-          .eq('recipient_id', user.id)
+          .or(`recipient_id.eq.${user.id},recipient_id.is.null`)
           .eq('read', false);
 
         if (error) {
@@ -119,11 +138,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               event: '*', // Listen to INSERT, UPDATE, DELETE
               schema: 'public',
               table: 'notifications',
-              filter: `recipient_id=eq.${user.id}`,
+              // Note: Supabase realtime filters don't support complex OR filters easily here.
+              // We'll listen to all changes on the table and filter in the callback for recipient_id matches.
             },
-            (payload) => {
-              console.log('[AuthContext] Notification change detected:', payload.eventType);
-              fetchInitialCount();
+            (payload: any) => {
+              const record = payload.new || payload.old;
+              if (record && (record.recipient_id === user.id || record.recipient_id === null)) {
+                console.log('[AuthContext] Relevant notification change detected');
+                fetchInitialCount();
+              }
             }
           )
           .subscribe((status) => {

@@ -24,6 +24,10 @@ const badgeIconMap: { [key: string]: keyof typeof Ionicons.glyphMap } = {
   message_request: 'chatbubbles',
   request_accepted: 'checkmark-done-circle',
   request_declined: 'close-circle',
+  new_follower: 'person-add',
+  follow_back: 'people',
+  live_now: 'videocam',
+  upcoming_event: 'calendar',
   default: 'notifications',
 };
 
@@ -129,7 +133,7 @@ const NotificationScreen = () => {
         await supabase
           .from('notifications')
           .update({ read: true })
-          .eq('recipient_id', user.id)
+          .or(`recipient_id.eq.${user.id},recipient_id.is.null`)
           .eq('read', false);
       } catch (err) {
         console.error('Error marking notifications as read:', err);
@@ -150,9 +154,9 @@ const NotificationScreen = () => {
           .select(`
             *,
             actor:profiles!actor_id(id, avatar_url, first_name, last_name),
-            course:courses(title)
+            course:courses(title, id)
           `)
-          .eq('recipient_id', user.id)
+          .or(`recipient_id.eq.${user.id},recipient_id.is.null`)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -185,11 +189,10 @@ const NotificationScreen = () => {
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
-        table: 'notifications',
-        filter: `recipient_id=eq.${user.id}`
+        table: 'notifications'
       }, async (payload) => {
-        // Fetch actor and course data for new notification
         const newNotification = payload.new as Notification;
+        if (newNotification.recipient_id !== user.id && newNotification.recipient_id !== null) return;
 
         if (newNotification.actor_id) {
           const { data: actorData } = await supabase
@@ -387,6 +390,10 @@ const NotificationScreen = () => {
         const formattedDate = `${dateObj.getDate().toString().padStart(2, '0')}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}/${dateObj.getFullYear()}`;
         return `has declined your chat request on ${formattedDate}`;
       }
+      case 'new_follower':
+        return `started following you.`;
+      case 'follow_back':
+        return `followed you back.`;
       case 'payment':
         return getPayloadMessage() || `sent you a payment`;
       case 'quiz_completion': {
@@ -569,14 +576,36 @@ const NotificationScreen = () => {
     const isSelfAction = actionText.toLowerCase().startsWith('you ');
     const startsWithActor = actionText.toLowerCase().startsWith(actorName.toLowerCase());
 
+    const handleNotificationPress = () => {
+      if (item.type === 'new_follower' || item.type === 'follow_back') {
+        const profileId = item.actor?.id || item.actor_id;
+        if (profileId) {
+          router.push(`/viewProfile/${profileId}`);
+        }
+      } else if (item.type === 'live_now' || item.type === 'upcoming_event') {
+        // Navigate to the live class or upcoming tab
+        if (item.type === 'live_now') {
+          // If we have a course_id or session_id in content, we could go direct. 
+          // For now, let's go to the Live tab.
+          router.push('/(tabs)/live');
+        } else {
+          router.push('/(tabs)/upcoming');
+        }
+      }
+    };
+
     return (
       <View style={[styles.notificationItem, isRequestActionType && styles.requestItem]}>
         {isRequestActionType && (
           <Text style={styles.requestLabel}>CHAT REQUEST</Text>
         )}
 
-
-        <View style={styles.itemRow}>
+        <TouchableOpacity 
+          style={styles.itemRow} 
+          activeOpacity={0.7} 
+          onPress={handleNotificationPress}
+          disabled={!['new_follower', 'follow_back'].includes(item.type)}
+        >
           {/* Circular Avatar with Badge */}
           <View style={styles.avatarContainer}>
             {item.actor?.avatar_url ? (
@@ -622,7 +651,7 @@ const NotificationScreen = () => {
             </Text>
           </View>
 
-        </View>
+        </TouchableOpacity>
 
         {!isSelfAction && REQUEST_TYPES.includes(item.type) && (
           <View style={styles.actionSection}>
