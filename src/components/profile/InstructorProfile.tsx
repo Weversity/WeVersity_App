@@ -11,7 +11,9 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { coinService } from '@/src/services/coinService';
 import NotificationIcon from '../notifications/NotificationIcon';
+import DailyRewardModal from '../rewards/DailyRewardModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -69,6 +71,8 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: 'google_meet', title: 'Google Meet', icon: 'logo-google', onPress: () => { onClose(); router.push('/live/googleMeet'); } },
     { id: '3', title: 'Public Profile', icon: 'person-circle-outline', onPress: () => { onClose(); onViewPublicProfile(); } },
+    { id: 'leaderboard', title: 'Leaderboard', icon: 'trophy-outline', onPress: () => { onClose(); router.push('/leaderboard'); } },
+    { id: 'wallet', title: 'Wallet', icon: 'wallet-outline', onPress: () => { onClose(); router.push('/instructor/wallet'); } },
     { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
     { id: '7', title: 'Support', icon: 'help-circle-outline', onPress: () => { onClose(); router.push('/support'); } },
     { id: '6', title: 'Following', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
@@ -259,6 +263,11 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const router = useRouter();
   const heroScrollViewRef = useRef<ScrollView>(null);
   const [activeSlide, setActiveSlide] = useState(0);
+  const [coinsBalance, setCoinsBalance] = useState<number>(0);
+  // rewardModalVisible: X press hides it BUT it can show again.
+  // claimedToday: actual claim — prevents re-show until midnight.
+  const [rewardModalVisible, setRewardModalVisible] = useState(false);
+  const [claimedToday, setClaimedToday] = useState(false);
 
 
 
@@ -336,8 +345,30 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
       if (user?.id) {
         fetchCourses();
         fetchStats();
+        
+        // 3. WeCoins Balance & Real-time
+        coinService.getBalance(user.id).then(setCoinsBalance);
+        const unsubscribe = coinService.subscribeToBalanceChanges(user.id, (newBalance) => {
+          setCoinsBalance(newBalance);
+        });
+
+        // 4. Reward Eligibility (midnight-based via coinService)
+        const checkEligibility = async () => {
+          const { lastClaim } = await coinService.getRewardMeta(user.id);
+          const eligible = coinService.isEligible(lastClaim);
+          if (eligible && !claimedToday) {
+            setTimeout(() => setRewardModalVisible(true), 2000);
+          } else {
+            setClaimedToday(true);
+          }
+        };
+        checkEligibility();
+
+        return () => {
+          unsubscribe();
+        };
       }
-    }, [user?.id])
+    }, [user?.id, claimedToday])
   );
 
   // Wave Shake Animation Loop
@@ -712,7 +743,13 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             </View>
           </View>
           <View style={styles.headerRight}>
-
+            <TouchableOpacity 
+              style={styles.coinBadge}
+              onPress={() => router.push('/instructor/wallet' as any)}
+            >
+              <Ionicons name="radio-button-on" size={16} color="#FFD700" />
+              <Text style={styles.coinBalanceText}>{coinsBalance.toLocaleString()}</Text>
+            </TouchableOpacity>
             <NotificationIcon />
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
               <Ionicons name="menu" size={28} color="#fff" />
@@ -1051,11 +1088,22 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         onUploadShort={uploadShort}
         onViewPublicProfile={() => {
           if (user?.id) {
-            router.push({ pathname: '/viewProfile/[id]', params: { id: user.id, mode: 'edit' } });
+            router.push({ pathname: '/viewProfile/[id]', params: { id: user.id } } as any);
           }
         }}
         router={router}
         profileData={profileData}
+      />
+
+      <DailyRewardModal 
+        visible={rewardModalVisible && !claimedToday}
+        userId={user?.id || ''}
+        onDismiss={() => setRewardModalVisible(false)}
+        onClaimSuccess={(amount) => {
+          setClaimedToday(true);         // stop auto-show until midnight
+          setRewardModalVisible(false);
+          setCoinsBalance(prev => prev + amount);
+        }}
       />
 
       <UploadChoiceModal
@@ -1132,7 +1180,21 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    gap: 12,
+  },
+  coinBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 5,
+  },
+  coinBalanceText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
   profileContainer: {
     flexDirection: 'row',

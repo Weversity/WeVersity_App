@@ -10,7 +10,11 @@ import {
     Text,
     TouchableOpacity,
     View,
+    TextInput,
+    Alert,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { useState } from 'react';
 
 // Dummy Data
 const dummyEarnings = {
@@ -47,6 +51,44 @@ const dummyHistory = [
 const WithdrawalsScreen = () => {
     const router = useRouter();
 
+    // Form State
+    const [amount, setAmount] = useState('0.00');
+    const [bankName, setBankName] = useState('');
+    const [accountTitle, setAccountTitle] = useState('');
+    const [iban, setIban] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Derived Data
+    const availableWC = 35; // Dummy for now
+    const estValue = (availableWC / 1000).toFixed(2);
+    const minWithdrawal = 20.00;
+
+    const handleRequestFunds = () => {
+        const floatAmount = parseFloat(amount);
+        
+        if (!bankName || !accountTitle || !iban) {
+            Alert.alert("Error", "Please fill in all bank details.");
+            return;
+        }
+
+        if (isNaN(floatAmount) || floatAmount < minWithdrawal) {
+            Alert.alert("Minimum Limit", `The minimum withdrawal amount is $${minWithdrawal.toFixed(2)}.`);
+            return;
+        }
+
+        if (floatAmount > parseFloat(estValue)) {
+            Alert.alert("Insufficient Balance", "You don't have enough WeCoins for this amount.");
+            return;
+        }
+
+        setIsSubmitting(true);
+        // Backend integration will follow once confirmation is received
+        setTimeout(() => {
+            Alert.alert("Success", "Withdrawal request submitted successfully!");
+            setIsSubmitting(false);
+        }, 1500);
+    };
+
     const renderStatusBadge = (status: string) => {
         let backgroundColor = '#E8F5E9';
         let textColor = '#2E7D32';
@@ -81,105 +123,123 @@ const WithdrawalsScreen = () => {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+                
+                {/* Available Balance Header */}
+                <View style={styles.balanceHeader}>
+                    <View style={styles.balanceGroup}>
+                        <Text style={styles.balLabel}>AVAILABLE BALANCE</Text>
+                        <Text style={styles.balWC}>{availableWC} WC</Text>
+                    </View>
+                    <View style={styles.balanceGroupRight}>
+                        <Text style={[styles.balLabel, { textAlign: 'right' }]}>EST. VALUE</Text>
+                        <Text style={styles.balUSD}>${estValue}</Text>
+                    </View>
+                </View>
 
-                {/* Payout Policy Note */}
-                <View style={styles.policyNote}>
-                    <Ionicons name="information-circle" size={20} color="#8A2BE2" />
+                {/* Important Policy Note */}
+                <View style={styles.policyBox}>
+                    <View style={styles.policyIconBox}>
+                        <Ionicons name="information-circle" size={18} color="#2196F3" />
+                    </View>
                     <Text style={styles.policyText}>
-                        Minimum withdrawal amount is $10. Withdrawals are processed within 3-5 business days.
+                        Important: Balance must be withdrawn within 1 year of earning. Unclaimed balance after 1 year will be donated to the organization's educational fund. 
+                        <Text style={{ fontWeight: 'bold' }}> Minimum withdrawal is $20.00.</Text>
                     </Text>
                 </View>
 
-                {/* Earnings Cards */}
-                <View style={styles.cardsContainer}>
-                    <LinearGradient colors={['#8A2BE2', '#9D50E5']} style={styles.mainCard}>
-                        <Text style={styles.cardLabelWhite}>Total Balance</Text>
-                        <Text style={styles.cardValueWhite}>
-                            {dummyEarnings.totalBalance === "0.00" || dummyEarnings.totalBalance === "0" ? 'No Earnings' : `$${dummyEarnings.totalBalance}`}
-                        </Text>
-                        <View style={styles.cardFooter}>
-                            <Text style={styles.cardSublabelWhite}>Ready to withdraw</Text>
-                            <Ionicons name="wallet-outline" size={24} color="rgba(255,255,255,0.6)" />
-                        </View>
-                    </LinearGradient>
-
-                    <View style={styles.row}>
-                        <View style={styles.smallCard}>
-                            <View style={styles.smallCardIconBg}>
-                                <Ionicons name="time-outline" size={20} color="#8A2BE2" />
+                <View style={styles.mainGrid}>
+                    {/* New Withdrawal Request Form */}
+                    <View style={styles.sectionCard}>
+                        <View style={styles.sectionHeader}>
+                            <View style={[styles.titleIconBg, { backgroundColor: '#F3E5F5' }]}>
+                                <Ionicons name="cash-outline" size={18} color="#8A2BE2" />
                             </View>
-                            <Text style={styles.cardLabel}>Pending</Text>
-                            <Text style={styles.cardValue}>
-                                {dummyEarnings.pendingApproval === "0.00" || dummyEarnings.pendingApproval === "0" ? 'No Earnings' : `$${dummyEarnings.pendingApproval}`}
-                            </Text>
+                            <Text style={styles.sectionTitle}>New Withdrawal Request</Text>
                         </View>
-                        <View style={styles.smallCard}>
-                            <View style={[styles.smallCardIconBg, { backgroundColor: '#E8F5E9' }]}>
-                                <Ionicons name="stats-chart" size={20} color="#2E7D32" />
-                            </View>
-                            <Text style={styles.cardLabel}>Lifetime</Text>
-                            <Text style={styles.cardValue}>
-                                {dummyEarnings.lifetimeEarnings === "0.00" || dummyEarnings.lifetimeEarnings === "0" ? 'No Earnings' : `$${dummyEarnings.lifetimeEarnings}`}
-                            </Text>
-                        </View>
-                    </View>
-                </View>
 
-                {/* Payout Destination */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>Payout Destination</Text>
-                        <TouchableOpacity style={styles.addMethodBtn}>
-                            <Ionicons name="add" size={20} color="#8A2BE2" />
-                            <Text style={styles.addMethodText}>Add New</Text>
+                        <Text style={styles.inputLabel}>AMOUNT (USD)</Text>
+                        <View style={styles.amountInputContainer}>
+                            <Text style={styles.currencyPrefix}>$</Text>
+                            <TextInput 
+                                style={styles.amountInput}
+                                value={amount}
+                                onChangeText={setAmount}
+                                keyboardType="decimal-pad"
+                            />
+                        </View>
+
+                        <Text style={styles.bankSectionTitle}>BANK DETAILS</Text>
+                        <View style={styles.bankFieldsGrid}>
+                            <View style={styles.bankFieldWrapper}>
+                                <Text style={styles.inputLabel}>BANK NAME</Text>
+                                <TextInput 
+                                    style={styles.bankInput}
+                                    placeholder="e.g. HBL, Meczan Bank"
+                                    value={bankName}
+                                    onChangeText={setBankName}
+                                />
+                            </View>
+                            <View style={styles.bankFieldWrapper}>
+                                <Text style={styles.inputLabel}>ACCOUNT TITLE</Text>
+                                <TextInput 
+                                    style={styles.bankInput}
+                                    placeholder="Full Name on Account"
+                                    value={accountTitle}
+                                    onChangeText={setAccountTitle}
+                                />
+                            </View>
+                        </View>
+
+                        <Text style={styles.inputLabel}>IBAN / ACCOUNT NUMBER</Text>
+                        <TextInput 
+                            style={styles.bankInput}
+                            placeholder="PK00 XXXX XXXX XXXX XXXX"
+                            value={iban}
+                            onChangeText={setIban}
+                        />
+
+                        <TouchableOpacity 
+                            style={styles.requestBtn} 
+                            onPress={handleRequestFunds}
+                            disabled={isSubmitting}
+                        >
+                            <LinearGradient
+                                colors={['#8A2BE2', '#4B0082']}
+                                style={styles.gradientBtn}
+                            >
+                                <Text style={styles.requestBtnText}>
+                                    {isSubmitting ? "Processing..." : "Process Request"}
+                                </Text>
+                            </LinearGradient>
                         </TouchableOpacity>
                     </View>
 
-                    {dummyPayoutMethods.map(method => (
-                        <View key={method.id} style={styles.methodCard}>
-                            <View style={styles.methodIconContainer}>
-                                <Ionicons
-                                    name={method.type === 'Bank' ? 'business' : 'phone-portrait'}
-                                    size={24}
-                                    color="#8A2BE2"
-                                />
+                    {/* Withdrawal History */}
+                    <View style={styles.sectionCard}>
+                        <View style={styles.sectionHeader}>
+                            <View style={[styles.titleIconBg, { backgroundColor: '#E1F5FE' }]}>
+                                <Ionicons name="time-outline" size={18} color="#03A9F4" />
                             </View>
-                            <View style={styles.methodInfo}>
-                                <Text style={styles.methodName}>{method.bankName || method.type}</Text>
-                                <Text style={styles.methodAccount}>{method.accountNumber}</Text>
-                                <Text style={styles.methodHolder}>{method.accountHolder}</Text>
-                            </View>
-                            {method.isDefault && (
-                                <View style={styles.defaultBadge}>
-                                    <Text style={styles.defaultText}>Default</Text>
-                                </View>
-                            )}
-                            <TouchableOpacity style={styles.methodActionBtn}>
-                                <Ionicons name="ellipsis-vertical" size={20} color="#999" />
-                            </TouchableOpacity>
+                            <Text style={styles.sectionTitle}>Withdrawal History</Text>
                         </View>
-                    ))}
-                </View>
 
-                {/* Transfer History */}
-                <View style={[styles.section, { marginBottom: 100 }]}>
-                    <Text style={styles.sectionTitle}>Transfer History</Text>
-                    {dummyHistory.map(item => (
-                        <View key={item.id} style={styles.historyItem}>
-                            <View style={styles.historyIcon}>
-                                <Ionicons
-                                    name={item.status === 'Completed' ? 'arrow-up-circle' : 'time-outline'}
-                                    size={24}
-                                    color={item.status === 'Completed' ? '#4CAF50' : '#8A2BE2'}
-                                />
+                        {dummyHistory.length > 0 ? (
+                            dummyHistory.map(item => (
+                                <View key={item.id} style={styles.historyItem}>
+                                    <View style={styles.historyInfo}>
+                                        <Text style={styles.histAmt}>${item.amount}</Text>
+                                        <Text style={styles.histDate}>{item.date} • {item.method}</Text>
+                                    </View>
+                                    {renderStatusBadge(item.status)}
+                                </View>
+                            ))
+                        ) : (
+                            <View style={styles.emptyHistory}>
+                                <Ionicons name="receipt-outline" size={40} color="#eee" />
+                                <Text style={styles.emptyText}>No withdrawal requests yet</Text>
                             </View>
-                            <View style={styles.historyInfo}>
-                                <Text style={styles.historyAmount}>${item.amount}</Text>
-                                <Text style={styles.historyDate}>{item.date} • {item.method}</Text>
-                            </View>
-                            {renderStatusBadge(item.status)}
-                        </View>
-                    ))}
+                        )}
+                    </View>
                 </View>
 
             </ScrollView>
@@ -233,240 +293,85 @@ const styles = StyleSheet.create({
     scrollContent: {
         padding: 20,
     },
-    policyNote: {
-        flexDirection: 'row',
-        backgroundColor: '#F3E5F5',
-        padding: 15,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginBottom: 25,
-    },
-    policyText: {
-        flex: 1,
-        fontSize: 12,
-        color: '#6d28d9',
-        marginLeft: 10,
-        lineHeight: 18,
-    },
-    cardsContainer: {
-        marginBottom: 30,
-    },
-    mainCard: {
-        borderRadius: 24,
-        padding: 25,
-        marginBottom: 15,
-        shadowColor: '#8A2BE2',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.3,
-        shadowRadius: 20,
-        elevation: 10,
-    },
-    cardLabelWhite: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: 14,
-        marginBottom: 5,
-    },
-    cardValueWhite: {
-        color: '#fff',
-        fontSize: 32,
-        fontWeight: 'bold',
-        marginBottom: 15,
-    },
-    cardFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255,255,255,0.2)',
-        paddingTop: 15,
-    },
-    cardSublabelWhite: {
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    row: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-    },
-    smallCard: {
-        width: '48%',
-        backgroundColor: '#fff',
-        borderRadius: 20,
-        padding: 15,
-        borderWidth: 1,
-        borderColor: '#f0f0f0',
+    // Glassmorphism & New Layout Styles
+    balanceHeader: {
+        flexDirection: 'row', justifyContent: 'space-between',
+        backgroundColor: '#fff', borderRadius: 24, padding: 22,
+        marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.02,
+        shadowRadius: 15,
         elevation: 2,
     },
-    smallCardIconBg: {
-        width: 36,
-        height: 36,
-        borderRadius: 10,
-        backgroundColor: '#F3E5F5',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 10,
+    balanceGroup: { flex: 1 },
+    balanceGroupRight: { flex: 1 },
+    balLabel: { fontSize: 10, fontWeight: '700', color: '#bbb', letterSpacing: 1 },
+    balWC: { fontSize: 20, fontWeight: 'bold', color: '#8A2BE2', marginTop: 4 },
+    balUSD: { fontSize: 20, fontWeight: 'bold', color: '#4CAF50', marginTop: 4 },
+
+    policyBox: {
+        flexDirection: 'row', backgroundColor: '#E3F2FD',
+        borderRadius: 20, padding: 18, marginBottom: 25,
+        borderWidth: 1, borderColor: '#BBDEFB',
     },
-    cardLabel: {
-        fontSize: 12,
-        color: '#888',
-        marginBottom: 4,
+    policyIconBox: { width: 34, height: 34, borderRadius: 12, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+    policyText: { flex: 1, fontSize: 12, color: '#1976D2', lineHeight: 18 },
+
+    mainGrid: { gap: 20, paddingBottom: 40 },
+    sectionCard: {
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        borderRadius: 28, padding: 24,
+        borderWidth: 1, borderColor: '#f0f0f0',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.03,
+        shadowRadius: 20,
+        elevation: 3,
     },
-    cardValue: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
+    titleIconBg: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 25 },
+    sectionTitle: { fontSize: 17, fontWeight: 'bold', color: '#1A1C3D' },
+
+    inputLabel: { fontSize: 10, fontWeight: '800', color: '#999', marginBottom: 10, letterSpacing: 0.5 },
+    amountInputContainer: { 
+        flexDirection: 'row', alignItems: 'center', 
+        backgroundColor: '#F8F9FA', borderRadius: 16, paddingHorizontal: 16, 
+        height: 56, marginBottom: 25, borderWidth: 1, borderColor: '#eee' 
     },
-    section: {
-        marginBottom: 30,
+    currencyPrefix: { fontSize: 18, fontWeight: 'bold', color: '#333', marginRight: 8 },
+    amountInput: { flex: 1, fontSize: 18, fontWeight: 'bold', color: '#1A1C3D' },
+
+    bankSectionTitle: { fontSize: 12, fontWeight: 'bold', color: '#333', marginVertical: 20, textTransform: 'uppercase' },
+    bankFieldsGrid: { gap: 20, marginBottom: 20 },
+    bankFieldWrapper: { flex: 1 },
+    bankInput: {
+        backgroundColor: '#F8F9FA', borderRadius: 16, 
+        paddingHorizontal: 16, height: 52, fontSize: 14, 
+        color: '#333', marginBottom: 10, borderWidth: 1, borderColor: '#eee'
     },
-    sectionHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
-    },
-    addMethodBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#F3E5F5',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
-    },
-    addMethodText: {
-        color: '#8A2BE2',
-        fontSize: 12,
-        fontWeight: 'bold',
-        marginLeft: 4,
-    },
-    methodCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        padding: 15,
-        borderRadius: 16,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#f0f0f0',
-    },
-    methodIconContainer: {
-        width: 45,
-        height: 45,
-        borderRadius: 22.5,
-        backgroundColor: '#F7F0FF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 15,
-    },
-    methodInfo: {
-        flex: 1,
-    },
-    methodName: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 2,
-    },
-    methodAccount: {
-        fontSize: 12,
-        color: '#666',
-        marginBottom: 2,
-    },
-    methodHolder: {
-        fontSize: 11,
-        color: '#999',
-    },
-    defaultBadge: {
-        backgroundColor: '#E8F5E9',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-        marginRight: 10,
-    },
-    defaultText: {
-        color: '#2E7D32',
-        fontSize: 10,
-        fontWeight: 'bold',
-    },
-    methodActionBtn: {
-        padding: 5,
-    },
+
+    requestBtn: { marginTop: 10, borderRadius: 18, overflow: 'hidden' },
+    gradientBtn: { height: 56, justifyContent: 'center', alignItems: 'center' },
+    requestBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+
     historyItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        paddingVertical: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f5f5f5',
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        paddingVertical: 18, borderBottomWidth: 1, borderBottomColor: '#f9f9f9',
     },
-    historyIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#f9f9f9',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 15,
-    },
-    historyInfo: {
-        flex: 1,
-    },
-    historyAmount: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 2,
-    },
-    historyDate: {
-        fontSize: 12,
-        color: '#999',
-    },
-    statusBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 12,
-    },
-    statusText: {
-        fontSize: 11,
-        fontWeight: '600',
-    },
+    historyInfo: { flex: 1 },
+    histAmt: { fontSize: 16, fontWeight: 'bold', color: '#1A1C3D', marginBottom: 4 },
+    histDate: { fontSize: 12, color: '#999' },
+    statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+    statusText: { fontSize: 10, fontWeight: 'bold' },
+
+    emptyHistory: { alignItems: 'center', paddingVertical: 40 },
+    emptyText: { color: '#bbb', fontSize: 13, marginTop: 15 },
     footer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
         padding: 20,
         backgroundColor: '#fff',
         borderTopWidth: 1,
         borderTopColor: '#f0f0f0',
-    },
-    requestBtn: {
-        width: '100%',
-        height: 56,
-        borderRadius: 28,
-        overflow: 'hidden',
-    },
-    gradientBtn: {
-        flex: 1,
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: 10,
-    },
-    requestBtnText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
     },
 });
 

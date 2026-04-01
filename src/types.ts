@@ -39,6 +39,18 @@ export interface UserProfile {
     first_name?: string;
     last_name?: string;
     avatar_url?: string;
+    coins_balance?: number;
+    last_reward_claim?: string;
+}
+
+export interface CoinTransaction {
+    id: string;
+    user_id: string;
+    amount: number;
+    type: 'earn' | 'spend' | 'bonus' | 'withdrawal' | 'purchase';
+    description: string;
+    status?: 'completed' | 'pending' | 'failed';
+    created_at: string;
 }
 
 export interface Review {

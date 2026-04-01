@@ -58,13 +58,13 @@ function InitialLayout() {
   useEffect(() => {
     console.log('InitialLayout: Checking auth loading state...', { isLoading });
 
-    // Safety timeout: If auth takes too long (>5s), force the app to show to avoid getting stuck
+    // Safety timeout: If auth takes too long (>15s), force the app to show to avoid getting stuck
     const safetyTimer = setTimeout(() => {
       if (isLoading) {
-        console.warn('InitialLayout: Auth loading timed out. Forcing app ready.');
+        console.warn('InitialLayout: Auth loading timed out after 15s. Forcing app ready.');
         setAppIsReady(true);
       }
-    }, 5000);
+    }, 15000);
 
     if (!isLoading) {
       console.log('InitialLayout: Auth finished loading. Preparing to hide splash screen...');

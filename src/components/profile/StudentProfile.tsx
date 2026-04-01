@@ -5,7 +5,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Dimensions, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { coinService } from '@/src/services/coinService';
 import NotificationIcon from '../notifications/NotificationIcon';
+import DailyRewardModal from '../rewards/DailyRewardModal';
 
 const { width } = Dimensions.get('window');
 const LIVE_CARD_WIDTH = width * 0.85;
@@ -30,6 +32,7 @@ const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean;
   const menuItemsStudent = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '2', title: 'Upcoming', icon: 'calendar-outline', onPress: () => { onClose(); router.push('/upcoming'); } },
+    { id: 'leaderboard', title: 'Leaderboard', icon: 'trophy-outline', onPress: () => { onClose(); router.push('/leaderboard'); } },
     { id: '4', title: 'Mentors/Instructors', icon: 'school-outline', onPress: () => { onClose(); router.push(`/allMentors`); } },
     { id: '6', title: 'Following', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
     { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
@@ -127,6 +130,11 @@ const StudentProfile = () => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   // Timer state for forcing re-renders every minute
   const [now, setNow] = useState(Date.now());
+  const [coinsBalance, setCoinsBalance] = useState<number>(0);
+  // rewardModalVisible: true = show popup. False = dismissed with X (may reshow). 
+  // claimedToday: true = already claimed — NEVER show again until midnight.
+  const [rewardModalVisible, setRewardModalVisible] = useState(false);
+  const [claimedToday, setClaimedToday] = useState(false);
   const router = useRouter();
 
 
@@ -407,6 +415,35 @@ const StudentProfile = () => {
 
     initializeDashboard();
 
+    // 3. WeCoins Balance & Real-time
+    if (user?.id) {
+      coinService.getBalance(user.id).then(setCoinsBalance);
+      
+      const unsubscribe = coinService.subscribeToBalanceChanges(user.id, (newBalance) => {
+        setCoinsBalance(newBalance);
+      });
+
+      // 4. Check Reward Eligibility (using coinService.isEligible — midnight-based)
+      const checkEligibility = async () => {
+        const { lastClaim } = await coinService.getRewardMeta(user.id);
+        const eligible = coinService.isEligible(lastClaim);
+        if (eligible) {
+          // Delay 2s for better UX
+          setTimeout(() => setRewardModalVisible(true), 2000);
+        } else {
+          setClaimedToday(true);
+        }
+      };
+      checkEligibility();
+
+      return () => {
+        unsubscribe();
+        if (subscription) subscription.unsubscribe();
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        isFetchingRef.current = false;
+      };
+    }
+
     return () => {
       if (subscription) subscription.unsubscribe();
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -454,6 +491,13 @@ const StudentProfile = () => {
             </View>
           </View>
           <View style={styles.topBarRight}>
+            <TouchableOpacity 
+              style={styles.coinBadge}
+              onPress={() => router.push('/profile/achievements' as any)}
+            >
+              <Ionicons name="radio-button-on" size={16} color="#FFD700" />
+              <Text style={styles.coinBalanceText}>{coinsBalance.toLocaleString()}</Text>
+            </TouchableOpacity>
             <NotificationIcon />
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
               <Ionicons name="menu" size={28} color="#fff" />
@@ -662,6 +706,17 @@ const StudentProfile = () => {
 
       </ScrollView>
       <SideMenu visible={menuVisible} onClose={() => setMenuVisible(false)} router={router} profileData={profileData} />
+      
+      <DailyRewardModal 
+        visible={rewardModalVisible && !claimedToday}
+        userId={user?.id || ''}
+        onDismiss={() => setRewardModalVisible(false)}
+        onClaimSuccess={(amount) => {
+          setClaimedToday(true);         // block future auto-show until tomorrow
+          setRewardModalVisible(false);
+          setCoinsBalance(prev => prev + amount);
+        }}
+      />
     </View>
   );
 };
@@ -711,7 +766,21 @@ const styles = StyleSheet.create({
   topBarRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    gap: 12,
+  },
+  coinBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 5,
+  },
+  coinBalanceText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
   profileContainer: {
     flexDirection: 'row',

@@ -167,12 +167,14 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     if (!isExpoGo) {
       try {
         const { GoogleSignin } = require('@react-native-google-signin/google-signin');
-        GoogleSignin.configure({
-          offlineAccess: true,
-          webClientId: '636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
-        });
+        if (GoogleSignin) {
+          GoogleSignin.configure({
+            offlineAccess: true,
+            webClientId: '636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
+          });
+        }
       } catch (e) {
-        console.warn('GoogleSignin.configure failed:', e);
+        console.warn('[LoginPopup] GoogleSignin.configure failed (Native Module missing):', e);
       }
     }
   }, []);
@@ -188,25 +190,28 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     }
 
     try {
-      console.log('🔵 [Google Login] Step 1: Starting Google Sign-In...');
-      const { GoogleSignin, statusCodes } = require('@react-native-google-signin/google-signin');
-
-      console.log('🔵 [Google Login] Step 2: Checking Play Services...');
-      await GoogleSignin.hasPlayServices();
-
-      console.log('🔵 [Google Login] Step 3: Showing Google Account Picker...');
-      const userInfo = await GoogleSignin.signIn();
-
-      console.log('🔵 [Google Login] Step 4: User Info Received:', JSON.stringify(userInfo, null, 2));
-
       // ✅ ROBUST extracted logic for v11+ / v12+
-      // New versions return { data: { idToken... }, type: 'success' }
-      // Older versions returned { idToken... } directly
-      let idToken = userInfo?.data?.idToken || userInfo?.idToken;
+      let idToken;
+      try {
+        const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+        if (!GoogleSignin) throw new Error('Native module missing');
+        
+        console.log('🔵 [Google Login] Step 2: Checking Play Services...');
+        await GoogleSignin.hasPlayServices();
+
+        console.log('🔵 [Google Login] Step 3: Showing Google Account Picker...');
+        const userInfo = await GoogleSignin.signIn();
+        console.log('🔵 [Google Login] Step 4: User Info Received:', JSON.stringify(userInfo, null, 2));
+
+        idToken = userInfo?.data?.idToken || userInfo?.idToken;
+      } catch (nativeErr) {
+        console.error('❌ [Google Login] Native Module Error:', nativeErr);
+        Alert.alert('Login Required', 'Google Login only works in a Production or Development build, not in Expo Go.');
+        return;
+      }
 
       if (!idToken) {
         console.error('❌ [Google Login] No idToken found in response');
-        console.error('Full userInfo structure:', JSON.stringify(userInfo, null, 2));
         Alert.alert(
           'Login Failed',
           'Could not retrieve authentication token from Google. This usually means the Client ID or SHA-1 is mismatched in Google Cloud Console.'
@@ -546,12 +551,9 @@ const styles = StyleSheet.create({
     height: SCREEN_HEIGHT * 0.9,
     width: '100%',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: -2,
-    },
+    shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowRadius: 3.8,
     elevation: 5,
   },
   sheetHeader: {
