@@ -118,8 +118,10 @@ export const coinService = {
      * Returns an unsubscribe function.
      */
     subscribeToBalanceChanges(userId: string, onUpdate: (balance: number) => void): () => void {
+        let retryCount = 0;
+        const channelName = `coins-realtime-${userId}-${Date.now()}`;
         const channel = supabase
-            .channel(`coins-realtime-${userId}`)
+            .channel(channelName)
             .on(
                 'postgres_changes',
                 {
@@ -129,12 +131,27 @@ export const coinService = {
                     filter: `id=eq.${userId}`,
                 },
                 (payload) => {
+                    console.log('[coinService] Realtime balance update payload received');
                     if (payload.new && 'coins_balance' in payload.new) {
                         onUpdate(payload.new.coins_balance as number);
                     }
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log('[coinService] Realtime balance subscription established.');
+                    retryCount = 0; // reset on success
+                } else if (status === 'TIMED_OUT') {
+                    const delay = Math.min(Math.pow(2, retryCount) * 1000, 30000); // 1s, 2s, 4s... up to 30s
+                    console.warn(`[coinService] Realtime balance TIMED_OUT. Retrying in ${delay/1000}s...`);
+                    setTimeout(() => {
+                        retryCount++;
+                        channel.subscribe();
+                    }, delay);
+                } else if (status === 'CHANNEL_ERROR') {
+                    console.error('[coinService] Realtime balance subscription error:', status);
+                }
+            });
 
         return () => {
             supabase.removeChannel(channel);

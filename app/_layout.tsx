@@ -16,11 +16,12 @@ import '../src/lib/polyfills';
 import * as Notifications from 'expo-notifications';
 import { registerForPushNotificationsAsync, savePushTokenToBackend } from '@/src/services/pushNotifications';
 import { useRouter } from 'expo-router';
-
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
 import { CoursesProvider } from '@/src/context/CoursesContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as Linking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -203,6 +204,42 @@ export default function RootLayout() {
       if (responseListener) responseListener.remove();
     };
   }, [router]);
+
+  // Deep Linking Logic for Referral Tracking
+  useEffect(() => {
+    const handleDeepLink = (event: { url: string }) => {
+      try {
+        const { path, queryParams } = Linking.parse(event.url);
+        console.log('[DeepLink] Parsed Link:', { path, queryParams });
+
+        if ((path?.includes('student-registration') || path?.includes('instructor-registration')) && queryParams?.ref) {
+          const referralCode = queryParams.ref as string;
+          console.log('[DeepLink] Found Referral Code:', referralCode);
+          
+          AsyncStorage.setItem('weversity_referral_code', referralCode)
+            .then(() => console.log('[DeepLink] Referral code saved to AsyncStorage'))
+            .catch(err => console.error('[DeepLink] Error saving referral code:', err));
+          
+          // Optionally, redirect to the specific signup page if needed
+          // router.push(path as any);
+        }
+      } catch (error) {
+        console.error('[DeepLink] Error handling deep link:', error);
+      }
+    };
+
+    // 1. Handle link that opened the app
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink({ url });
+    });
+
+    // 2. Handle links while app is in foreground/background
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

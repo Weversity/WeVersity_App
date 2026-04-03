@@ -11,6 +11,7 @@ import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
 import CommentsSheet from './CommentsSheet';
 import ShortMediaFrame from './ShortMediaFrame';
+import FloatingRewardCoin from './FloatingRewardCoin';
 
 const { width, height } = Dimensions.get('window');
 
@@ -388,6 +389,13 @@ export default function ShortFeedItem({
             </Animated.View>
 
             {isVideo && <ShortProgressBar player={player} isVisible={isVisible} containerWidth={containerWidth} />}
+
+            <FloatingRewardCoin 
+                videoId={item.id}
+                isVisible={isVisible}
+                mediaType={mediaType}
+                player={player}
+            />
 
             <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
                 <CommentsSheet

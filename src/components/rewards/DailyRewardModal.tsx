@@ -12,6 +12,7 @@ import {
     View,
 } from 'react-native';
 import Modal from 'react-native-modal';
+import WeCoinIcon from '../common/WeCoinIcon';
 
 const { width } = Dimensions.get('window');
 
@@ -199,7 +200,7 @@ const DailyRewardModal: React.FC<DailyRewardModalProps> = ({
                         </View>
                     ) : (
                         <View style={styles.row}>
-                            <Ionicons name="radio-button-on" size={18} color="#FFD700" style={{ marginRight: 8 }} />
+                            <WeCoinIcon size={18} style={{ marginRight: 8 }} />
                             <Text style={styles.claimText}>Claim My Reward</Text>
                         </View>
                     )}

@@ -4,10 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Dimensions, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, DeviceEventEmitter } from 'react-native';
 import { coinService } from '@/src/services/coinService';
 import NotificationIcon from '../notifications/NotificationIcon';
 import DailyRewardModal from '../rewards/DailyRewardModal';
+import WeCoinIcon from '../common/WeCoinIcon';
 
 const { width } = Dimensions.get('window');
 const LIVE_CARD_WIDTH = width * 0.85;
@@ -82,7 +83,7 @@ const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean;
 };
 
 const StudentProfile = () => {
-  const { role, user, profile } = useAuth();
+  const { role, user, profile, globalCoins, setGlobalCoins } = useAuth();
 
   const [profileData, setProfileData] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -130,7 +131,6 @@ const StudentProfile = () => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   // Timer state for forcing re-renders every minute
   const [now, setNow] = useState(Date.now());
-  const [coinsBalance, setCoinsBalance] = useState<number>(0);
   // rewardModalVisible: true = show popup. False = dismissed with X (may reshow). 
   // claimedToday: true = already claimed — NEVER show again until midnight.
   const [rewardModalVisible, setRewardModalVisible] = useState(false);
@@ -415,33 +415,19 @@ const StudentProfile = () => {
 
     initializeDashboard();
 
-    // 3. WeCoins Balance & Real-time
     if (user?.id) {
-      coinService.getBalance(user.id).then(setCoinsBalance);
-      
-      const unsubscribe = coinService.subscribeToBalanceChanges(user.id, (newBalance) => {
-        setCoinsBalance(newBalance);
-      });
-
-      // 4. Check Reward Eligibility (using coinService.isEligible — midnight-based)
+      // 3. Check Reward Eligibility (using coinService.isEligible — midnight-based)
       const checkEligibility = async () => {
         const { lastClaim } = await coinService.getRewardMeta(user.id);
         const eligible = coinService.isEligible(lastClaim);
         if (eligible) {
-          // Delay 2s for better UX
-          setTimeout(() => setRewardModalVisible(true), 2000);
+          // Show immediately
+          setRewardModalVisible(true);
         } else {
           setClaimedToday(true);
         }
       };
       checkEligibility();
-
-      return () => {
-        unsubscribe();
-        if (subscription) subscription.unsubscribe();
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        isFetchingRef.current = false;
-      };
     }
 
     return () => {
@@ -495,8 +481,8 @@ const StudentProfile = () => {
               style={styles.coinBadge}
               onPress={() => router.push('/profile/achievements' as any)}
             >
-              <Ionicons name="radio-button-on" size={16} color="#FFD700" />
-              <Text style={styles.coinBalanceText}>{coinsBalance.toLocaleString()}</Text>
+              <WeCoinIcon size={16} />
+              <Text style={styles.coinBalanceText}>{globalCoins.toLocaleString()}</Text>
             </TouchableOpacity>
             <NotificationIcon />
             <TouchableOpacity onPress={() => setMenuVisible(true)}>
@@ -714,7 +700,7 @@ const StudentProfile = () => {
         onClaimSuccess={(amount) => {
           setClaimedToday(true);         // block future auto-show until tomorrow
           setRewardModalVisible(false);
-          setCoinsBalance(prev => prev + amount);
+          setGlobalCoins(prev => prev + amount);
         }}
       />
     </View>

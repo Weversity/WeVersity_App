@@ -21,6 +21,7 @@ import {
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Line } from 'react-native-svg';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { BlurView } from 'expo-blur';
+import WeCoinIcon from '@/src/components/common/WeCoinIcon';
 import Animated, { 
     useSharedValue, 
     useAnimatedProps,
@@ -47,10 +48,9 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedLine = Animated.createAnimatedComponent(Line);
 
 const WalletScreen = () => {
-    const { user } = useAuth();
+    const { user, globalCoins, setGlobalCoins } = useAuth();
     const router = useRouter();
 
-    const [balance, setBalance] = useState(0);
     const [streakCount, setStreakCount] = useState(0);
     const [lastClaim, setLastClaim] = useState<string | null>(null);
     const [transactions, setTransactions] = useState<CoinTransaction[]>([]);
@@ -114,7 +114,7 @@ const WalletScreen = () => {
                 coinService.getRewardMeta(user.id),
                 coinService.fetchWeeklyYield(user.id),
             ]);
-            setBalance(b);
+            setGlobalCoins(b);
             setTransactions(tx);
             setLastClaim(meta.lastClaim);
             setStreakCount(meta.streakCount);
@@ -140,12 +140,6 @@ const WalletScreen = () => {
     // ─── Initial Load + Real-time ─────────────────────────────────────────
     useEffect(() => {
         fetchData();
-        if (!user?.id) return;
-
-        const unsubscribe = coinService.subscribeToBalanceChanges(user.id, (newBalance) => {
-            setBalance(newBalance);
-        });
-        return unsubscribe;
     }, [user?.id, fetchData]);
 
     // ─── Countdown Timer ─────────────────────────────────────────────────
@@ -166,7 +160,7 @@ const WalletScreen = () => {
     };
 
     const handleClaimSuccess = (amount: number) => {
-        setBalance(prev => prev + amount);
+        setGlobalCoins(prev => prev + amount);
         setLastClaim(new Date().toISOString());
         setStreakCount(prev => Math.min(prev + 1, 7));
         setShowRewardModal(false);
@@ -260,7 +254,7 @@ const WalletScreen = () => {
     };
 
     // ─── Derived UI Values ───────────────────────────────────────────────
-    const usdValue = (balance / 1000).toFixed(2);
+    const usdValue = (globalCoins / 1000).toFixed(2);
     const currentDay = Math.min(streakCount + 1, 7);
     const multiplier = (1 + (streakCount * 0.1)).toFixed(1);
 
@@ -411,13 +405,13 @@ const WalletScreen = () => {
                 <LinearGradient colors={['#1A1C2E', '#2D2F45']} style={styles.netWorthCard}>
                     <View style={styles.cardHeader}>
                         <View style={styles.badge}>
-                            <Ionicons name="radio-button-on" size={13} color="#FFB300" />
+                            <WeCoinIcon size={13} />
                             <Text style={styles.badgeText}>NET WORTH</Text>
                         </View>
                     </View>
 
                     <View style={styles.balanceRow}>
-                        <Text style={styles.balanceValue}>{balance.toLocaleString()}</Text>
+                        <Text style={styles.balanceValue}>{globalCoins.toLocaleString()}</Text>
                         <Text style={styles.balanceUnit}> WC</Text>
                     </View>
                     <Text style={styles.approxValue}>Approx. Value: ${usdValue} USD</Text>
@@ -862,7 +856,7 @@ const WalletScreen = () => {
                 visible={showWithdrawModal}
                 onDismiss={() => setShowWithdrawModal(false)}
                 onSubmit={handleWithdrawSubmit}
-                balance={balance}
+                balance={globalCoins}
                 isProcessing={isProcessing}
             />
 

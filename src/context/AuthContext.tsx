@@ -4,6 +4,7 @@ import { logout as authLogout } from '../auth/logout';
 import { useAuth as useSupabaseAuth } from '../auth/useAuth';
 import { supabase } from '../auth/supabase';
 import { registerForPushNotificationsAsync, savePushTokenToBackend } from '../services/pushNotifications';
+import { coinService } from '../services/coinService';
 
 
 // Redefine Role locally if needed or keep using string
@@ -25,6 +26,8 @@ interface AuthContextType {
    * other screens from thinking a different user logged in and resetting UI.
    */
   updateUser: (patch: { user_metadata?: Record<string, any> } & Record<string, any>) => void;
+  globalCoins: number;
+  setGlobalCoins: React.Dispatch<React.SetStateAction<number>>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -91,6 +94,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const role: Role = rawRole ? (rawRole.charAt(0).toUpperCase() + rawRole.slice(1)) as Role : null;
 
   const [unreadCount, setUnreadCount] = React.useState(0);
+  const [globalCoins, setGlobalCoins] = React.useState(0);
+
+  // 0. Fetch initial coins balance & Setup Realtime 
+  React.useEffect(() => {
+    if (!user?.id) {
+      setGlobalCoins(0);
+      return;
+    }
+
+    // Initial Fetch
+    coinService.getBalance(user.id).then(setGlobalCoins);
+
+    // Setup Supabase Realtime Listener for true background updates (like web actions)
+    const unsubscribe = coinService.subscribeToBalanceChanges(user.id, (newBalance) => {
+      setGlobalCoins(newBalance);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id]);
 
   // 1. Fetch initial unread count
   React.useEffect(() => {
@@ -127,11 +151,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 2. Real-time subscription
     let subscription: any;
     const setupRealtime = async () => {
+      let retryCount = 0;
       try {
         console.log('[AuthContext] Setting up real-time listener for user:', user.id);
         
         subscription = supabase
-          .channel(`notifications-global-${user.id}`)
+          .channel(`notifications-global-${user.id}-${Date.now()}`)
           .on(
             'postgres_changes',
             {
@@ -150,7 +175,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           )
           .subscribe((status) => {
-            console.log('[AuthContext] Subscription status:', status);
+            console.log('[AuthContext] Notification subscription status:', status);
+            if (status === 'SUBSCRIBED') {
+              retryCount = 0; // reset
+            } else if (status === 'TIMED_OUT') {
+               const delay = Math.min(Math.pow(2, retryCount) * 1000, 30000);
+               console.warn(`[AuthContext] Notification subscription TIMED_OUT. Retrying in ${delay/1000}s...`);
+               setTimeout(() => {
+                 retryCount++;
+                 subscription.subscribe();
+               }, delay);
+            }
           });
       } catch (err) {
         console.error('[AuthContext] Error setting up realtime:', err);
@@ -209,6 +244,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unreadCount,
         setUnreadCount,
         updateUser,
+        globalCoins,
+        setGlobalCoins,
       }}
     >
       {children}

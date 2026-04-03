@@ -2,6 +2,7 @@ import { supabase } from '@/src/auth/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
     ActivityIndicator,
     Alert,
@@ -32,6 +33,7 @@ const AuthForm: React.FC<{
     withHeader?: boolean,
     role?: 'student' | 'instructor',
     onRoleChange?: (role: 'student' | 'instructor') => void,
+    disableScroll?: boolean,
 }> = ({
     onAuthSuccess,
     showSignUpLink = true,
@@ -43,6 +45,7 @@ const AuthForm: React.FC<{
     withHeader = false,
     role = 'student',
     onRoleChange,
+    disableScroll = false,
 }) => {
         const [isSignUp, setIsSignUp] = useState(initialView === 'signup');
         const [isSignedIn, setIsSignedIn] = useState(false);
@@ -207,6 +210,26 @@ const AuthForm: React.FC<{
                 if (error) throw error;
 
                 if (data.user) {
+                    // Referral tracking logic
+                    let referredBy = null;
+                    try {
+                        const refCode = await AsyncStorage.getItem('weversity_referral_code');
+                        if (refCode) {
+                            const { data: referrer, error: refError } = await supabase
+                                .from('profiles')
+                                .select('id')
+                                .eq('referral_code', refCode)
+                                .single();
+                            
+                            if (!refError && referrer) {
+                                referredBy = referrer.id;
+                                console.log('[Signup] User was referred by:', referredBy);
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[Signup] Error checking referral code:', err);
+                    }
+
                     const { error: profileError } = await supabase
                         .from('profiles')
                         .upsert([
@@ -219,6 +242,7 @@ const AuthForm: React.FC<{
                                 approved: role === 'student',
                                 email: email,
                                 phone_number: phoneNumber,
+                                referred_by: referredBy, // Associate with referrer
                             }
                         ], { onConflict: 'id' });
 
@@ -517,13 +541,19 @@ const AuthForm: React.FC<{
                                 <Text style={styles.headerText}>Profile</Text>
                             </View>
                         )}
-                        <ScrollView
-                            contentContainerStyle={styles.container}
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
-                        >
-                            {isSignUp && showSignUpLink ? renderSignUpForm() : renderSignInForm()}
-                        </ScrollView>
+                        {disableScroll ? (
+                            <View style={styles.container}>
+                                {isSignUp && showSignUpLink ? renderSignUpForm() : renderSignInForm()}
+                            </View>
+                        ) : (
+                            <ScrollView
+                                contentContainerStyle={styles.container}
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                            >
+                                {isSignUp && showSignUpLink ? renderSignUpForm() : renderSignInForm()}
+                            </ScrollView>
+                        )}
 
                         {/* Forgot Password Modal */}
                         <Modal
@@ -684,6 +714,7 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         alignItems: 'center',
         justifyContent: 'center',
+        marginBottom: 15,
     }, phoneInputTextContainer: {
         backgroundColor: 'transparent',
         paddingVertical: 0,

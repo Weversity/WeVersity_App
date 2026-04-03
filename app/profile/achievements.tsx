@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import WeCoinIcon from '@/src/components/common/WeCoinIcon';
 
 const { width } = Dimensions.get('window');
 
@@ -85,7 +86,7 @@ const AchievementScreen = () => {
                     <View style={styles.pointsInfo}>
                         <Text style={styles.pointsLabel}>Available WeCoins</Text>
                         <View style={styles.pointsValueRow}>
-                            <Ionicons name="radio-button-on" size={24} color="#FFD700" style={{marginRight: 8}} />
+                            <WeCoinIcon size={24} style={{marginRight: 8}} />
                             <Text style={styles.pointsValue}>{balance.toLocaleString()}</Text>
                         </View>
                         <Text style={styles.approxValue}>≈ ${(balance / 100).toFixed(2)} Student Credits</Text>

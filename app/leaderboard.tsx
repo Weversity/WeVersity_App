@@ -16,6 +16,7 @@ import {
   View,
   Platform,
 } from 'react-native';
+import WeCoinIcon from '@/src/components/common/WeCoinIcon';
 import { BlurView } from 'expo-blur';
 import Animated, { 
     FadeInDown, 
@@ -45,11 +46,11 @@ const PodiumItem = ({ entry, rank }: { entry: LeaderboardEntry; rank: number }) 
   const size = isFirst ? 110 : 85;
   const initials = `${entry.first_name?.[0] || ''}${entry.last_name?.[0] || ''}`.toUpperCase();
 
-  const podiumColors = {
+  const podiumColors = ({
       1: ['#FFD700', '#FFA000'], // Gold
       2: ['#E0E0E0', '#9E9E9E'], // Silver
       3: ['#CD7F32', '#8B4513'], // Bronze
-  }[rank as 1|2|3] || ['#fff', '#eee'];
+  }[rank as 1|2|3] || ['#fff', '#eee']) as unknown as readonly [string, string];
 
   return (
     <Animated.View 
@@ -187,7 +188,7 @@ export default function LeaderboardScreen() {
                 colors={['#F5F5F5', '#FAFAFA']} 
                 style={styles.listCoinsContainer}
             >
-                <Ionicons name="radio-button-on" size={14} color="#FFD700" />
+                <WeCoinIcon size={14} />
                 <Text style={styles.listCoins}>{item.coins_balance.toLocaleString()}</Text>
             </LinearGradient>
         </TouchableOpacity>
