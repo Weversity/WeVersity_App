@@ -18,7 +18,7 @@ export default function TabLayout() {
         tabBarInactiveTintColor: 'gray',
         tabBarStyle: {
           height: 80, // Reduced height
-          paddingBottom: 5,
+          paddingBottom: 6,
         },
         tabBarLabelStyle: {
           fontSize: 12,
