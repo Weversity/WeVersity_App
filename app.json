@@ -2,16 +2,20 @@
   "expo": {
     "name": "WeVersity",
     "slug": "weversity-expo",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/images/adaptive-icon.png",
     "scheme": "weversityexpo",
     "userInterfaceStyle": "automatic",
+    "notification": {
+      "icon": "./assets/images/android-icon-monochrome.png",
+      "color": "#8A2BE2"
+    },
     "ios": {
       "supportsTablet": true,
       "icon": "./assets/images/ios-dark.png",
       "bundleIdentifier": "org.weversity.app",
-      "buildNumber": "13",
+      "buildNumber": "14",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -20,7 +24,7 @@
       ]
     },
     "android": {
-      "versionCode": 13,
+      "versionCode": 14,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",

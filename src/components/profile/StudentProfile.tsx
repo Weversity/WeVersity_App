@@ -34,6 +34,7 @@ const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean;
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '2', title: 'Upcoming', icon: 'calendar-outline', onPress: () => { onClose(); router.push('/upcoming'); } },
     { id: 'leaderboard', title: 'Leaderboard', icon: 'trophy-outline', onPress: () => { onClose(); router.push('/leaderboard'); } },
+    { id: 'wallet', title: 'Wallet', icon: 'wallet-outline', onPress: () => { onClose(); router.push('/student/wallet'); } },
     { id: '4', title: 'Mentors/Instructors', icon: 'school-outline', onPress: () => { onClose(); router.push(`/allMentors`); } },
     { id: '6', title: 'Following', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
     { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
@@ -479,7 +480,7 @@ const StudentProfile = () => {
           <View style={styles.topBarRight}>
             <TouchableOpacity 
               style={styles.coinBadge}
-              onPress={() => router.push('/profile/achievements' as any)}
+              onPress={() => router.push('/student/wallet')}
             >
               <WeCoinIcon size={16} />
               <Text style={styles.coinBalanceText}>{globalCoins.toLocaleString()}</Text>

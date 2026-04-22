@@ -3,9 +3,17 @@ import 'react-native-get-random-values';
 global.Buffer = Buffer;
 
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { AuthProvider, useAuth } from '@/src/context/AuthContext';
+import { CoursesProvider } from '@/src/context/CoursesContext';
+import { registerForPushNotificationsAsync } from '@/src/services/pushNotifications';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as Linking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
@@ -13,15 +21,6 @@ import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import '../src/lib/polyfills';
-import * as Notifications from 'expo-notifications';
-import { registerForPushNotificationsAsync, savePushTokenToBackend } from '@/src/services/pushNotifications';
-import { useRouter } from 'expo-router';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { AuthProvider, useAuth } from '@/src/context/AuthContext';
-import { CoursesProvider } from '@/src/context/CoursesContext';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import * as Linking from 'expo-linking';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -171,11 +170,13 @@ export default function RootLayout() {
     responseListener = Notifications.addNotificationResponseReceivedListener(response => {
       console.log('[RootLayout] User tapped notification:', response.notification.request.content.title);
       const data = response.notification.request.content.data;
-      
+
       console.log('[RootLayout] Deep linking data:', data);
 
       if (data) {
         const routeId = data.id;
+        console.log(`[RootLayout] Navigating to screen: ${data.screen} with ID: ${routeId}`);
+
         switch (data.screen) {
           case 'chat':
             if (routeId) router.push(`/chat/${routeId}`);
@@ -183,12 +184,11 @@ export default function RootLayout() {
           case 'course':
             if (routeId) router.push(`/courseDetails/${routeId}`);
             break;
-          case 'community':
-            // Update this path if your community screen route is different
-            router.push('/(tabs)/community' as any);
-            break;
           case 'learning':
             if (routeId) router.push(`/learning/${routeId}`);
+            break;
+          case 'community':
+            router.push('/(tabs)/community' as any);
             break;
           default:
             router.push('/notifications');
@@ -215,11 +215,11 @@ export default function RootLayout() {
         if ((path?.includes('student-registration') || path?.includes('instructor-registration')) && queryParams?.ref) {
           const referralCode = queryParams.ref as string;
           console.log('[DeepLink] Found Referral Code:', referralCode);
-          
+
           AsyncStorage.setItem('weversity_referral_code', referralCode)
             .then(() => console.log('[DeepLink] Referral code saved to AsyncStorage'))
             .catch(err => console.error('[DeepLink] Error saving referral code:', err));
-          
+
           // Optionally, redirect to the specific signup page if needed
           // router.push(path as any);
         }

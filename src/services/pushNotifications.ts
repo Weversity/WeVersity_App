@@ -73,6 +73,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | unde
       })
     ).data;
     console.log('[PushService] Genereated Push Token:', pushTokenString);
+    console.log(`Expo Push Token: ${pushTokenString}`);
     return pushTokenString;
   } catch (e: unknown) {
     handleRegistrationError(`${e}`);
@@ -90,17 +91,23 @@ export async function savePushTokenToBackend(userId: string, token: string) {
     
     // Example: Updating the profiles table with the push token
     // You might need to adjust 'profiles' or 'push_token' based on your actual database schema
-    const { error } = await supabase
+    const { error, data } = await supabase
       .from('profiles')
       .update({ push_token: token })
-      .eq('id', userId);
+      .eq('id', userId)
+      .select();
 
     if (error) {
       console.error('[PushService] Error saving push token to DB:', error);
       return false;
     }
     
-    console.log(`[PushService] Successfully saved push token for user ${userId}`);
+    if (data && data.length === 0) {
+       console.error(`[PushService] Failed: User with ID ${userId} not found in profiles table.`);
+       return false;
+    }
+
+    console.log(`[PushService] Successfully saved push token for user ${userId}. DB Confirmed.`);
     return true;
   } catch (err) {
     console.error('[PushService] Exception in savePushTokenToBackend:', err);
