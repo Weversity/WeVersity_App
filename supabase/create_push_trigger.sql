@@ -8,15 +8,15 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  -- Replace [YOUR_VERCEL_DOMAIN] with your actual Vercel deployment URL (e.g., weversity-app.vercel.app)
-  webhook_url TEXT := 'https://[YOUR_VERCEL_DOMAIN]/api/push';
+  webhook_url TEXT := 'https://we-versity-app-chi.vercel.app/api/push';
   payload JSONB;
 BEGIN
   -- Construct the payload matching the edge function format
+  -- We include auth.uid() as 'sender_id' to help the API skip the person who triggered it
   payload := jsonb_build_object(
     'type', 'INSERT',
     'table', TG_TABLE_NAME, -- 'notifications' or 'chat_messages'
-    'record', row_to_json(NEW)
+    'record', row_to_json(NEW) || jsonb_build_object('sender_id', auth.uid())
   );
 
   -- Perform an asynchronous HTTP POST request to the Edge Function
@@ -43,11 +43,10 @@ AFTER INSERT ON public.notifications
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_new_notification();
 
--- You can also uncomment and run this if you want chat messages to trigger it too:
-/*
+-- Enable the trigger on the 'chat_messages' table
 DROP TRIGGER IF EXISTS on_chat_message_insert ON public.chat_messages;
+
 CREATE TRIGGER on_chat_message_insert
 AFTER INSERT ON public.chat_messages
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_new_notification();
-*/

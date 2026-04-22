@@ -2,122 +2,158 @@ import { createClient } from '@supabase/supabase-js';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 /**
- * Vercel Serverless Function to handle Expo Push Notifications.
- * This is triggered by a Supabase Webhook.
+ * Vercel Serverless Function: Mega Multi-Channel Notification System
+ * Features: Broadcast (Courses/Shorts), Personalized (Quizzes/Enrollments), Smart Routing, 
+ * Scheduled Reminders, and Chunking for global delivery.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  // 1. Authorization Check (Optional but recommended)
-  const webhookSecret = process.env.SUPABASE_WEBHOOK_SECRET;
-  const authHeader = req.headers.authorization;
-  if (webhookSecret && authHeader !== `Bearer ${webhookSecret}`) {
-    console.error("Unauthorized: Invalid Webhook Secret");
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
   try {
     const payload = req.body;
-    console.log("[Vercel Push] Received Payload:", JSON.stringify(payload, null, 2));
+    console.log("[Vercel Push] Incoming Activity:", JSON.stringify(payload, null, 2));
 
     let pushTokens: string[] = [];
-    let notificationTitle = "New Notification";
-    let notificationBody = "You have a new activity.";
+    let notificationTitle = "WeVersity Alert";
+    let notificationBody = "New activity on your account.";
     let notificationData: any = {};
 
-    // 2. Initialize Supabase Admin Client
     const supabaseAdmin = createClient(
       process.env.SUPABASE_URL || '',
       process.env.SUPABASE_SERVICE_ROLE_KEY || ''
     );
 
-    if (payload.type === 'INSERT') {
-      const { table, record } = payload;
+    const { table, record } = payload;
 
-      // --- CHAT MESSAGES LOGIC ---
-      if (table === 'chat_messages') {
-        const groupId = record.group_id;
-        const senderId = record.sender_id;
+    // --- 1. CHAT MESSAGES LOGIC ---
+    if (table === 'chat_messages') {
+      const { group_id, sender_id, content } = record;
+      notificationTitle = "New Message";
+      notificationBody = content || "You have a new message.";
+      notificationData = { screen: 'chat', id: group_id, type: 'message' };
 
-        notificationTitle = "New Message";
-        notificationBody = record.content || "Someone sent you a message.";
-        notificationData = { screen: 'chat', id: groupId, type: 'message' };
+      const { data: members } = await supabaseAdmin
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', group_id)
+        .neq('user_id', sender_id);
 
-        // Get other group members
-        const { data: members, error: membersError } = await supabaseAdmin
-          .from('group_members')
-          .select('user_id')
-          .eq('group_id', groupId)
-          .neq('user_id', senderId);
-
-        if (membersError) throw membersError;
-
-        const receiverIds = members?.map((m: any) => m.user_id) || [];
-        if (receiverIds.length > 0) {
-          const { data: profiles, error: pError } = await supabaseAdmin
-            .from('profiles')
-            .select('push_token')
-            .in('id', receiverIds);
-
-          if (pError) throw pError;
-          pushTokens = profiles?.map((p: any) => p.push_token).filter(Boolean) || [];
-        }
-
-      }
-      // --- NOTIFICATIONS TABLE LOGIC ---
-      else if (table === 'notifications') {
-        const receiverId = record.recipient_id;
-
-        notificationTitle = (record.type || "New Alert").replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-        notificationBody = record.content || "Check your notifications.";
-
-        // Deep linking logic alignment
-        const targetId = record.target_id || record.id;
-        notificationData = {
-          screen: record.type === 'course_update' ? 'course' : 'notification',
-          id: targetId,
-          type: 'notification'
-        };
-
-        if (receiverId) {
-          const { data: profile, error: pError } = await supabaseAdmin
-            .from('profiles')
-            .select('push_token')
-            .eq('id', receiverId)
-            .single();
-
-          if (profile?.push_token) pushTokens.push(profile.push_token);
-        }
+      const receiverIds = members?.map(m => m.user_id) || [];
+      if (receiverIds.length > 0) {
+        const { data: profiles } = await supabaseAdmin.from('profiles').select('push_token').in('id', receiverIds);
+        pushTokens = profiles?.map(p => p.push_token).filter(Boolean) || [];
       }
     }
 
-    if (pushTokens.length === 0) {
-      return res.status(200).json({ message: "No tokens found." });
+    // --- 2. BROADCAST: NEW COURSE / NEW SHORT ---
+    else if (table === 'courses' || table === 'shorts') {
+      const isCourse = table === 'courses';
+      notificationTitle = isCourse ? "🚀 New Course Published!" : "🎥 New Short Added!";
+      notificationBody = isCourse
+        ? `"${record.title}" is now live. Start learning today!`
+        : `Check out the latest short video: "${record.title || 'New Short'}"`;
+
+      notificationData = {
+        screen: isCourse ? 'courseDetails' : 'shorts',
+        id: record.id,
+        type: isCourse ? 'course' : 'short'
+      };
+
+      // Broadcast to ALL users with a push token
+      const { data: profiles } = await supabaseAdmin.from('profiles').select('push_token').not('push_token', 'is', null);
+      pushTokens = profiles?.map(p => p.push_token) || [];
     }
 
-    // 3. Send to Expo Push API
-    const messages = pushTokens.map(token => ({
-      to: token,
-      sound: 'default',
-      priority: 'high',
-      title: notificationTitle,
-      body: notificationBody,
-      data: notificationData,
-    }));
+    // --- 3. STUDENT ACTIVITY: ENROLLMENTS / QUIZZES ---
+    else if (table === 'enrollments' || table === 'quiz_attempts') {
+      const isEnrollment = table === 'enrollments';
+      const userId = isEnrollment ? record.student_id : record.user_id;
 
-    const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(messages),
-    });
+      notificationTitle = isEnrollment ? "🎓 Enrollment Confirmed!" : "📝 Quiz Completed!";
+      notificationBody = isEnrollment
+        ? "Welcome to the course! You can now start your first lesson."
+        : `Congratulations! You've finished the quiz. Check your score now.`;
 
-    const result = await expoResponse.json();
-    return res.status(200).json(result);
+      notificationData = {
+        screen: isEnrollment ? 'learning' : 'courseDetails',
+        id: record.course_id,
+        type: 'activity'
+      };
+
+      const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', userId).single();
+      if (profile?.push_token) pushTokens.push(profile.push_token);
+    }
+
+    // --- 4. GENERAL NOTIFICATIONS TABLE (Follows, Reminders, Rewards) ---
+    else if (table === 'notifications') {
+      const { type, recipient_id, sender_id, content, target_id } = record;
+
+      const titleMap: Record<string, string> = {
+        'follow': '👥 New Follower',
+        'follow_back': '👥 New Follower Back',
+        'live_class': '🔴 Live Class Started',
+        'class_schedule': '📅 New Class Scheduled',
+        'daily_reward': '💰 Reward Ready!',
+        'chat_request_accepted': '✅ Chat Request Accepted'
+      };
+
+      notificationTitle = titleMap[type] || "New Update";
+      notificationBody = content || "Check your notifications for details.";
+
+      if (type === 'daily_reward') {
+        notificationTitle = "💰 Reward Ready!";
+        notificationBody = "Your daily reward is ready! Claim your coins now. 🪙";
+      }
+
+      notificationData = {
+        screen: type === 'follow' || type === 'follow_back' ? 'viewProfile' : (type === 'live_class' ? 'live' : 'notifications'),
+        id: target_id || record.id,
+        type: 'notification'
+      };
+
+      if (recipient_id && (recipient_id !== sender_id || type === 'daily_reward')) {
+        const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', recipient_id).single();
+        if (profile?.push_token) pushTokens.push(profile.push_token);
+      }
+    }
+
+    if (pushTokens.length === 0) return res.status(200).json({ message: "No tokens found." });
+
+    // --- 5. EXPO CHUNKING LOGIC ---
+    // Expo allows max 100 messages per request
+    const uniqueTokens = Array.from(new Set(pushTokens));
+    const chunks = [];
+    const tempTokens = [...uniqueTokens];
+    while (tempTokens.length > 0) {
+      chunks.push(tempTokens.splice(0, 100));
+    }
+
+    console.log(`[Vercel Push] Sending to ${uniqueTokens.length} devices in ${chunks.length} chunks.`);
+
+    const results = [];
+    for (const chunk of chunks) {
+      const messages = chunk.map(token => ({
+        to: token,
+        sound: 'default',
+        priority: 'high',
+        title: notificationTitle,
+        body: notificationBody,
+        data: notificationData,
+      }));
+
+      const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(messages),
+      });
+
+      const chunkResult = await expoResponse.json();
+      results.push(chunkResult);
+    }
+
+    return res.status(200).json({ success: true, chunks: results.length });
 
   } catch (err: any) {
     console.error("[Vercel Push Error]", err);
