@@ -1,0 +1,22 @@
+{
+  "name": "weversity-notification-service",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "next": "14.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "@types/react": "^18.3.28",
+    "typescript": "^5.3.3"
+  }
+}
