@@ -119,6 +119,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    // --- 5. SOCIAL INTERACTIONS (TikTok Style: Likes, Comments, Replies) ---
+    else if (table === 'video_reactions' || (table === 'comments' && payload.type)) {
+      const type = payload.type; // video_like, video_comment, comment_reply
+      const { user_id, recipient_id, content } = record;
+
+      // Fetch the sender's name for the "Personalized" message
+      const { data: senderProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', user_id)
+        .single();
+
+      const senderName = senderProfile ? `${senderProfile.first_name} ${senderProfile.last_name}`.trim() : "Someone";
+
+      if (type === 'video_like') {
+        notificationTitle = "❤️ New Like";
+        notificationBody = `${senderName} liked your video.`;
+        notificationData = { screen: 'shorts', id: record.video_id, type: 'like' };
+      }
+      else if (type === 'video_comment') {
+        notificationTitle = "💬 New Comment";
+        notificationBody = `${senderName} commented: "${content?.substring(0, 50)}${content?.length > 50 ? '...' : ''}"`;
+        notificationData = { screen: 'shorts', id: record.video_id, type: 'comment' };
+      }
+      else if (type === 'comment_reply') {
+        notificationTitle = "↪️ New Reply";
+        notificationBody = `${senderName} replied to your comment: "${content?.substring(0, 50)}${content?.length > 50 ? '...' : ''}"`;
+        notificationData = { screen: 'shorts', id: record.video_id, type: 'reply' };
+      }
+
+      if (recipient_id) {
+        const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', recipient_id).single();
+        if (profile?.push_token) pushTokens.push(profile.push_token);
+      }
+    }
+
     if (pushTokens.length === 0) return res.status(200).json({ message: "No tokens found." });
 
     // --- 5. EXPO CHUNKING LOGIC ---
