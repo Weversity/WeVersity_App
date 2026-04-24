@@ -120,7 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // --- 5. SOCIAL INTERACTIONS (TikTok Style: Likes, Comments, Replies) ---
-    else if (table === 'video_reactions' || (table === 'comments' && payload.type)) {
+    else if (table === 'reactions' || (table === 'comments' && payload.type)) {
       const type = payload.type; // video_like, video_comment, comment_reply
       const { user_id, recipient_id, content } = record;
 
