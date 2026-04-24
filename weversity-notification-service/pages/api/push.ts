@@ -155,6 +155,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    // --- 6. LIVE CLASSES & MEETINGS (Broadcast to All) ---
+    else if (table === 'live_sessions') {
+      const { instructor_id, status, title, scheduled_at } = record;
+      const isLive = status === 'live' || status === 'Live';
+
+      // Fetch Instructor Name
+      const { data: instructor } = await supabaseAdmin
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', instructor_id)
+        .single();
+
+      const name = instructor ? `${instructor.first_name} ${instructor.last_name}`.trim() : "An Instructor";
+      const topic = title || "New Class";
+
+      if (isLive) {
+        notificationTitle = "🔴 Live Now!";
+        notificationBody = `${name} is Live Now: ${topic} 🔴`;
+      } else {
+        const dateStr = scheduled_at ? new Date(scheduled_at).toLocaleDateString() : "Soon";
+        notificationTitle = "📅 Class Scheduled";
+        notificationBody = `${name} scheduled a class on ${dateStr}: ${topic} 📅`;
+      }
+
+      notificationData = { screen: 'live', id: record.id, type: 'live_session' };
+
+      // BROADCAST to ALL users
+      const { data: profiles } = await supabaseAdmin.from('profiles').select('push_token').not('push_token', 'is', null);
+      pushTokens = profiles?.map(p => p.push_token) || [];
+    }
+
     if (pushTokens.length === 0) return res.status(200).json({ message: "No tokens found." });
 
     // --- 5. EXPO CHUNKING LOGIC ---
