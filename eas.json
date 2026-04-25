@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 16.28.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -19,7 +19,7 @@
   "submit": {
     "production": {
       "android": {
-        "track": "internal" 
+        "track": "internal"
       }
     }
   }
