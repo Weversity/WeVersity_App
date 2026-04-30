@@ -1,90 +1,98 @@
 -- ==========================================
--- TIKTOK-STYLE SOCIAL NOTIFICATION TRIGGERS (REFINED)
+-- TIKTOK-STYLE SOCIAL NOTIFICATION TRIGGERS (V4 - ROBUST)
 -- ==========================================
 
--- 1. Video Reaction Trigger Function
--- Handles Likes/Reactions on Videos
--- We will dynamically check if the table exists to avoid relation errors
-DO $$ 
+-- 0. Webhook Helper Function (Updated to point to Supabase Edge Function)
+CREATE OR REPLACE FUNCTION public.send_push_webhook(payload JSONB)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    -- Check if 'reactions' table exists
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'reactions') THEN
-        RAISE NOTICE 'Table public.reactions found. Creating trigger...';
-    ELSE
-        RAISE WARNING 'Table public.reactions NOT found. Please ensure your likes table is named exactly "reactions".';
-    END IF;
-END $$;
+    -- This calls the 'expo-push' Supabase Edge Function
+    PERFORM net.http_post(
+        url := 'https://api.weversity.org/functions/v1/expo-push',
+        body := payload,
+        headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'Authorization', 'Bearer ' || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q' -- Service role key for auth
+        )
+    );
+END;
+$$;
 
+-- 1. Video Reaction Trigger Function
+-- Handles Likes/Reactions with Threshold Logic (Multiples of 5)
 CREATE OR REPLACE FUNCTION public.handle_video_like_notification()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_video_owner_id UUID;
+    v_like_count INT;
+    v_actor_name TEXT;
 BEGIN
-    -- Look up the video owner (instructor_id) from the shorts table
-    -- Confirming: shorts table uses instructor_id
+    -- 1. Fetch the video owner (instructor_id)
     SELECT instructor_id INTO v_video_owner_id FROM public.shorts WHERE id = NEW.video_id;
     
-    -- Only send if the reactor is NOT the owner
+    -- 2. Only proceed if owner exists and is NOT the person who liked
     IF v_video_owner_id IS NOT NULL AND v_video_owner_id != NEW.user_id THEN
-        PERFORM public.send_push_webhook(jsonb_build_object(
-            'table', 'reactions',
-            'type', 'video_like',
-            'record', to_jsonb(NEW) || jsonb_build_object('recipient_id', v_video_owner_id)
-        ));
+        
+        -- 3. Check Threshold: Count total likes for this video
+        SELECT COUNT(*) INTO v_like_count FROM public.reactions WHERE video_id = NEW.video_id;
+        
+        -- 4. Only notify on multiples of 5 (5, 10, 15...)
+        IF v_like_count % 5 = 0 THEN
+            -- Fetch the name of the user who just liked it
+            SELECT COALESCE(first_name || ' ' || last_name, 'Someone') INTO v_actor_name 
+            FROM public.profiles WHERE id = NEW.user_id;
+
+            PERFORM public.send_push_webhook(jsonb_build_object(
+                'table', 'reactions',
+                'type', 'video_like',
+                'recipient_id', v_video_owner_id,
+                'record', jsonb_build_object(
+                    'video_id', NEW.video_id,
+                    'actor_name', v_actor_name,
+                    'like_count', v_like_count
+                )
+            ));
+        END IF;
     END IF;
     
     RETURN NEW;
 END;
 $$;
 
--- Apply trigger to 'reactions' table (Drop old faulty ones first)
+-- Apply trigger to 'reactions' table
 DROP TRIGGER IF EXISTS on_video_like_insert ON public.reactions;
 CREATE TRIGGER on_video_like_insert 
 AFTER INSERT ON public.reactions 
 FOR EACH ROW EXECUTE FUNCTION public.handle_video_like_notification();
 
 
--- 2. Video Comment & Reply Trigger Function
--- Handles both new comments (to owner) and replies (to original commenter)
-DO $$ 
-BEGIN
-    -- Check if 'comments' table exists
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'comments') THEN
-        RAISE NOTICE 'Table public.comments found. Creating trigger...';
-    ELSE
-        RAISE WARNING 'Table public.comments NOT found. Please ensure your comments table is named exactly "comments".';
-    END IF;
-END $$;
-
+-- 2. Video Comment Trigger Function
+-- Handles immediate notifications for comments, targeted to owner only
 CREATE OR REPLACE FUNCTION public.handle_video_comment_notification()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_recipient_id UUID;
+    v_actor_name TEXT;
 BEGIN
-    IF NEW.parent_id IS NULL THEN
-        -- Case A: New Comment on Video -> Notify Video Owner (Instructor)
-        SELECT instructor_id INTO v_recipient_id FROM public.shorts WHERE id = NEW.video_id;
-        
-        -- Only notify if commenter is NOT the owner
-        IF v_recipient_id IS NOT NULL AND v_recipient_id != NEW.user_id THEN
-            PERFORM public.send_push_webhook(jsonb_build_object(
-                'table', 'comments',
-                'type', 'video_comment',
-                'record', to_jsonb(NEW) || jsonb_build_object('recipient_id', v_recipient_id)
-            ));
-        END IF;
-    ELSE
-        -- Case B: Reply to Comment -> Notify Original Commenter
-        SELECT user_id INTO v_recipient_id FROM public.comments WHERE id = NEW.parent_id;
-        
-        -- Only notify if replier is NOT the original commenter
-        IF v_recipient_id IS NOT NULL AND v_recipient_id != NEW.user_id THEN
-            PERFORM public.send_push_webhook(jsonb_build_object(
-                'table', 'comments',
-                'type', 'comment_reply',
-                'record', to_jsonb(NEW) || jsonb_build_object('recipient_id', v_recipient_id)
-            ));
-        END IF;
+    -- Case: New Comment on Video -> Notify Video Owner (Instructor)
+    SELECT instructor_id INTO v_recipient_id FROM public.shorts WHERE id = NEW.video_id;
+    
+    -- Only notify if commenter is NOT the owner
+    IF v_recipient_id IS NOT NULL AND v_recipient_id != NEW.user_id THEN
+        -- Fetch the name of the commenter
+        SELECT COALESCE(first_name || ' ' || last_name, 'Someone') INTO v_actor_name 
+        FROM public.profiles WHERE id = NEW.user_id;
+
+        PERFORM public.send_push_webhook(jsonb_build_object(
+            'table', 'comments',
+            'type', 'video_comment',
+            'recipient_id', v_recipient_id,
+            'record', jsonb_build_object(
+                'video_id', NEW.video_id,
+                'actor_name', v_actor_name,
+                'content', NEW.content
+            )
+        ));
     END IF;
     
     RETURN NEW;

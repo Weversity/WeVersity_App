@@ -3,87 +3,97 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 
 serve(async (req: Request) => {
   try {
-    // 1. Parse the payload coming from the Database Webhook (Trigger)
+    // 1. Parse the payload
+    // This function handles both custom Webhook calls (from SQL) and standard Supabase DB Webhooks
     const payload = await req.json();
-    console.log("[Webhook Triggered] Received Payload:", JSON.stringify(payload, null, 2));
+    console.log("[Expo Push] Received Payload:", JSON.stringify(payload, null, 2));
 
-    let pushTokens: string[] = [];
-    let notificationTitle = "New Notification";
-    let notificationBody = "You have a new activity.";
-    let notificationData: any = {};
-
-    // 2. Initialize Supabase Admin Client
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // 3. Extract logic based on the Table that triggered the event
-    if (payload.type === 'INSERT') {
-      const { table, record } = payload;
+    let pushTokens: string[] = [];
+    let notificationTitle = "WeVersity Alert";
+    let notificationBody = "You have a new activity.";
+    let notificationData: any = {};
+    let recipientId: string | null = null;
 
+    const { type, table, record, recipient_id } = payload;
+
+    // --- CASE A: CUSTOM SOCIAL INTERACTIONS (From social_triggers.sql) ---
+    if (type === 'video_like') {
+      const { actor_name, like_count, video_id } = record;
+      recipientId = recipient_id;
+      notificationTitle = "❤️ New Like";
+      
+      if (like_count > 1) {
+        notificationBody = `${actor_name} and ${like_count - 1} others liked your video.`;
+      } else {
+        notificationBody = `${actor_name} liked your video.`;
+      }
+      
+      notificationData = { screen: 'shorts', id: video_id, type: 'like' };
+
+    } else if (type === 'video_comment') {
+      const { actor_name, content, video_id } = record;
+      recipientId = recipient_id;
+      notificationTitle = "💬 New Comment";
+      notificationBody = `${actor_name} commented: "${content?.substring(0, 50)}${content?.length > 50 ? '...' : ''}"`;
+      notificationData = { screen: 'shorts', id: video_id, type: 'comment' };
+
+    } 
+    // --- CASE B: STANDARD DB WEBHOOKS (INSERT events) ---
+    else if (type === 'INSERT') {
       if (table === 'chat_messages') {
-        const groupId = record.group_id;
-        const senderId = record.sender_id;
-
+        const { group_id, sender_id, content } = record;
         notificationTitle = "New Message";
-        notificationBody = record.content || "Someone sent you a message.";
-        // Deep linking data for chat
-        notificationData = { screen: 'chat', id: groupId, type: 'message' };
+        notificationBody = content || "Someone sent you a message.";
+        notificationData = { screen: 'chat', id: group_id, type: 'message' };
 
-        // Fetch other group members to notify
-        const { data: members, error: membersError } = await supabaseAdmin
+        // Fetch other group members
+        const { data: members } = await supabaseAdmin
           .from('group_members')
           .select('user_id')
-          .eq('group_id', groupId)
-          .neq('user_id', senderId);
-
-        if (membersError) throw membersError;
+          .eq('group_id', group_id)
+          .neq('user_id', sender_id);
 
         const receiverIds = members?.map((m: any) => m.user_id) || [];
         if (receiverIds.length > 0) {
-          const { data: profiles, error: pError } = await supabaseAdmin
-            .from('profiles')
-            .select('push_token')
-            .in('id', receiverIds);
-
-          if (pError) throw pError;
+          const { data: profiles } = await supabaseAdmin.from('profiles').select('push_token').in('id', receiverIds);
           pushTokens = profiles?.map((p: any) => p.push_token).filter(Boolean) || [];
         }
-
       } else if (table === 'notifications') {
-        const receiverId = record.recipient_id;
-
+        recipientId = record.recipient_id;
         notificationTitle = (record.type || "New Alert").replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
         notificationBody = record.content || "Check your notifications.";
+        notificationData = { screen: 'notification', id: record.id, type: 'notification' };
+      }
+    }
 
-        // Deep linking data for notifications (navigate to course or generic notifications)
-        // We assume 'target_id' or 'course_id' might exist in the record if applicable
-        const targetId = record.target_id || record.id;
-        notificationData = {
-          screen: record.type === 'course_update' ? 'course' : 'notification',
-          id: targetId,
-          type: 'notification'
-        };
+    // --- 2. FETCH PUSH TOKEN FOR SINGLE RECIPIENT ---
+    if (recipientId && pushTokens.length === 0) {
+      console.log(`[Expo Push] Fetching token for recipient: ${recipientId}`);
+      const { data: profile, error: pError } = await supabaseAdmin
+        .from('profiles')
+        .select('push_token')
+        .eq('id', recipientId)
+        .single();
 
-        if (receiverId) {
-          const { data: profile, error: pError } = await supabaseAdmin
-            .from('profiles')
-            .select('push_token')
-            .eq('id', receiverId)
-            .single();
-
-          if (pError) console.warn("Profile not found or error:", pError);
-          if (profile?.push_token) pushTokens.push(profile.push_token);
-        }
+      if (pError) {
+        console.error("[Expo Push] Profile fetch error:", pError);
+      } else if (profile?.push_token) {
+        pushTokens.push(profile.push_token);
+      } else {
+        console.warn("[Expo Push] No push token found for user (User might be logged out).");
       }
     }
 
     if (pushTokens.length === 0) {
-      return new Response(JSON.stringify({ message: "No push tokens found." }), { status: 200 });
+      return new Response(JSON.stringify({ message: "No push tokens available. Notification not sent." }), { status: 200 });
     }
 
-    // 4. Send to Expo Push API
+    // --- 3. SEND TO EXPO PUSH API ---
     const messages = pushTokens.map(token => ({
       to: token,
       sound: 'default',
@@ -92,6 +102,8 @@ serve(async (req: Request) => {
       body: notificationBody,
       data: notificationData,
     }));
+
+    console.log(`[Expo Push] Sending ${messages.length} messages to Expo...`);
 
     const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
@@ -109,7 +121,7 @@ serve(async (req: Request) => {
     });
 
   } catch (err: any) {
-    console.error("[Error]", err);
+    console.error("[Expo Push Critical Error]", err);
     return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 });
