@@ -75,20 +75,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const type = payload.type || 'student_confirm';
         const courseName = record.course_name || "the course";
         const studentName = record.actor_name || "A student";
-        
+
         notificationData = { screen: 'courseDetails', id: record.course_id, type: 'activity' };
 
         if (type === 'student_confirm') {
           notificationTitle = "🎓 Enrollment Confirmed!";
           notificationBody = `Welcome! You're now in ${courseName}.`;
-          
+
           const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', userId).single();
           if (profile?.push_token) pushTokens.push(profile.push_token);
-        } 
+        }
         else if (type === 'instructor_alert') {
           notificationTitle = "🚀 Your Course is Trending!";
-          notificationBody = `Great! 4 more students enrolled in ${courseName}.`;
-          
+          notificationBody = `Great! 4 more students enrolled in your course ${courseName}.`;
+
           const recipient_id = payload.recipient_id;
           if (recipient_id) {
             const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', recipient_id).single();
@@ -98,10 +98,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         else if (type === 'global_social_proof') {
           notificationTitle = "🔥 Trending Course!";
           notificationBody = `${studentName} and others just enrolled in ${courseName}.`;
-          
+
           const sender_id = record.sender_id || userId;
           const instructor_id = record.instructor_id;
-          
+
           const { data: profiles } = await supabaseAdmin.from('profiles').select('id, push_token').not('push_token', 'is', null);
           if (profiles) {
             pushTokens = profiles
@@ -115,7 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         notificationTitle = "📝 Quiz Completed!";
         notificationBody = `Congratulations! You've finished the quiz. Check your score now.`;
         notificationData = { screen: 'courseDetails', id: record.course_id, type: 'activity' };
-        
+
         const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', userId).single();
         if (profile?.push_token) pushTokens.push(profile.push_token);
       }
@@ -157,7 +157,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // --- 5. SOCIAL INTERACTIONS (TikTok Style: Likes, Comments, Replies) ---
     else if (table === 'reactions' || (table === 'comments' && payload.type)) {
       const type = payload.type; // video_like, video_comment, comment_reply
-      const user_id = record.user_id || payload.sender_id || record.actor_id; 
+      const user_id = record.user_id || payload.sender_id || record.actor_id;
       const recipient_id = record.recipient_id || payload.recipient_id;
       const content = record.content;
 
@@ -178,7 +178,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         notificationTitle = "❤️ New Like";
         const totalLikes = record.like_count || 1;
         const othersCount = totalLikes - 1;
-        
+
         if (othersCount > 0) {
           notificationBody = `${senderName} and ${othersCount} others liked your video.`;
         } else {
