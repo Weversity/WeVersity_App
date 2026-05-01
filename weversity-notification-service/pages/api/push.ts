@@ -122,20 +122,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // --- 5. SOCIAL INTERACTIONS (TikTok Style: Likes, Comments, Replies) ---
     else if (table === 'reactions' || (table === 'comments' && payload.type)) {
       const type = payload.type; // video_like, video_comment, comment_reply
-      const { user_id, recipient_id, content } = record;
+      const user_id = record.user_id || payload.sender_id || record.actor_id; 
+      const recipient_id = record.recipient_id || payload.recipient_id;
+      const content = record.content;
 
       // Fetch the sender's name for the "Personalized" message
-      const { data: senderProfile } = await supabaseAdmin
-        .from('profiles')
-        .select('first_name, last_name')
-        .eq('id', user_id)
-        .single();
-
-      const senderName = senderProfile ? `${senderProfile.first_name} ${senderProfile.last_name}`.trim() : "Someone";
+      let senderName = record.actor_name || "Someone";
+      if (!record.actor_name && user_id) {
+        const { data: senderProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', user_id)
+          .single();
+        if (senderProfile) {
+          senderName = `${senderProfile.first_name} ${senderProfile.last_name}`.trim();
+        }
+      }
 
       if (type === 'video_like') {
         notificationTitle = "❤️ New Like";
-        notificationBody = `${senderName} liked your video.`;
+        const totalLikes = record.like_count || 1;
+        const othersCount = totalLikes - 1;
+        
+        if (othersCount > 0) {
+          notificationBody = `${senderName} and ${othersCount} others liked your video.`;
+        } else {
+          notificationBody = `${senderName} liked your video.`;
+        }
         notificationData = { screen: 'shorts', id: record.video_id, type: 'like' };
       }
       else if (type === 'video_comment') {
