@@ -71,19 +71,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const isEnrollment = table === 'enrollments';
       const userId = isEnrollment ? record.student_id : record.user_id;
 
-      notificationTitle = isEnrollment ? "🎓 Enrollment Confirmed!" : "📝 Quiz Completed!";
-      notificationBody = isEnrollment
-        ? "Welcome to the course! You can now start your first lesson."
-        : `Congratulations! You've finished the quiz. Check your score now.`;
+      if (isEnrollment) {
+        const type = payload.type || 'student_confirm';
+        const courseName = record.course_name || "the course";
+        const studentName = record.actor_name || "A student";
+        
+        notificationData = { screen: 'courseDetails', id: record.course_id, type: 'activity' };
 
-      notificationData = {
-        screen: isEnrollment ? 'learning' : 'courseDetails',
-        id: record.course_id,
-        type: 'activity'
-      };
-
-      const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', userId).single();
-      if (profile?.push_token) pushTokens.push(profile.push_token);
+        if (type === 'student_confirm') {
+          notificationTitle = "🎓 Enrollment Confirmed!";
+          notificationBody = `Welcome! You're now in ${courseName}.`;
+          
+          const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', userId).single();
+          if (profile?.push_token) pushTokens.push(profile.push_token);
+        } 
+        else if (type === 'instructor_alert') {
+          notificationTitle = "🚀 Your Course is Trending!";
+          notificationBody = `Great! 4 more students enrolled in ${courseName}.`;
+          
+          const recipient_id = payload.recipient_id;
+          if (recipient_id) {
+            const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', recipient_id).single();
+            if (profile?.push_token) pushTokens.push(profile.push_token);
+          }
+        }
+        else if (type === 'global_social_proof') {
+          notificationTitle = "🔥 Trending Course!";
+          notificationBody = `${studentName} and others just enrolled in ${courseName}.`;
+          
+          const sender_id = record.sender_id || userId;
+          const instructor_id = record.instructor_id;
+          
+          const { data: profiles } = await supabaseAdmin.from('profiles').select('id, push_token').not('push_token', 'is', null);
+          if (profiles) {
+            pushTokens = profiles
+              .filter(p => p.id !== sender_id && p.id !== instructor_id)
+              .map(p => p.push_token)
+              .filter(Boolean);
+          }
+        }
+      } else {
+        // Quiz Logic
+        notificationTitle = "📝 Quiz Completed!";
+        notificationBody = `Congratulations! You've finished the quiz. Check your score now.`;
+        notificationData = { screen: 'courseDetails', id: record.course_id, type: 'activity' };
+        
+        const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', userId).single();
+        if (profile?.push_token) pushTokens.push(profile.push_token);
+      }
     }
 
     // --- 4. GENERAL NOTIFICATIONS TABLE (Follows, Reminders, Rewards) ---
