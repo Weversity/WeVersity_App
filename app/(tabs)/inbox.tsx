@@ -309,12 +309,6 @@ export default function InboxScreen() {
     })));
   }, [tabCounts]);
 
-  // Sync total unread to AuthContext → drives bottom-tab badge
-  useEffect(() => {
-    const total = conversations.reduce((sum, c) => sum + (Number(c.unread) || 0), 0);
-    setUnreadCount(total);
-  }, [conversations, setUnreadCount]);
-
   const formatConversation = useCallback((conv: any): Conversation => {
     const msg = conv.last_message || { content: '', created_at: null, sender_id: null };
     const isMe = msg.sender_id === user?.id;

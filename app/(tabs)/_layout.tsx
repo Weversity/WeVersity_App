@@ -6,7 +6,7 @@ import React from 'react';
 import { Text, View } from 'react-native';
 
 export default function TabLayout() {
-  const { isAuthenticated, unreadCount } = useAuth();
+  const { isAuthenticated, unreadMessagesCount } = useAuth();
   const router = useRouter();
   const activeRouteName = useNavigationState(state => state.routes[state.index]?.name);
 
@@ -70,30 +70,16 @@ export default function TabLayout() {
         name="inbox"
         options={{
           title: 'Inbox',
+          tabBarBadge: unreadMessagesCount > 0 ? (unreadMessagesCount > 99 ? '99+' : unreadMessagesCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#8A2BE2',
+            color: '#fff',
+            fontSize: 10,
+            fontWeight: 'bold',
+            marginTop: 4,
+          },
           tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <View style={{ width: size + 10, height: size + 10, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="chatbox-ellipses-outline" color={color} size={size} />
-              {unreadCount > 0 && (
-                <View style={{
-                  position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  backgroundColor: '#8A2BE2',
-                  borderRadius: 9,
-                  minWidth: 18,
-                  height: 18,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  paddingHorizontal: 4,
-                  borderWidth: 1.5,
-                  borderColor: '#fff',
-                }}>
-                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold', lineHeight: 12 }}>
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </View>
+            <Ionicons name="chatbox-ellipses-outline" color={color} size={size} />
           ),
         }}
       />

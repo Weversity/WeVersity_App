@@ -5,6 +5,7 @@ import { useAuth as useSupabaseAuth } from '../auth/useAuth';
 import { supabase } from '../auth/supabase';
 import { registerForPushNotificationsAsync, savePushTokenToBackend } from '../services/pushNotifications';
 import { coinService } from '../services/coinService';
+import { chatService } from '../services/chatService';
 
 
 // Redefine Role locally if needed or keep using string
@@ -20,6 +21,8 @@ interface AuthContextType {
   logout: () => void;
   unreadCount: number;
   setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
+  unreadMessagesCount: number;
+  refreshUnreadMessages: () => void;
   /**
    * Optimistically update the current auth user object (especially user_metadata)
    * without waiting for Supabase to emit a new auth event. This prevents
@@ -94,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const role: Role = rawRole ? (rawRole.charAt(0).toUpperCase() + rawRole.slice(1)) as Role : null;
 
   const [unreadCount, setUnreadCount] = React.useState(0);
+  const [unreadMessagesCount, setUnreadMessagesCount] = React.useState(0);
   const [globalCoins, setGlobalCoins] = React.useState(0);
 
   // 0. Fetch initial coins balance & Setup Realtime 
@@ -201,6 +205,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user]);
 
+  // 3. Fetch & Listen for Chat Unread Messages (Global Badge)
+  const refreshUnreadMessages = React.useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      console.log('[AuthContext] Refreshing total unread messages...');
+      const count = await chatService.getTotalUnreadCount(user.id);
+      setUnreadMessagesCount(count);
+    } catch (err) {
+      console.error('[AuthContext] Error refreshing unread messages:', err);
+    }
+  }, [user?.id]);
+
+  React.useEffect(() => {
+    if (!user?.id) {
+      setUnreadMessagesCount(0);
+      return;
+    }
+
+    // Initial fetch
+    refreshUnreadMessages();
+
+    // Listen for any chat message changes
+    // This triggers on new messages OR when someone marks messages as read
+    const chatSubscription = supabase
+      .channel(`global-unread-sync-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_messages',
+        },
+        () => {
+          // Whenever ANY message change occurs, we re-verify the total count
+          // This is the most reliable way to handle both new messages and mark-as-read events
+          refreshUnreadMessages();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(chatSubscription);
+    };
+  }, [user?.id, refreshUnreadMessages]);
+
   const login = (userRole: Role) => {
     // This is now largely a no-op for state, as the session change triggers updates
     // But we can keep it if components expect to call it manually, 
@@ -243,6 +292,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         unreadCount,
         setUnreadCount,
+        unreadMessagesCount,
+        refreshUnreadMessages,
         updateUser,
         globalCoins,
         setGlobalCoins,

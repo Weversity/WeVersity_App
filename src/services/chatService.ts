@@ -455,5 +455,26 @@ export const chatService = {
             console.error('Error in updateChatRequestStatus:', error.message);
             return false;
         }
+    },
+
+    // Get the total unread count across all conversations for a user
+    async getTotalUnreadCount(userId: string): Promise<number> {
+        try {
+            const { data, error } = await supabase
+                .rpc('get_unread_counts', { p_user_id: userId });
+
+            if (error) {
+                console.warn('chatService: Failed to fetch total unread count.', error);
+                return 0;
+            }
+
+            if (!data) return 0;
+
+            // Sum up the unread_count from each group/conversation
+            return data.reduce((sum: number, row: any) => sum + (Number(row.unread_count) || 0), 0);
+        } catch (error: any) {
+            console.error('Error in getTotalUnreadCount:', error.message);
+            return 0;
+        }
     }
 };

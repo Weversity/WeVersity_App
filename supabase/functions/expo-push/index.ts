@@ -21,8 +21,44 @@ serve(async (req: Request) => {
 
     const { type, table, record, recipient_id } = payload;
 
-    // --- CASE A: CUSTOM SOCIAL INTERACTIONS (From social_triggers.sql) ---
-    if (type === 'video_like') {
+    // --- CASE A1: COURSE ENROLLMENT NOTIFICATIONS ---
+    if (type === 'student_confirm') {
+      const { course_name } = record;
+      recipientId = recipient_id;
+      notificationTitle = "🎉 Enrollment Confirmed!";
+      notificationBody = `Welcome to the course! You have successfully enrolled in ${course_name}. Your learning journey starts now!`;
+      notificationData = { screen: 'course', id: record.course_id, type: 'enrollment' };
+
+    } else if (type === 'instructor_alert') {
+      const { actor_name, course_name } = record;
+      recipientId = recipient_id;
+      notificationTitle = "📈 New Students Joined!";
+      notificationBody = `${actor_name} and 3 others have successfully enrolled in your ${course_name} course. Your community is growing!`;
+      notificationData = { screen: 'course', id: record.course_id, type: 'enrollment' };
+
+    } else if (type === 'global_social_proof') {
+      const { actor_name, course_name, sender_id, instructor_id } = record;
+      notificationTitle = "🚀 People are joining!";
+      notificationBody = `${actor_name} and 3 others just started their journey in ${course_name}. Don't miss out, join them now!`;
+      notificationData = { screen: 'course', id: record.course_id, type: 'enrollment' };
+
+      // Fetch all tokens excluding the sender and instructor
+      let query = supabaseAdmin
+        .from('profiles')
+        .select('push_token')
+        .not('push_token', 'is', null)
+        .neq('id', sender_id);
+      
+      if (instructor_id) {
+        query = query.neq('id', instructor_id);
+      }
+
+      const { data: profiles } = await query;
+      pushTokens = profiles?.map((p: any) => p.push_token).filter(Boolean) || [];
+
+    }
+    // --- CASE A2: CUSTOM SOCIAL INTERACTIONS (From social_triggers.sql) ---
+    else if (type === 'video_like') {
       const { actor_name, like_count, video_id } = record;
       recipientId = recipient_id;
       notificationTitle = "❤️ New Like";
