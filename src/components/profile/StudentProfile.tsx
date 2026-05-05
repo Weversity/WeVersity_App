@@ -35,6 +35,7 @@ const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean;
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '2', title: 'Upcoming', icon: 'calendar-outline', onPress: () => { onClose(); router.push('/upcoming'); } },
     { id: 'leaderboard', title: 'Leaderboard', icon: 'trophy-outline', onPress: () => { onClose(); router.push('/leaderboard'); } },
+    { id: 'analytics', title: 'Analytics', icon: 'stats-chart-outline', onPress: () => { onClose(); router.push(`/instructor/analytics?id=${user?.id}`); } },
     { id: 'wallet', title: 'Wallet', icon: 'wallet-outline', onPress: () => { onClose(); router.push('/student/wallet'); } },
     { id: '4', title: 'Mentors/Instructors', icon: 'school-outline', onPress: () => { onClose(); router.push(`/allMentors`); } },
     { id: '6', title: 'Following', icon: 'people-outline', onPress: () => { onClose(); router.push('/followers'); } },
@@ -59,7 +60,7 @@ const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean;
               <Text style={styles.menuProfileName} numberOfLines={1}>{firstName} {lastName}</Text>
             </View>
           </View>
-          <View style={styles.menuItems}>
+          <ScrollView style={styles.menuItems} showsVerticalScrollIndicator={false}>
             <Text style={styles.menuSubtitle}>MENU</Text>
             {menuItemsStudent.map((item, index) => (
               <TouchableOpacity key={item.id} style={[styles.menuItem, index === 0 && styles.activeMenuItem]} onPress={item.onPress}>
@@ -77,7 +78,7 @@ const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean;
               <Ionicons name="log-out-outline" size={22} color="#8A2BE2" />
               <Text style={styles.menuItemText}>Logout</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>

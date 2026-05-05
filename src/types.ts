@@ -119,8 +119,22 @@ export interface InstructorStats {
     totalStudents: number;
     courseRating: number;
     totalReviews: number;
+    totalCourses?: number;
     lifetimeEarnings?: number;
     availableBalance?: number;
     liveSessions?: number;
     pendingAssignments?: number;
+    quizItems?: number;
+    quizAttempts?: number;
+    studentsPerCourse?: any[];
+    earningsPerCourse?: any[];
+    recentEnrollments?: any[];
+}
+
+export interface EnrollmentDetail {
+    id: string;
+    student_name: string;
+    course_title: string;
+    created_at: string;
+    avatar_url?: string;
 }

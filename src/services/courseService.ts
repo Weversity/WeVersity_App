@@ -290,11 +290,14 @@ export const courseService = {
             // 2. Fetch real-time ratings from Supabase (as API might have old data)
             let realTimeRating = 0;
             let realTimeReviews = 0;
+            let totalCourses = 0;
             try {
-                const { data: coursesWithReviews } = await supabase
+                const { data: coursesWithReviews, count } = await supabase
                     .from('courses')
-                    .select('reviews (rating)')
+                    .select('reviews (rating)', { count: 'exact' })
                     .eq('instructor_id', instructorId);
+
+                totalCourses = count || 0;
 
                 if (coursesWithReviews) {
                     let totalSum = 0;
@@ -320,15 +323,74 @@ export const courseService = {
                 totalStudents: apiStats.totalStudents || 0,
                 courseRating: parseFloat(realTimeRating.toFixed(1)),
                 totalReviews: realTimeReviews || apiStats.totalReviews || 0,
+                totalCourses: totalCourses || apiStats.totalCourses || 0,
                 lifetimeEarnings: apiStats.lifetimeEarnings || 0,
                 availableBalance: apiStats.availableBalance || 0,
                 liveSessions: apiStats.liveSessions || 0,
-                pendingAssignments: apiStats.pendingAssignments || 0
+                pendingAssignments: apiStats.pendingAssignments || 0,
+                quizItems: apiStats.quizItems || 0,
+                quizAttempts: apiStats.quizAttempts || 0,
+                studentsPerCourse: apiStats.studentsPerCourse || [],
+                earningsPerCourse: apiStats.earningsPerCourse || [],
+                recentEnrollments: apiStats.recentEnrollments || []
             };
 
         } catch (error: any) {
             console.error('CRITICAL: Error in hybrid fetchInstructorStats:', error.message);
             return { totalStudents: 0, courseRating: 0, totalReviews: 0, lifetimeEarnings: 0, availableBalance: 0, liveSessions: 0, pendingAssignments: 0 };
+        }
+    },
+
+    async fetchDetailedInstructorAnalytics(instructorId: string): Promise<any> {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return { quizItems: 0, quizAttempts: 0, earningsPerCourse: [], studentsPerCourse: [] };
+
+            const response = await fetch('https://get-instructor-analytics.vercel.app/', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${session.access_token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const apiStats = await response.json();
+                return {
+                    totalQuizzes: apiStats.totalQuizzes || 0,
+                    totalAttempts: apiStats.totalAttempts || 0,
+                    earningsPerCourse: apiStats.earningsPerCourse || [],
+                    studentsPerCourse: apiStats.studentsPerCourse || []
+                };
+            }
+            return { totalQuizzes: 0, totalAttempts: 0, earningsPerCourse: [], studentsPerCourse: [] };
+        } catch (error) {
+            console.error('Error in fetchDetailedInstructorAnalytics:', error);
+            return { totalQuizzes: 0, totalAttempts: 0, earningsPerCourse: [], studentsPerCourse: [] };
+        }
+    },
+
+    async fetchRecentEnrollments(instructorId: string, limit: number = 5): Promise<any[]> {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return [];
+
+            const response = await fetch('https://get-instructor-analytics.vercel.app/', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${session.access_token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const apiStats = await response.json();
+                return apiStats.recentEnrollments || [];
+            }
+            return [];
+        } catch (error) {
+            console.error('Error in fetchRecentEnrollments:', error);
+            return [];
         }
     },
 

@@ -65,6 +65,7 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
     { id: 'google_meet', title: 'Google Meet', icon: 'logo-google', onPress: () => { onClose(); router.push('/live/googleMeet'); } },
     { id: '3', title: 'Public Profile', icon: 'person-circle-outline', onPress: () => { onClose(); onViewPublicProfile(); } },
     { id: 'leaderboard', title: 'Leaderboard', icon: 'trophy-outline', onPress: () => { onClose(); router.push('/leaderboard'); } },
+    { id: 'analytics', title: 'Analytics', icon: 'stats-chart-outline', onPress: () => { onClose(); router.push(`/instructor/analytics?id=${user?.id}`); } },
     { id: 'wallet', title: 'Wallet', icon: 'wallet-outline', onPress: () => { onClose(); router.push('/instructor/wallet'); } },
     { id: 'referrals', title: 'Referrals', icon: 'share-social-outline', onPress: () => { onClose(); router.push('/instructor/referrals'); } },
     { id: '35', title: 'Notifications', icon: 'notifications-outline', onPress: () => { onClose(); router.push('/notifications'); } },
@@ -90,7 +91,7 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
               <Text style={styles.menuProfileName} numberOfLines={1}>{firstName} {lastName}</Text>
             </View>
           </View>
-          <View style={styles.menuItems}>
+          <ScrollView style={styles.menuItems} showsVerticalScrollIndicator={false}>
             <Text style={styles.menuSubtitle}>MENU</Text>
             {menuItems.map((item, index) => (
               <TouchableOpacity key={item.id} style={[styles.menuItem, index === 0 && styles.activeMenuItem]} onPress={item.onPress}>
@@ -104,7 +105,7 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -733,6 +734,17 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
 
 
+  const statsCards = [
+    { title: 'Total Students', value: statsData.totalStudents.toLocaleString(), icon: 'people', iconColor: '#8A2BE2' },
+    { title: 'Available Balance', value: `$${statsData.availableBalance.toLocaleString()}`, icon: 'wallet', iconColor: '#4CAF50' },
+    { title: 'Course Rating', value: statsData.courseRating.toFixed(1), icon: 'star', iconColor: '#FFD700' },
+    { title: 'Lifetime Earnings', value: `$${statsData.lifetimeEarnings.toLocaleString()}`, icon: 'cash', iconColor: '#E91E63' },
+    { title: 'Live Sessions', value: statsData.liveSessions.toString(), icon: 'videocam', iconColor: '#2196F3' },
+    { title: 'Pending Assignments', value: statsData.pendingAssignments.toString(), icon: 'document-text', iconColor: '#FF9800' },
+    { title: 'Total Reviews', value: statsData.totalReviews.toLocaleString(), icon: 'chatbox-ellipses', iconColor: '#00BCD4' },
+    { title: 'Total Courses', value: uploadedCourses.length.toString(), icon: 'library', iconColor: '#8A2BE2' },
+  ];
+
   return (
     <View style={styles.container}>
       {/* Custom Header */}
@@ -956,18 +968,9 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           </View>
         </LinearGradient>
 
-        {/* Stats Cards */}
         <View style={styles.statsContainer}>
-          {[
-            { id: '1', title: 'Total Students', value: statsData.totalStudents.toLocaleString(), icon: 'people', iconColor: '#6d28d9' },
-            { id: '2', title: 'Course Rating', value: `${statsData.courseRating.toFixed(1)} (${statsData.totalReviews || 0})`, icon: 'star', iconColor: '#6d28d9' },
-            { id: '3', title: 'My Courses', value: uploadedCourses.length.toString(), icon: 'library', iconColor: '#6d28d9' },
-            { id: '4', title: 'Available Balance', value: `$${statsData.availableBalance.toLocaleString()}`, icon: 'wallet', iconColor: '#6d28d9' },
-            { id: '5', title: 'Lifetime Earnings', value: `$${statsData.lifetimeEarnings.toLocaleString()}`, icon: 'cash-outline', iconColor: '#6d28d9' },
-            { id: '6', title: 'Pending Assignments', value: statsData.pendingAssignments.toString(), icon: 'clipboard', iconColor: '#6d28d9' },
-            { id: '7', title: 'Live Sessions', value: statsData.liveSessions.toString(), icon: 'videocam', iconColor: '#6d28d9' },
-          ].map((stat) => (
-            <View key={stat.id} style={styles.statCard}>
+          {statsCards.map((stat, index) => (
+            <View key={index} style={styles.statCard}>
               <View style={styles.statIconContainer}>
                 <Ionicons name={stat.icon as any} size={20} color={stat.iconColor} />
               </View>
