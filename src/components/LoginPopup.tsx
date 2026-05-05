@@ -216,7 +216,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
     <View style={styles.socialContainer}>
       <TouchableOpacity style={styles.button} onPress={handlePhoneLogin}>
         <Ionicons name="person-outline" size={24} color="black" style={styles.buttonIcon} />
-        <Text style={styles.buttonText}>Continue with Email or Phone</Text>
+        <Text style={styles.buttonText}>Continue with Email</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.button} onPress={handleGoogleLogin}>
         <Image source={{ uri: 'https://developers.google.com/identity/images/g-logo.png' }} style={[styles.buttonIcon, { width: 22, height: 22 }]} />
@@ -233,16 +233,8 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
 
   const renderFooter = () => (
     <View style={styles.footer}>
-      <View style={styles.legalRow}>
-        <TouchableOpacity onPress={toggleCheckbox}>
-          <Ionicons name={agreedToTerms ? "checkbox" : "square-outline"} size={20} color={agreedToTerms ? "#8A2BE2" : "#666"} />
-        </TouchableOpacity>
-        <Text style={styles.legalText}>
-          By continuing, you agree to our <Text style={styles.linkText} onPress={openTerms}>Terms</Text> and <Text style={styles.linkText} onPress={openPrivacy}>Privacy Policy</Text>.
-        </Text>
-      </View>
       <View style={styles.signupContainer}>
-        <Text style={styles.signupText}>New to WeVersity?</Text>
+        <Text style={styles.signupText}>Don't have an account?</Text>
         <TouchableOpacity onPress={handleSignUpPress}>
           <Text style={styles.signupLink}> Create Account</Text>
         </TouchableOpacity>
@@ -277,7 +269,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
               
               <View style={styles.header}>
                 <Image source={{ uri: 'https://res.cloudinary.com/dn93gd6yw/image/upload/v1764913053/weversity/aekx2f9ciildnnnmg62p.jpg' }} style={styles.logo} />
-                <Text style={styles.title}>{showPhoneLogin ? 'Welcome Back' : 'Log in to Grow'}</Text>
+                <Text style={styles.title}>{showPhoneLogin ? 'Welcome Back' : 'Log in to WeVersity'}</Text>
               </View>
             </View>
           </GestureDetector>

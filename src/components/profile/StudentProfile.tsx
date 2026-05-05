@@ -9,6 +9,7 @@ import { coinService } from '@/src/services/coinService';
 import NotificationIcon from '../notifications/NotificationIcon';
 import DailyRewardModal from '../rewards/DailyRewardModal';
 import WeCoinIcon from '../common/WeCoinIcon';
+import ReferralCard from './ReferralCard';
 
 const { width } = Dimensions.get('window');
 const LIVE_CARD_WIDTH = width * 0.85;
@@ -690,7 +691,7 @@ const StudentProfile = () => {
           </View>
         )}
 
-
+        <ReferralCard role="Student" />
       </ScrollView>
       <SideMenu visible={menuVisible} onClose={() => setMenuVisible(false)} router={router} profileData={profileData} />
       

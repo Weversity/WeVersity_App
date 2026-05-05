@@ -7,46 +7,58 @@ if (!supabaseUrl) {
 }
 export const chatService = {
     // Fetch inbox conversations (chat groups)
-    // Note: Instructors fetch created groups; Students fetch groups they are members of.
+    // Instructors see only communities for courses they own.
+    // Students see only communities for courses they are enrolled in.
     async fetchInboxConversations(currentUserId: string, role: string = 'student'): Promise<any[]> {
         try {
-            let groups = [];
+            let groups: any[] = [];
 
-            if (role === 'instructor') {
-                // Instructor: Fetch groups where creator_id is current user, include course details
-                const { data, error } = await supabase
-                    .from('chat_groups')
-                    .select(`
+            // Fetch groups via group_members junction table
+            // instructor_id is fetched from courses so we can filter by ownership
+            const { data, error } = await supabase
+                .from('group_members')
+                .select(`
+                    group:chat_groups(
                         *,
-                        courses(title, image_url),
+                        courses(title, image_url, instructor_id),
                         members:group_members(
                             user:profiles(id, first_name, last_name, avatar_url)
                         )
-                    `)
-                    .eq('creator_id', currentUserId)
-                    .order('created_at', { ascending: false });
+                    )
+                `)
+                .eq('user_id', currentUserId);
 
-                if (error) throw error;
-                groups = data || [];
+            if (error) throw error;
+            groups = data ? data.map((item: any) => item.group).filter(Boolean) : [];
 
+            // ── Role-Based Filter ──────────────────────────────────────────────
+            if (role === 'instructor') {
+                // Instructor: only see communities of courses they OWN
+                groups = groups.filter((g: any) =>
+                    g.courses?.instructor_id === currentUserId
+                );
+                console.log(`[chatService] Instructor filter → ${groups.length} group(s)`);
             } else {
-                // Student: Fetch groups via group_members junction table
-                const { data, error } = await supabase
-                    .from('group_members')
-                    .select(`
-                        group:chat_groups(
-                            *,
-                            courses(title, image_url),
-                            members:group_members(
-                                user:profiles(id, first_name, last_name, avatar_url)
-                            )
-                        )
-                    `)
-                    .eq('user_id', currentUserId);
+                // Student: only see communities of courses they are ENROLLED in
+                const { data: enrollments, error: enrollErr } = await supabase
+                    .from('enrollments')
+                    .select('course_id')
+                    .eq('student_id', currentUserId);
 
-                if (error) throw error;
-                groups = data ? data.map(item => item.group).filter(Boolean) : [];
+                if (enrollErr) {
+                    console.warn('chatService: Failed to fetch enrollments.', enrollErr);
+                }
+
+                const enrolledCourseIds = new Set(
+                    (enrollments || []).map((e: any) => e.course_id)
+                );
+
+                groups = groups.filter((g: any) =>
+                    g.course_id && enrolledCourseIds.has(g.course_id)
+                );
+                console.log(`[chatService] Student filter → ${groups.length} group(s) from ${enrolledCourseIds.size} enrolled course(s)`);
             }
+            // ──────────────────────────────────────────────────────────────────
 
             // 1. Fetch unread counts for all these groups using the RPC
             const { data: unreadData, error: unreadError } = await supabase
@@ -65,7 +77,7 @@ export const chatService = {
             }
 
             // Map groups to a standard format for the Inbox
-            return groups.map(group => {
+            return groups.map((group: any) => {
                 let displayName = group.courses?.title || (group as any).name;
                 let displayAvatar = group.courses?.image_url || (group as any).image;
 
@@ -458,20 +470,13 @@ export const chatService = {
     },
 
     // Get the total unread count across all conversations for a user
-    async getTotalUnreadCount(userId: string): Promise<number> {
+    async getTotalUnreadCount(userId: string, role: string = 'student'): Promise<number> {
         try {
-            const { data, error } = await supabase
-                .rpc('get_unread_counts', { p_user_id: userId });
-
-            if (error) {
-                console.warn('chatService: Failed to fetch total unread count.', error);
-                return 0;
-            }
-
-            if (!data) return 0;
-
-            // Sum up the unread_count from each group/conversation
-            return data.reduce((sum: number, row: any) => sum + (Number(row.unread_count) || 0), 0);
+            // Re-use fetchInboxConversations to ensure we only count what the user actually sees as "Groups"
+            const convs = await this.fetchInboxConversations(userId, role);
+            const total = convs.filter((c: any) => c.isGroup).reduce((sum: number, c: any) => sum + (Number(c.unread_count) || 0), 0);
+            console.log(`[getTotalUnreadCount] Role: ${role}, Convs Length: ${convs.length}, Total Unread: ${total}`);
+            return total;
         } catch (error: any) {
             console.error('Error in getTotalUnreadCount:', error.message);
             return 0;

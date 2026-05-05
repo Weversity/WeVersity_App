@@ -75,6 +75,7 @@ const AuthForm: React.FC<{
         const [confirmPassword, setConfirmPassword] = useState('');
         const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
         const [loginMethod, setLoginMethod] = useState<'email' | 'phone'>('email');
+        const [isTermsAccepted, setIsTermsAccepted] = useState(false);
 
         const validateForm = () => {
             let newErrors: { [key: string]: string } = {};
@@ -174,6 +175,10 @@ const AuthForm: React.FC<{
         }
 
         const handleSignUp = async () => {
+            if (!isTermsAccepted) {
+                Alert.alert("Privacy Policy", "Please check these privacy policy before signup");
+                return;
+            }
             if (!validateForm()) return;
 
             setIsLoading(true);
@@ -313,46 +318,18 @@ const AuthForm: React.FC<{
                     </>
                 )}
 
-                <View style={styles.tabContainer}>
-                    <TouchableOpacity style={[styles.tabButton, loginMethod === 'email' && styles.tabButtonActive]} onPress={() => setLoginMethod('email')}>
-                        <Text style={[styles.tabText, loginMethod === 'email' && styles.tabTextActive]}>Email</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.tabButton, loginMethod === 'phone' && styles.tabButtonActive]} onPress={() => setLoginMethod('phone')}>
-                        <Text style={[styles.tabText, loginMethod === 'phone' && styles.tabTextActive]}>Phone Number</Text>
-                    </TouchableOpacity>
+                <View style={{ width: '100%' }}>
+                    <TextInput
+                        style={[styles.input, errors.email ? styles.errorInput : null]}
+                        placeholder="Email"
+                        value={email}
+                        onChangeText={(text) => { setEmail(text); if (errors.email) setErrors({ ...errors, email: '' }) }}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        placeholderTextColor="#666"
+                    />
+                    {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
                 </View>
-
-                {loginMethod === 'email' ? (
-                    <View style={{ width: '100%' }}>
-                        <TextInput
-                            style={[styles.input, errors.email ? styles.errorInput : null]}
-                            placeholder="Email"
-                            value={email}
-                            onChangeText={(text) => { setEmail(text); if (errors.email) setErrors({ ...errors, email: '' }) }}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            placeholderTextColor="#666"
-                        />
-                        {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-                    </View>
-                ) : (
-                    <View style={{ width: '100%' }}>
-                        <PhoneInput
-                            ref={phoneInput}
-                            defaultValue={phoneNumber}
-                            defaultCode="US"
-                            layout="first"
-                            onChangeFormattedText={(text) => setPhoneNumber(text)}
-                            containerStyle={styles.phoneInputContainer}
-                            textContainerStyle={styles.phoneInputTextContainer}
-                            flagButtonStyle={styles.phoneInputFlagButton}
-                            countryPickerButtonStyle={styles.phoneInputCountryPickerButton}
-                            withDarkTheme={false}
-                            withShadow
-                            autoFocus={false}
-                        />
-                    </View>
-                )}
 
                 <View style={styles.inputContainer}>
                     <TextInput
@@ -394,9 +371,18 @@ const AuthForm: React.FC<{
                         <Text style={styles.buttonText}>Login</Text>
                     )}
                 </TouchableOpacity>
-                {showSignUpLink && <TouchableOpacity onPress={() => { setIsSignUp(true); setErrors({}); }}>
-                    <Text style={styles.toggleText}>Don&apos;t have an account? <Text style={{ fontWeight: 'bold' }}>Sign Up</Text></Text>
-                </TouchableOpacity>}
+                {showSignUpLink && renderFooter()}
+            </View>
+        );
+
+        const renderFooter = () => (
+            <View style={styles.footer}>
+              <View style={styles.signupContainer}>
+                <Text style={styles.signupText}>Don't have an account?</Text>
+                <TouchableOpacity onPress={() => { setIsSignUp(true); setErrors({}); }}>
+                  <Text style={styles.signupLink}> Create Account</Text>
+                </TouchableOpacity>
+              </View>
             </View>
         );
 
@@ -510,6 +496,19 @@ const AuthForm: React.FC<{
                         </TouchableOpacity>
                     </View>
                     {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
+                </View>
+
+                <View style={styles.legalRow}>
+                    <TouchableOpacity onPress={() => setIsTermsAccepted(!isTermsAccepted)}>
+                        <Ionicons 
+                            name={isTermsAccepted ? "checkbox" : "square-outline"} 
+                            size={20} 
+                            color={isTermsAccepted ? "#8A2BE2" : "#666"} 
+                        />
+                    </TouchableOpacity>
+                    <Text style={styles.legalText}>
+                        By continuing, you agree to our <Text style={styles.linkText} onPress={() => router.push('/terms-of-service')}>Terms</Text> and <Text style={styles.linkText} onPress={() => router.push('/privacy-policy')}>Privacy Policy</Text>.
+                    </Text>
                 </View>
 
                 <TouchableOpacity
@@ -859,6 +858,40 @@ const styles = StyleSheet.create({
         color: '#666',
         fontSize: 14,
         fontWeight: '600',
+    },
+    footer: {
+        width: '100%',
+        marginTop: 20,
+    },
+    legalRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 15,
+        marginBottom: 10,
+        gap: 10,
+    },
+    legalText: {
+        flex: 1,
+        fontSize: 12,
+        color: '#666',
+    },
+    linkText: {
+        color: '#8A2BE2',
+        fontWeight: 'bold',
+    },
+    signupContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    signupText: {
+        fontSize: 15,
+        color: '#666',
+    },
+    signupLink: {
+        color: '#8A2BE2',
+        fontWeight: 'bold',
+        fontSize: 15,
     },
 });
 

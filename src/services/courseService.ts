@@ -257,105 +257,78 @@ export const courseService = {
         }
     },
 
-    // Fetch real-time statistics using Supabase Edge Function + Manual Fallback (Official Logic) - REVENUE REMOVED
+    // Hybrid logic: API for core stats, Supabase for real-time ratings
     async fetchInstructorStats(instructorId: string): Promise<InstructorStats> {
+        console.log('--- START FETCHING HYBRID STATS ---', { instructorId });
+        
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return { totalStudents: 0, courseRating: 0, totalReviews: 0 };
+            if (!session) {
+                console.warn('No active session found');
+                return { totalStudents: 0, courseRating: 0, totalReviews: 0, lifetimeEarnings: 0, availableBalance: 0, liveSessions: 0, pendingAssignments: 0 };
+            }
 
-            const accessToken = session.access_token;
-            let totalStudents = 0;
-            let avgRating = 0;
-            let totalReviews = 0;
-            let edgeFunctionSuccess = false;
-
-            // STEP 1: Try Invoke Edge Function
+            // 1. Fetch core stats from Vercel API (for correct student counts, etc.)
+            let apiStats: any = {};
             try {
-                const { data: analyticsData, error: analyticsError } = await supabase.functions.invoke('get-instructor-analytics', {
-                    body: { instructor_id: instructorId },
+                const response = await fetch('https://get-instructor-analytics.vercel.app/', {
+                    method: 'GET',
                     headers: {
-                        Authorization: `Bearer ${accessToken}`,
+                        'Authorization': `Bearer ${session.access_token}`,
                         'Content-Type': 'application/json'
                     }
                 });
 
-                if (!analyticsError && analyticsData) {
-                    // Override totalStudents with the Edge Function ONLY as a fallback
-                    // totalStudents = analyticsData.totalStudents || analyticsData.total_students || 0;
-
-                    // Handle rating which might be string or number
-                    const rawRating = analyticsData.courseRating || analyticsData.average_rating || 0;
-                    avgRating = parseFloat(String(rawRating));
-
-                    totalReviews = parseInt(String(analyticsData.totalReviews || analyticsData.total_reviews || 0));
-
-                    if (avgRating > 0 || totalReviews > 0) edgeFunctionSuccess = true;
+                if (response.ok) {
+                    apiStats = await response.json();
+                    console.log('--- API STATS RECEIVED ---', apiStats);
                 }
-            } catch (edgeError) {
-                // Silent fallback
+            } catch (apiErr) {
+                console.error('Vercel API fetch error:', apiErr);
             }
 
-            // ALWAYS Calculate Total Enrollments (Not Unique Students) Unconditionally
-            // Use a direct join query to find all enrollments for courses by this instructor
+            // 2. Fetch real-time ratings from Supabase (as API might have old data)
+            let realTimeRating = 0;
+            let realTimeReviews = 0;
             try {
-                const { data: enrollmentData, error: enrollmentError } = await supabase
-                    .from('enrollments')
-                    .select(`
-                        student_id,
-                        courses!inner (
-                            instructor_id
-                        )
-                    `)
-                    .eq('courses.instructor_id', instructorId);
-
-                if (enrollmentData) {
-                    totalStudents = enrollmentData.length;
-                }
-            } catch (err) {
-                console.error("Error fetching absolute total students", err);
-            }
-
-            // STEP 2: Manual Fallback for Ratings (If Edge Function fails or returns empty)
-            if (!edgeFunctionSuccess) {
-
-                // B. Calculate Ratings & Reviews
-                const { data: courses } = await supabase
+                const { data: coursesWithReviews } = await supabase
                     .from('courses')
-                    .select(`
-                        id,
-                        reviews (rating)
-                    `)
+                    .select('reviews (rating)')
                     .eq('instructor_id', instructorId);
 
-                if (courses && courses.length > 0) {
-                    let totalRatingSum = 0;
-                    let totalRatingCount = 0;
-
-                    courses.forEach((c: any) => {
-                        if (c.reviews && Array.isArray(c.reviews)) {
-                            c.reviews.forEach((r: any) => {
-                                if (r.rating) {
-                                    totalRatingSum += r.rating;
-                                    totalRatingCount++;
-                                }
-                            });
-                        }
+                if (coursesWithReviews) {
+                    let totalSum = 0;
+                    let totalCount = 0;
+                    coursesWithReviews.forEach((c: any) => {
+                        c.reviews?.forEach((r: any) => {
+                            totalSum += r.rating;
+                            totalCount++;
+                        });
                     });
-
-                    avgRating = totalRatingCount > 0 ? (totalRatingSum / totalRatingCount) : 0;
-                    totalReviews = totalRatingCount;
+                    realTimeRating = totalCount > 0 ? (totalSum / totalCount) : 0;
+                    realTimeReviews = totalCount;
                 }
+            } catch (dbErr) {
+                console.error("Supabase Rating Fetch Error:", dbErr);
+                // Fallback to API rating if DB fails
+                realTimeRating = apiStats.courseRating || apiStats.avgRating || 0;
+                realTimeReviews = apiStats.totalReviews || 0;
             }
 
+            // Map API response to InstructorStats interface with Real-time Rating override
             return {
-                totalStudents,
-                courseRating: parseFloat(avgRating.toFixed(1)),
-                totalReviews
+                totalStudents: apiStats.totalStudents || 0,
+                courseRating: parseFloat(realTimeRating.toFixed(1)),
+                totalReviews: realTimeReviews || apiStats.totalReviews || 0,
+                lifetimeEarnings: apiStats.lifetimeEarnings || 0,
+                availableBalance: apiStats.availableBalance || 0,
+                liveSessions: apiStats.liveSessions || 0,
+                pendingAssignments: apiStats.pendingAssignments || 0
             };
 
         } catch (error: any) {
-            console.error('fetchInstructorStats error:', error.message);
-            return { totalStudents: 0, courseRating: 0, totalReviews: 0 };
+            console.error('CRITICAL: Error in hybrid fetchInstructorStats:', error.message);
+            return { totalStudents: 0, courseRating: 0, totalReviews: 0, lifetimeEarnings: 0, availableBalance: 0, liveSessions: 0, pendingAssignments: 0 };
         }
     },
 

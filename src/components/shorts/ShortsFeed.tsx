@@ -97,11 +97,15 @@ export default function ShortsFeed() {
     };
 
     const renderItem = useCallback(({ item, index }: { item: any; index: number }) => {
+        const isVisible = index === currentVisibleIndex;
+        const shouldLoad = Math.abs(index - currentVisibleIndex) <= 1;
+
         return (
             <View style={{ height: containerHeight }}>
                 <ShortFeedItem
                     item={item}
-                    isVisible={index === currentVisibleIndex}
+                    isVisible={isVisible}
+                    shouldLoad={shouldLoad}
                     onRefresh={() => loadShorts(true)}
                     isMuted={isMuted}
                     setIsMuted={setIsMuted}

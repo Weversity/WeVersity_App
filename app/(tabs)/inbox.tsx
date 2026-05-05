@@ -1,5 +1,6 @@
 import EmptyChatState from '@/src/components/chat/EmptyChatState';
 import UnreadEmptyState from '@/src/components/chat/UnreadEmptyState';
+import CommunityEmptyState from '@/src/components/chat/CommunityEmptyState';
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
 import { Conversation } from '@/src/types';
@@ -199,40 +200,6 @@ const renderEmptyMessages = (message: string) => (
   </View>
 );
 
-const ChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => {
-  const directChats = conversations.filter(c => !c.isGroup);
-
-  if (directChats.length === 0) {
-    return (
-      <View style={{ flex: 1 }}>
-        <FlatList
-          data={[]}
-          renderItem={null}
-          ListEmptyComponent={EmptyChatState}
-          contentContainerStyle={{ flexGrow: 1 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
-          }
-        />
-      </View>
-    );
-  }
-
-  return (
-    <FlatList
-      data={directChats}
-      renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.listContent}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
-      }
-    />
-  );
-});
-
 const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh, onViewAll }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void; onViewAll: () => void }) => (
   <FlatList
     data={conversations.filter(c => (c.unread ?? 0) > 0)}
@@ -247,24 +214,24 @@ const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh, onVie
   />
 ));
 
-const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh, role }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void; role: string | null }) => (
   <FlatList
     data={conversations.filter((c) => c.isGroup)}
     renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
     keyExtractor={(item) => item.id}
-    contentContainerStyle={styles.listContent}
+    contentContainerStyle={[styles.listContent, conversations.filter(c => c.isGroup).length === 0 && { flexGrow: 1 }]}
     showsVerticalScrollIndicator={false}
     refreshControl={
       <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
     }
-    ListEmptyComponent={() => renderEmptyMessages('No community groups found.')}
+    ListEmptyComponent={<CommunityEmptyState role={role} />}
   />
 ));
 
 export default function InboxScreen() {
   const router = useRouter();
   const layout = useWindowDimensions();
-  const { user, setUnreadCount } = useAuth();
+  const { user, role, setUnreadCount } = useAuth();
 
   // NOTE: isFocused can be used for manual refetch logic if needed, but per latest plan 
   // we primarily rely on mount/auth events to keep it simple.
@@ -273,25 +240,21 @@ export default function InboxScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [routes, setRoutes] = useState([
-    { key: 'chats', title: 'Chats' },
-    { key: 'unread', title: 'Unread' },
     { key: 'communities', title: 'Groups' },
+    { key: 'unread', title: 'Unread' },
   ]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Calculate unread counts for each tab
   const tabCounts = useMemo(() => {
-    const counts = { chats: 0, unread: 0, communities: 0 };
+    const counts = { unread: 0, communities: 0 };
     conversations.forEach(conv => {
       const uCount = Number(conv.unread) || 0;
       if (uCount > 0) {
         if (conv.isGroup) {
           counts.communities += uCount;
-        } else {
-          counts.chats += uCount;
         }
         counts.unread += uCount;
       }
@@ -397,7 +360,10 @@ export default function InboxScreen() {
       }
 
       console.log(`🔄 [Inbox] Fetching conversations...`);
-      const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
+      // role from AuthContext: 'Instructor' | 'Student' | null — lowercase for chatService
+      const userRole = role?.toLowerCase() || 'student';
+      console.log(`🔄 [Inbox] Fetching as role: ${userRole}`);
+      const inboxData = await chatService.fetchInboxConversations(user.id, userRole);
       // console.log('📦 [Inbox] Raw API Data:', JSON.stringify(inboxData, null, 2));
 
       const enhancedInboxData = await Promise.all(inboxData.map(async (conv) => {
@@ -432,6 +398,10 @@ export default function InboxScreen() {
       }));
 
       let mapped = enhancedInboxData.map(formatConversation);
+      
+      // Filter out 1-on-1 personal chats completely to adhere to privacy rules
+      mapped = mapped.filter(c => c.isGroup);
+      
       console.log('✅ [Inbox] Mapped Conversations:', mapped.map(c => ({ name: c.name, unread: c.unread, isGroup: c.isGroup })));
 
       setConversations(mapped.sort((a: Conversation, b: Conversation) => b.timestamp - a.timestamp));
@@ -441,7 +411,7 @@ export default function InboxScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id, formatConversation, conversations.length]);
+  }, [user?.id, role, formatConversation, conversations.length]);
 
   // 1. Initial Load Effect
   useEffect(() => {
@@ -524,12 +494,10 @@ export default function InboxScreen() {
 
   const renderScene = useCallback(({ route }: { route: { key: string } }) => {
     switch (route.key) {
-      case 'chats':
-        return <ChatsRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       case 'unread':
         return <UnreadRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} onViewAll={() => setIndex(0)} />;
       case 'communities':
-        return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
+        return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} role={role} />;
       default:
         return null;
     }

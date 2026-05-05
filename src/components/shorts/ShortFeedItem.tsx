@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Dimensions, Image, Animated as RNAnimated, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Image, Animated as RNAnimated, Share, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import Animated, { Extrapolate, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
@@ -39,6 +39,7 @@ interface ShortItem {
 interface ShortFeedItemProps {
     item: ShortItem;
     isVisible: boolean;
+    shouldLoad: boolean;
     onRefresh: () => void;
     isMuted: boolean;
     setIsMuted: (muted: boolean) => void;
@@ -116,16 +117,17 @@ const ShortProgressBar = React.memo(({ player, isVisible }: { player: any, isVis
     );
 });
 
-export default function ShortFeedItem({
+const ShortFeedItem = ({
     item,
     isVisible,
+    shouldLoad,
     onRefresh,
     isMuted,
     setIsMuted,
     onCommentsVisibilityChange,
     containerHeight = Dimensions.get('window').height,
     containerWidth = Dimensions.get('window').width
-}: ShortFeedItemProps) {
+}: ShortFeedItemProps) => {
     const router = useRouter();
     const { user } = useAuth();
     const isFocused = useIsFocused();
@@ -135,6 +137,7 @@ export default function ShortFeedItem({
     const [likesCount, setLikesCount] = useState(item.likes_count || 0);
     const [userReaction, setUserReaction] = useState<'like' | null>(null);
     const [showComments, setShowComments] = useState(false);
+    const [hasError, setHasError] = useState(false);
 
     const sheetRef = useRef<BottomSheetModal>(null);
     const animatedIndex = useSharedValue<number>(-1);
@@ -198,12 +201,27 @@ export default function ShortFeedItem({
     const mediaType = getMediaType();
     const isVideo = mediaType === 'video';
 
-    const player = useVideoPlayer(isVideo ? item.video_url : '', player => {
+    const videoSource = isVideo && shouldLoad ? item.video_url : null;
+    const player = useVideoPlayer(videoSource, player => {
         if (isVideo) {
             player.loop = true;
             player.muted = isMuted;
         }
     });
+
+    useEffect(() => {
+        if (!player) return;
+        const sub = player.addListener('statusChange', (event: any) => {
+            if (event.status === 'error' || player.status === 'error') {
+                setHasError(true);
+            }
+        });
+        return () => sub.remove();
+    }, [player]);
+
+    useEffect(() => {
+        setHasError(false);
+    }, [item.video_url]);
 
     const toggleBioExpansion = () => {
         if (!isExpanded) {
@@ -247,7 +265,7 @@ export default function ShortFeedItem({
     const checkUserReaction = async () => {
         if (!user) return;
         const reaction = await videoService.getUserReaction(item.id, user.id);
-        setUserReaction(reaction);
+        setUserReaction(reaction as 'like' | null);
     };
 
     const togglePlay = () => {
@@ -301,17 +319,30 @@ export default function ShortFeedItem({
             <Animated.View style={[{ width: containerWidth, height: containerHeight, position: 'absolute', top: 0, left: 0, zIndex: 1 }, videoAnimatedStyle]}>
                 <ShortMediaFrame containerWidth={containerWidth} containerHeight={containerHeight}>
                     <TouchableOpacity activeOpacity={1} onPress={togglePlay} style={[styles.videoContainer, { height: '100%', width: '100%' }]}>
-                        {isVideo ? (
+                        {hasError ? (
+                            <View style={[styles.video, styles.errorContainer]}>
+                                <Ionicons name="warning-outline" size={60} color="#FFD700" style={{ marginBottom: 16 }} />
+                                <Text style={styles.errorText}>
+                                    🔒 This video has been removed by Admin or restricted due to Privacy Policy violations.
+                                </Text>
+                            </View>
+                        ) : isVideo ? (
                             <>
-                                <VideoView player={player} style={[styles.video, { height: '100%' }]} contentFit="contain" nativeControls={false} />
-                                {!isPlaying && (
+                                {shouldLoad ? (
+                                    <VideoView player={player} style={[styles.video, { height: '100%' }]} contentFit="contain" nativeControls={false} />
+                                ) : (
+                                    <View style={[styles.video, { height: '100%', justifyContent: 'center', alignItems: 'center' }]}>
+                                        <ActivityIndicator size="large" color="#FFD700" />
+                                    </View>
+                                )}
+                                {!isPlaying && shouldLoad && (
                                     <RNAnimated.View style={[styles.playIconContainer, { opacity: playIconOpacity }]}>
                                         <Ionicons name="play" size={50} color="rgba(255,255,255,0.7)" />
                                     </RNAnimated.View>
                                 )}
                             </>
                         ) : (
-                            <Image source={{ uri: item.video_url }} style={[styles.video, { height: '100%' }]} resizeMode="contain" />
+                            <Image source={{ uri: item.video_url }} style={[styles.video, { height: '100%' }]} resizeMode="contain" onError={() => setHasError(true)} />
                         )}
                     </TouchableOpacity>
                 </ShortMediaFrame>
@@ -347,55 +378,59 @@ export default function ShortFeedItem({
                     )}
                 </View>
 
-                <View style={styles.rightContainer}>
-                    <TouchableOpacity onPress={() => handleReaction('like')} style={styles.actionButton}>
-                        <RNAnimated.View style={[styles.iconCircle, { transform: [{ scale: likeScale }] }]}>
-                            <Ionicons name={userReaction === 'like' ? "heart" : "heart-outline"} size={24} color={userReaction === 'like' ? "#ff2d55" : "white"} />
-                        </RNAnimated.View>
-                        <Text style={styles.actionText}>{likesCount}</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.actionButton} onPress={() => {
-                        setShowComments(true);
-                        sheetRef.current?.present();
-                    }}>
-                        <View style={styles.iconCircle}>
-                            <Ionicons name="chatbox-ellipses-outline" size={24} color="white" />
-                        </View>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
-                        <View style={styles.iconCircle}>
-                            <Ionicons name="share-social-outline" size={24} color="white" />
-                        </View>
-                        <Text style={styles.actionText}>Share</Text>
-                    </TouchableOpacity>
-
-                    {isVideo && (
-                        <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
-                            <View style={styles.iconCircle}>
-                                <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={24} color="white" />
-                            </View>
-                            <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
+                {!hasError && (
+                    <View style={styles.rightContainer}>
+                        <TouchableOpacity onPress={() => handleReaction('like')} style={styles.actionButton}>
+                            <RNAnimated.View style={[styles.iconCircle, { transform: [{ scale: likeScale }] }]}>
+                                <Ionicons name={userReaction === 'like' ? "heart" : "heart-outline"} size={24} color={userReaction === 'like' ? "#ff2d55" : "white"} />
+                            </RNAnimated.View>
+                            <Text style={styles.actionText}>{likesCount}</Text>
                         </TouchableOpacity>
-                    )}
-                    <TouchableOpacity onPress={onRefresh} style={styles.actionButton}>
-                        <View style={styles.iconCircle}>
-                            <Ionicons name="sync" size={24} color="white" />
-                        </View>
-                        <Text style={styles.actionText}>Reload</Text>
-                    </TouchableOpacity>
-                </View>
+
+                        <TouchableOpacity style={styles.actionButton} onPress={() => {
+                            setShowComments(true);
+                            sheetRef.current?.present();
+                        }}>
+                            <View style={styles.iconCircle}>
+                                <Ionicons name="chatbox-ellipses-outline" size={24} color="white" />
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+                            <View style={styles.iconCircle}>
+                                <Ionicons name="share-social-outline" size={24} color="white" />
+                            </View>
+                            <Text style={styles.actionText}>Share</Text>
+                        </TouchableOpacity>
+
+                        {isVideo && (
+                            <TouchableOpacity onPress={toggleMute} style={styles.actionButton}>
+                                <View style={styles.iconCircle}>
+                                    <Ionicons name={isMuted ? "volume-mute" : "volume-high"} size={24} color="white" />
+                                </View>
+                                <Text style={styles.actionText}>{isMuted ? 'Mute' : 'Unmute'}</Text>
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity onPress={onRefresh} style={styles.actionButton}>
+                            <View style={styles.iconCircle}>
+                                <Ionicons name="sync" size={24} color="white" />
+                            </View>
+                            <Text style={styles.actionText}>Reload</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
             </Animated.View>
 
-            {isVideo && <ShortProgressBar player={player} isVisible={isVisible} containerWidth={containerWidth} />}
+            {isVideo && !hasError && <ShortProgressBar player={player} isVisible={isVisible} containerWidth={containerWidth} />}
 
-            <FloatingRewardCoin 
-                videoId={item.id}
-                isVisible={isVisible}
-                mediaType={mediaType}
-                player={player}
-            />
+            {!hasError && (
+                <FloatingRewardCoin 
+                    videoId={item.id}
+                    isVisible={isVisible}
+                    mediaType={mediaType}
+                    player={player}
+                />
+            )}
 
             <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
                 <CommentsSheet
@@ -418,6 +453,8 @@ const styles = StyleSheet.create({
     container: { backgroundColor: 'black' },
     videoContainer: { width: '100%' },
     video: { width: '100%' },
+    errorContainer: { height: '100%', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(20,20,20,0.9)', padding: 30 },
+    errorText: { color: '#fff', fontSize: 16, textAlign: 'center', lineHeight: 24, fontWeight: '600' },
     playIconContainer: { position: 'absolute', top: '50%', left: '50%', transform: [{ translateX: -25 }, { translateY: -25 }] },
     rightContainer: { alignItems: 'center', gap: 16 },
     actionButton: { alignItems: 'center', gap: 4 },
@@ -439,3 +476,16 @@ const styles = StyleSheet.create({
     timeText: { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '600' },
     bottomUIContainer: { position: 'absolute', bottom: 28, left: 0, right: 0, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 15 }
 });
+
+const areEqual = (prevProps: ShortFeedItemProps, nextProps: ShortFeedItemProps) => {
+    return (
+        prevProps.item.id === nextProps.item.id &&
+        prevProps.isVisible === nextProps.isVisible &&
+        prevProps.shouldLoad === nextProps.shouldLoad &&
+        prevProps.isMuted === nextProps.isMuted &&
+        prevProps.containerHeight === nextProps.containerHeight &&
+        prevProps.containerWidth === nextProps.containerWidth
+    );
+};
+
+export default React.memo(ShortFeedItem, areEqual);

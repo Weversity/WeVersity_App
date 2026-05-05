@@ -70,7 +70,7 @@ export default function TabLayout() {
         name="inbox"
         options={{
           title: 'Inbox',
-          tabBarBadge: unreadMessagesCount > 0 ? (unreadMessagesCount > 99 ? '99+' : unreadMessagesCount) : undefined,
+          tabBarBadge: unreadMessagesCount > 0 ? String(unreadMessagesCount) : undefined,
           tabBarBadgeStyle: {
             backgroundColor: '#8A2BE2',
             color: '#fff',

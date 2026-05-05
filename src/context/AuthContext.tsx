@@ -210,12 +210,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user?.id) return;
     try {
       console.log('[AuthContext] Refreshing total unread messages...');
-      const count = await chatService.getTotalUnreadCount(user.id);
+      const count = await chatService.getTotalUnreadCount(user.id, role?.toLowerCase() || 'student');
+      console.log('[AuthContext] Setting unreadMessagesCount to:', count);
       setUnreadMessagesCount(count);
     } catch (err) {
       console.error('[AuthContext] Error refreshing unread messages:', err);
     }
-  }, [user?.id]);
+  }, [user?.id, role]);
 
   React.useEffect(() => {
     if (!user?.id) {

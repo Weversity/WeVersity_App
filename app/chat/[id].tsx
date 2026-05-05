@@ -150,7 +150,7 @@ export default function ChatScreen() {
   const params = useLocalSearchParams();
   const { id } = params; // This is the group_id
   const flatListRef = useRef<FlatList>(null);
-  const { user } = useAuth();
+  const { user, refreshUnreadMessages } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -188,7 +188,7 @@ export default function ChatScreen() {
           chatService.fetchConversationMessages(id as string),
           chatService.fetchGroupDetails(id as string),
           chatService.fetchGroupMembers(id as string),
-          chatService.markChatAsRead(id as string, user.id) // Mark as read instantly on load
+          chatService.markChatAsRead(id as string, user.id).then(() => refreshUnreadMessages?.()) // Mark as read instantly on load
         ]);
 
         setMessages(conversationMessages || []);
@@ -232,11 +232,11 @@ export default function ChatScreen() {
   // Mark chat as read when entering and leaving the screen
   useEffect(() => {
     if (id && user?.id) {
-      chatService.markChatAsRead(id as string, user.id);
+      chatService.markChatAsRead(id as string, user.id).then(() => refreshUnreadMessages?.());
     }
     return () => {
       if (id && user?.id) {
-        chatService.markChatAsRead(id as string, user.id);
+        chatService.markChatAsRead(id as string, user.id).then(() => refreshUnreadMessages?.());
       }
     };
   }, [id, user?.id]);

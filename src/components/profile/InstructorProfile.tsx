@@ -15,17 +15,9 @@ import { coinService } from '@/src/services/coinService';
 import NotificationIcon from '../notifications/NotificationIcon';
 import DailyRewardModal from '../rewards/DailyRewardModal';
 import WeCoinIcon from '../common/WeCoinIcon';
+import ReferralCard from './ReferralCard';
 
 const { width, height } = Dimensions.get('window');
-
-// ... (stats, interfaces, getTimeAgo, SideMenu, ShortViewerModal, ShortCard, UploadChoiceModal unchanged)
-
-// Data based on the provided image inspiration
-const stats = [
-  { id: '1', title: 'Total Students', color: '#F7F0FF', icon: 'people', iconColor: '#6d28d9' },
-  { id: '3', title: 'Course Rating', color: '#F7F0FF', icon: 'star', iconColor: '#6d28d9' },
-  { id: '2', title: 'Total Courses', color: '#F7F0FF', icon: 'library', iconColor: '#6d28d9' },
-];
 
 interface Short {
   id: string;
@@ -285,12 +277,20 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const [statsData, setStatsData] = useState({
     totalStudents: 0,
     courseRating: 0,
-    totalReviews: 0
+    totalReviews: 0,
+    lifetimeEarnings: 0,
+    availableBalance: 0,
+    liveSessions: 0,
+    pendingAssignments: 0
   });
   const [profileData, setProfileData] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false); // Deletion state
+
+  // Upload Stage Feedback
+  const [uploadStage, setUploadStage] = useState<null | 'compressing' | 'uploading' | 'done'>(null);
+  const [compressionProgress, setCompressionProgress] = useState(0);
 
   // Wave/Shake Animation for Slide 1
   const shakeAnimation = useRef(new Animated.Value(0)).current;
@@ -457,6 +457,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
       setLoadingStats(true);
       fetchHeroStats(); // Fetch hero specific stats concurrently
+      console.log('MY USER ID:', user.id);
       console.log('[InstructorProfile] fetchStats started for User ID:', user.id);
 
       const data = await courseService.fetchInstructorStats(user.id);
@@ -464,11 +465,15 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
       // Guard: If component unmounted or user logged out during fetch
       if (!user?.id) return;
 
-      if (data && typeof data.totalStudents !== 'undefined') {
+      if (data) {
         setStatsData({
           totalStudents: data.totalStudents || 0,
           courseRating: data.courseRating || 0,
-          totalReviews: data.totalReviews || 0
+          totalReviews: data.totalReviews || 0,
+          lifetimeEarnings: data.lifetimeEarnings || 0,
+          availableBalance: data.availableBalance || 0,
+          liveSessions: data.liveSessions || 0,
+          pendingAssignments: data.pendingAssignments || 0
         });
       }
     } catch (error: any) {
@@ -619,16 +624,29 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
   const processUpload = async (asset: ImagePicker.ImagePickerAsset) => {
     try {
-      setUploadModalVisible(false); // Close modal immediately
-      Alert.alert("Uploading", "Your short is being uploaded...");
+      setUploadModalVisible(false);
+      setCompressionProgress(0);
+      setUploadStage('compressing');
 
-      // 1. Upload to Cloudinary
       if (!user?.id) throw new Error("User not found");
 
       const type = asset.type === 'image' ? 'image' : 'video';
-      const result = await videoService.uploadVideoToCloudinary(asset.uri, type);
 
-      // 2. Insert into Supabase
+      // 1. Compress + Upload (with progress callback)
+      const result = await videoService.uploadVideoToCloudinary(
+        asset.uri,
+        type,
+        (pct: number) => {
+          setCompressionProgress(pct);
+          // Switch to 'uploading' when compression hits 100%
+          if (pct >= 100) setUploadStage('uploading');
+        }
+      );
+
+      // If it was an image (no progress callback fires), manually advance stage
+      setUploadStage('uploading');
+
+      // 2. Save to Supabase
       await videoService.createShort({
         video_url: result.secure_url,
         description: asset.fileName || "New Short",
@@ -637,13 +655,18 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         public_id: result.public_id
       });
 
-      // 3. Refresh List
-      Alert.alert("Success", "Short uploaded successfully!");
-      loadShorts();
+      // 3. Done!
+      setUploadStage('done');
+      setTimeout(() => {
+        setUploadStage(null);
+        setCompressionProgress(0);
+        loadShorts();
+      }, 1500);
 
     } catch (error: any) {
       console.error("Upload failed", error);
-      // Detailed error for debugging
+      setUploadStage(null);
+      setCompressionProgress(0);
       const errorMessage = error.message || "Failed to upload short. Please check your connection.";
       Alert.alert("Upload Failed", errorMessage);
     }
@@ -749,6 +772,36 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           </View>
         </View>
       </View>
+
+      {/* Upload Progress Overlay */}
+      {uploadStage !== null && (
+        <View style={styles.uploadingOverlay}>
+          <View style={styles.uploadingContainer}>
+            {uploadStage === 'compressing' && (
+              <>
+                <ActivityIndicator size="large" color="#8A2BE2" />
+                <Text style={styles.uploadingText}>🗜️ Compressing...</Text>
+                <View style={styles.progressBarBackground}>
+                  <View style={[styles.progressBarFill, { width: `${compressionProgress}%` as any }]} />
+                </View>
+                <Text style={styles.progressText}>{compressionProgress}%</Text>
+              </>
+            )}
+            {uploadStage === 'uploading' && (
+              <>
+                <ActivityIndicator size="large" color="#8A2BE2" />
+                <Text style={styles.uploadingText}>☁️ Uploading to cloud...</Text>
+              </>
+            )}
+            {uploadStage === 'done' && (
+              <>
+                <Text style={{ fontSize: 40 }}>✅</Text>
+                <Text style={styles.uploadingText}>Short Uploaded!</Text>
+              </>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Deletion Loading Overlay */}
       {isDeleting && (
@@ -905,32 +958,25 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
-          {stats.map((stat) => {
-            let displayValue = '---';
-            if (!loadingStats) {
-              if (stat.title === 'Total Students') {
-                displayValue = statsData.totalStudents.toLocaleString();
-              } else if (stat.title === 'Course Rating') {
-                const rating = statsData.courseRating.toFixed(1);
-                const reviews = statsData.totalReviews || 0;
-                displayValue = `${rating} (${reviews})`;
-              } else if (stat.title === 'Total Courses') {
-                displayValue = uploadedCourses.length.toString();
-              }
-            }
-
-            return (
-              <View key={stat.id} style={styles.statCard}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name={stat.icon as any} size={20} color={stat.iconColor} />
-                </View>
-                <View style={styles.statInfo}>
-                  <Text style={styles.statTitle}>{stat.title}</Text>
-                  <Text style={styles.statValue}>{displayValue}</Text>
-                </View>
+          {[
+            { id: '1', title: 'Total Students', value: statsData.totalStudents.toLocaleString(), icon: 'people', iconColor: '#6d28d9' },
+            { id: '2', title: 'Course Rating', value: `${statsData.courseRating.toFixed(1)} (${statsData.totalReviews || 0})`, icon: 'star', iconColor: '#6d28d9' },
+            { id: '3', title: 'My Courses', value: uploadedCourses.length.toString(), icon: 'library', iconColor: '#6d28d9' },
+            { id: '4', title: 'Available Balance', value: `$${statsData.availableBalance.toLocaleString()}`, icon: 'wallet', iconColor: '#6d28d9' },
+            { id: '5', title: 'Lifetime Earnings', value: `$${statsData.lifetimeEarnings.toLocaleString()}`, icon: 'cash-outline', iconColor: '#6d28d9' },
+            { id: '6', title: 'Pending Assignments', value: statsData.pendingAssignments.toString(), icon: 'clipboard', iconColor: '#6d28d9' },
+            { id: '7', title: 'Live Sessions', value: statsData.liveSessions.toString(), icon: 'videocam', iconColor: '#6d28d9' },
+          ].map((stat) => (
+            <View key={stat.id} style={styles.statCard}>
+              <View style={styles.statIconContainer}>
+                <Ionicons name={stat.icon as any} size={20} color={stat.iconColor} />
               </View>
-            );
-          })}
+              <View style={styles.statInfo}>
+                <Text style={styles.statTitle}>{stat.title}</Text>
+                <Text style={styles.statValue}>{loadingStats ? '---' : stat.value}</Text>
+              </View>
+            </View>
+          ))}
         </View>
 
 
@@ -997,15 +1043,15 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                   />
                 ))}
               </View>
-              <TouchableOpacity
-                onPress={() => setViewAllShortsVisible(true)}
-                style={{ alignSelf: 'flex-end', marginTop: 10 }}
-              >
-                <Text style={styles.seeAllText}>See All</Text>
-              </TouchableOpacity>
+              {shorts.length > 0 && (
+                <TouchableOpacity onPress={() => setViewAllShortsVisible(true)}>
+                  <Text style={styles.seeAllText}>See All</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
+
 
         {/* Your Uploaded Courses Section */}
         <View style={styles.recentSection}>
@@ -1069,6 +1115,9 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
             ))
           )}
         </View >
+
+        <ReferralCard role="Instructor" />
+
 
       </ScrollView >
 
@@ -1244,26 +1293,27 @@ const styles = StyleSheet.create({
   statsContainer: {
     marginBottom: 20,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    alignItems: 'center',
     width: '100%',
+    gap: 12,
   },
   statCard: {
-    width: '31.5%',
-    backgroundColor: '#FFFDFF', // Ultra-light premium purple (almost white)
+    width: '48%',
+    backgroundColor: '#FFFDFF',
     borderRadius: 20,
     padding: 12,
     height: 110,
     justifyContent: 'center',
     alignItems: 'center',
-    // Clean, soft shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03, // Thora aur kam kar diya
+    shadowOpacity: 0.03,
     shadowRadius: 6,
-    elevation: 1, // Reduced elevation for a lighter shadow
+    elevation: 1,
     borderWidth: 1,
-    borderColor: '#F0EFFF', // Subtle border to refine edge
+    borderColor: '#F0EFFF',
+    marginBottom: 4,
   },
   statIconContainer: {
     width: 42,
@@ -1876,6 +1926,25 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  progressBarBackground: {
+    width: 160,
+    height: 8,
+    backgroundColor: '#E0D0F5',
+    borderRadius: 4,
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#8A2BE2',
+    borderRadius: 4,
+  },
+  progressText: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#8A2BE2',
+    fontWeight: '700',
   },
   heroGradientWrapper: {
     borderRadius: 24,

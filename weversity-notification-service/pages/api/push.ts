@@ -80,7 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         if (type === 'student_confirm') {
           notificationTitle = "🎓 Enrollment Confirmed!";
-          notificationBody = `Welcome! You're now in ${courseName}.`;
+          notificationBody = `Welcome to the course! You can now start your first lesson.`
 
           const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', userId).single();
           if (profile?.push_token) pushTokens.push(profile.push_token);
@@ -97,7 +97,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         else if (type === 'global_social_proof') {
           notificationTitle = "🔥 Trending Course!";
-          notificationBody = `${studentName} and others just enrolled in ${courseName}.`;
+          notificationBody = `${studentName} and 4 others just enrolled in ${courseName}.`;
 
           const sender_id = record.sender_id || userId;
           const instructor_id = record.instructor_id;

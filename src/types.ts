@@ -119,4 +119,8 @@ export interface InstructorStats {
     totalStudents: number;
     courseRating: number;
     totalReviews: number;
+    lifetimeEarnings?: number;
+    availableBalance?: number;
+    liveSessions?: number;
+    pendingAssignments?: number;
 }

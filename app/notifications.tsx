@@ -116,7 +116,6 @@ const NotificationScreen = () => {
   const [isClearing, setIsClearing] = useState(false);
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customDays, setCustomDays] = useState('');
-  const [activeTab, setActiveTab] = useState<'All' | 'Requests'>('All');
   const [actionStates, setActionStates] = useState<{ [key: string]: { status: 'Accepted' | 'Declined', time: string } }>({});
 
   const REQUEST_TYPES = ['chat_invitation', 'message_request'];
@@ -457,41 +456,11 @@ const NotificationScreen = () => {
 
   // Filter and prepare notifications
   const getFilteredNotifications = () => {
-    let filtered = notifications;
-    if (activeTab === 'Requests') {
-      const REQUEST_ACTION_TYPES = [...REQUEST_TYPES, 'request_accepted', 'request_declined'];
-      filtered = notifications.filter(n => REQUEST_ACTION_TYPES.includes(n.type));
-    }
-    return filtered;
+    return notifications;
   };
-
 
   const displayNotifications = getFilteredNotifications();
   const groupedNotifications = groupNotificationsByDate(displayNotifications);
-
-  const pendingRequestsCount = notifications.filter(n =>
-    REQUEST_TYPES.includes(n.type) && !actionStates[n.id]
-  ).length;
-
-  const renderTabBar = () => (
-    <View style={styles.tabContainer}>
-      <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'All' && styles.activeTab]}
-        onPress={() => setActiveTab('All')}
-      >
-        <Text style={[styles.tabText, activeTab === 'All' && styles.activeTabText]}>All</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'Requests' && styles.activeTab]}
-        onPress={() => setActiveTab('Requests')}
-      >
-        <View style={styles.tabLabelContainer}>
-          <Text style={[styles.tabText, activeTab === 'Requests' && styles.activeTabText]}>Requests</Text>
-          {pendingRequestsCount > 0 && <View style={styles.badgeDot} />}
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
 
 
   const renderItem = ({ item }: { item: Notification }) => {
@@ -709,8 +678,6 @@ const NotificationScreen = () => {
           )}
         </TouchableOpacity>
       </View>
-
-      {renderTabBar()}
 
       <View style={styles.contentArea}>
 

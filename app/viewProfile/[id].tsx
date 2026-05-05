@@ -81,13 +81,9 @@ export default function ViewProfile() {
     const [isSocialLoading, setIsSocialLoading] = useState(false);
     const [showFollowersTooltip, setShowFollowersTooltip] = useState(true);
 
-    const [isChatModalVisible, setIsChatModalVisible] = useState(false);
     // Removed follow/unfollow modal states for Optimistic UI
     const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
-    const [successType, setSuccessType] = useState<'chat' | 'follow'>('chat');
-
-    const [chatRequestStatus, setChatRequestStatus] = useState<'none' | 'pending' | 'accepted' | 'declined'>('none');
-    const [sendingRequest, setSendingRequest] = useState(false);
+    const [successType, setSuccessType] = useState<'follow'>('follow');
 
 
     // CRITICAL: Prevent infinite re-render loop with fetch guard
@@ -113,7 +109,6 @@ export default function ViewProfile() {
 
         if (user) {
             checkFollowStatus();
-            checkChatStatus();
         }
     }, [id, user?.updated_at]); // Depend on updated_at to catch profile changes, avoiding object ref loops
 
@@ -193,19 +188,6 @@ export default function ViewProfile() {
         }
     };
 
-    const checkChatStatus = async () => {
-        try {
-            if (!user?.id || !id) return;
-            if (isOwner) return;
-            const request = await chatService.checkChatRequestStatus(user.id, id as string);
-            if (request) {
-                setChatRequestStatus(request.status);
-            }
-        } catch (error) {
-            console.error("Failed to check chat request status", error);
-        }
-    };
-
     const fetchSocialData = async () => {
         if (!id || !user?.id) return;
         setIsSocialLoading(true);
@@ -279,25 +261,6 @@ export default function ViewProfile() {
 
     const handleFollow = () => {
         handleSocialToggle({ id: id as string, is_followed_by_viewer: isFollowing });
-    };
-
-    const handleSendChatRequest = async () => {
-        if (!user || !profile?.id) return;
-        try {
-            setSendingRequest(true);
-            const success = await chatService.sendChatRequest(user.id, profile.id);
-            if (success) {
-                setChatRequestStatus('pending');
-                setIsChatModalVisible(false);
-                setSuccessType('chat');
-                setIsSuccessModalVisible(true);
-            }
-        } catch (error) {
-            console.error('Error sending chat request:', error);
-            Alert.alert('Error', 'Could not send chat request. Please try again.');
-        } finally {
-            setSendingRequest(false);
-        }
     };
 
     const handleVideoPress = (item: any) => {
@@ -487,32 +450,6 @@ export default function ViewProfile() {
                                     </TouchableOpacity>
                                 );
                             })()}
-
-                            {chatRequestStatus === 'pending' ? (
-                                <TouchableOpacity
-                                    disabled={true}
-                                    style={[styles.messageButton, { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }]}
-                                >
-                                    <Ionicons name="time-outline" size={20} color="#9CA3AF" style={{ marginRight: 8 }} />
-                                    <Text style={[styles.messageButtonText, { color: '#9CA3AF' }]}>Requested</Text>
-                                </TouchableOpacity>
-                            ) : chatRequestStatus === 'accepted' ? (
-                                <TouchableOpacity
-                                    onPress={() => router.push('/(tabs)/inbox' as any)}
-                                    style={styles.messageButton}
-                                >
-                                    <Ionicons name="chatbubbles" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
-                                    <Text style={styles.messageButtonText}>Chat</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <TouchableOpacity
-                                    onPress={() => setIsChatModalVisible(true)}
-                                    style={styles.messageButton}
-                                >
-                                    <Ionicons name="chatbubble-ellipses" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
-                                    <Text style={styles.messageButtonText}>Message</Text>
-                                </TouchableOpacity>
-                            )}
                         </View>
                     )}
                 </View>
@@ -579,49 +516,6 @@ export default function ViewProfile() {
                 }
                 showsVerticalScrollIndicator={false}
             />
-
-            {/* Chat Request Modal */}
-            <Modal
-                isVisible={isChatModalVisible}
-                onBackdropPress={() => setIsChatModalVisible(false)}
-                onBackButtonPress={() => setIsChatModalVisible(false)}
-                animationIn="zoomIn"
-                animationOut="zoomOut"
-                backdropOpacity={0.5}
-                backdropColor="black"
-            >
-                <View style={styles.premiumModalContent}>
-                    <View style={styles.modalIconContainer}>
-                        <Ionicons name="chatbubble-ellipses" size={40} color="#8A2BE2" />
-                    </View>
-                    <Text style={styles.premiumModalTitle}>Send Chat Request</Text>
-                    <Text style={styles.premiumModalSubtitle}>
-                        Connect before starting a conversation. The user will need to accept your request.
-                    </Text>
-                    <View style={styles.premiumModalButtons}>
-                        <TouchableOpacity
-                            style={styles.premiumModalCancelButton}
-                            onPress={() => setIsChatModalVisible(false)}
-                        >
-                            <Text style={styles.premiumModalCancelText}>Cancel</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            activeOpacity={0.8}
-                            onPress={handleSendChatRequest}
-                            style={styles.premiumModalConfirmWrapper}
-                        >
-                            <LinearGradient
-                                colors={['#8A2BE2', '#5D00B3']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.premiumModalConfirmButton}
-                            >
-                                <Text style={styles.premiumModalConfirmText}>Send Request</Text>
-                            </LinearGradient>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
 
             {/* Follow/Unfollow modals removed for optimistic TikTok-style UI */}
 
@@ -783,12 +677,10 @@ export default function ViewProfile() {
                         <Ionicons name="checkmark-circle" size={50} color="#4CAF50" />
                     </View>
                     <Text style={styles.premiumModalTitle}>
-                        {successType === 'chat' ? 'Chat request sent' : 'Followed successfully'}
+                        Followed successfully
                     </Text>
                     <Text style={styles.premiumModalSubtitle}>
-                        {successType === 'chat'
-                            ? 'Your chat request has been sent. You will be notified when it is accepted.'
-                            : 'You are now following this user successfully.'}
+                        You are now following this user successfully.
                     </Text>
                     <TouchableOpacity
                         activeOpacity={0.8}

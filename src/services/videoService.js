@@ -1,6 +1,8 @@
 import * as Crypto from 'expo-crypto';
 import 'react-native-get-random-values';
 import 'react-native-url-polyfill/auto';
+import { Image as CompressorImage, Video as CompressorVideo } from 'react-native-compressor';
+import * as FileSystem from 'expo-file-system';
 import { supabase } from '../lib/supabase';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.weversity.org';
@@ -20,18 +22,94 @@ export const videoService = {
    * NOTE: NEVER modify the uploadUrl returned by the backend.
    * Uses headerless signing - no Content-Type header is sent to avoid signature mismatch.
    */
-  uploadVideoToCloudinary: async (fileUri, resourceType = 'video') => {
+  /**
+   * Compresses a video or image before upload.
+   * @param {string} fileUri - Local file URI
+   * @param {'video'|'image'} resourceType - Media type
+   * @param {function} onProgress - Progress callback (0-100)
+   * @returns {Promise<string>} - Compressed file URI
+   */
+  compressMedia: async (fileUri, resourceType = 'video', onProgress = null) => {
+    try {
+      if (resourceType === 'image') {
+        console.log('🗜️ Compressing image...');
+        const compressed = await CompressorImage.compress(fileUri, {
+          maxWidth: 1080,
+          maxHeight: 1920,
+          quality: 0.7,
+          output: 'jpg',
+          returnableOutputType: 'uri',
+        });
+        console.log('✅ Image compressed:', compressed);
+        return compressed;
+      } else {
+        console.log('🗜️ Compressing video...');
+        const compressed = await CompressorVideo.compress(
+          fileUri,
+          {
+            compressionMethod: 'manual',
+            maxSize: 1280,       // max width/height in px (720p)
+            bitrate: 1500000,    // 1.5 Mbps — good quality, small file
+            minimumFileSizeForCompress: 5, // Only compress if > 5MB
+          },
+          (progress) => {
+            const pct = Math.round(progress * 100);
+            console.log(`🗜️ Video compression: ${pct}%`);
+            if (onProgress) onProgress(pct);
+          }
+        );
+        console.log('✅ Video compressed:', compressed);
+        return compressed;
+      }
+    } catch (error) {
+      console.warn('⚠️ Compression failed, using original file:', error.message);
+      // Graceful fallback: use original if compression fails
+      return fileUri;
+    }
+  },
+
+  uploadVideoToCloudinary: async (fileUri, resourceType = 'video', onProgress = null) => {
     try {
       const uploadPreset = CLOUDINARY_UPLOAD_PRESET;
-
-      // Basic validation/cleanup of resourceType
       const finalResourceType = resourceType === 'image' ? 'image' : 'video';
+
+      // ─── STEP 1: COMPRESS BEFORE UPLOAD ──────────────────────────────────
+      // Log original file size
+      try {
+        const originalInfo = await FileSystem.getInfoAsync(fileUri, { size: true });
+        const originalMB = originalInfo.exists ? (originalInfo.size / (1024 * 1024)).toFixed(2) : '?';
+        console.log(`📦 Before compression: ${originalMB} MB  (${fileUri.split('/').pop()})`);
+      } catch (_) { /* size logging is non-critical */ }
+
+      console.log(`--- Compressing ${finalResourceType} before upload ---`);
+      const compressedUri = await videoService.compressMedia(
+        fileUri,
+        finalResourceType,
+        onProgress
+      );
+
+      // Log compressed file size and savings
+      try {
+        const [origInfo, compInfo] = await Promise.all([
+          FileSystem.getInfoAsync(fileUri, { size: true }),
+          FileSystem.getInfoAsync(compressedUri, { size: true }),
+        ]);
+        const origMB  = origInfo.exists  ? (origInfo.size  / (1024 * 1024)).toFixed(2) : '?';
+        const compMB  = compInfo.exists  ? (compInfo.size  / (1024 * 1024)).toFixed(2) : '?';
+        const savings = (origInfo.exists && compInfo.exists && origInfo.size > 0)
+          ? Math.round((1 - compInfo.size / origInfo.size) * 100)
+          : '?';
+        console.log(`✅ After  compression: ${compMB} MB  (saved ${savings}% — was ${origMB} MB)`);
+      } catch (_) { /* size logging is non-critical */ }
+
+      console.log('✅ Compression done. Proceeding to upload...');
+      // ─────────────────────────────────────────────────────────────────────
 
       const data = new FormData();
       // @ts-ignore - React Native FormData expects an object for files
       data.append('file', {
-        uri: fileUri,
-        type: finalResourceType === 'video' ? 'video/mp4' : 'image/jpeg', // Simple fallback types
+        uri: compressedUri,
+        type: finalResourceType === 'video' ? 'video/mp4' : 'image/jpeg',
         name: finalResourceType === 'video' ? 'short_video.mp4' : 'short_image.jpg',
       });
       data.append('upload_preset', uploadPreset);
@@ -44,22 +122,16 @@ export const videoService = {
       const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${finalResourceType}/upload`;
       console.log('🔗 Upload URL:', uploadUrl);
 
-      const response = await fetch(
-        uploadUrl,
-        {
-          method: 'POST',
-          body: data,
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        body: data,
+        headers: { 'Accept': 'application/json' },
+      });
 
       const result = await response.json();
 
       if (result.secure_url) {
         console.log('✅ Cloudinary Upload Success:', result.secure_url);
-        // Return both secure_url and public_id
         return {
           secure_url: result.secure_url,
           public_id: result.public_id
