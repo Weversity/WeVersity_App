@@ -24,7 +24,7 @@
       ]
     },
     "android": {
-      "versionCode": 23,
+      "versionCode": 25,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
@@ -77,9 +77,8 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "4da62831-d87d-4a1e-972f-64aa6d4d4bac"
+        "projectId": "bf830a14-3aaf-45e9-bc06-217d3d1ed9ec"
       }
-    },
-    "owner": "wevesity"
+    }
   }
 }
