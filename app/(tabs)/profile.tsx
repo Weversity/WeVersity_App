@@ -1,4 +1,5 @@
 import AuthForm from '@/src/components/AuthForm';
+import StatefulPage from '@/src/components/common/StatefulPage';
 import LoginPopup from '@/src/components/LoginPopup';
 import InstructorProfile from '@/src/components/profile/InstructorProfile';
 import StudentProfile from '@/src/components/profile/StudentProfile';
@@ -39,22 +40,24 @@ function ProfileScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <View style={styles.contentArea}>
-        {isAuthenticated ? (
-          <>
-            {role === 'Student' && <StudentProfile />}
-            {role === 'Instructor' && <InstructorProfile logout={logout} />}
-          </>
-        ) : (
-          showPopup
-            ? <LoginPopup visible={showPopup} onClose={() => setShowPopup(false)} />
-            : <AuthForm
-              onAuthSuccess={() => { }}
-              showSignUpLink={false}
-              withHeader={true}
-            />
-        )}
-      </View>
+      <StatefulPage>
+        <View style={styles.contentArea}>
+          {isAuthenticated ? (
+            <>
+              {role === 'Student' && <StudentProfile />}
+              {role === 'Instructor' && <InstructorProfile logout={logout} />}
+            </>
+          ) : (
+            showPopup
+              ? <LoginPopup visible={showPopup} onClose={() => setShowPopup(false)} />
+              : <AuthForm
+                onAuthSuccess={() => { }}
+                showSignUpLink={false}
+                withHeader={true}
+              />
+          )}
+        </View>
+      </StatefulPage>
     </View>
   );
 }

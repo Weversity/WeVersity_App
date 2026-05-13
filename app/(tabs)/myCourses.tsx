@@ -1,4 +1,5 @@
 import { CourseCardSkeleton } from '@/src/components/CourseCardSkeleton';
+import StatefulPage from '@/src/components/common/StatefulPage';
 import SearchEmptyState from '@/src/components/SearchEmptyState';
 import { courseService } from '@/src/services/courseService';
 import { Course } from '@/src/types';
@@ -353,7 +354,9 @@ export default function MyCoursesScreen() {
         </View>
       )}
 
-      {renderContent()}
+      <StatefulPage>
+        {renderContent()}
+      </StatefulPage>
 
       <Modal transparent visible={filterVisible} onRequestClose={hideFilter}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={hideFilter}>

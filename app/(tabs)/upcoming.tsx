@@ -1,4 +1,5 @@
 import { useAuth } from '@/src/context/AuthContext';
+import StatefulPage from '@/src/components/common/StatefulPage';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useState } from 'react';
@@ -60,9 +61,11 @@ export default function UpcomingScreen() {
         </View>
       )}
 
-      <SafeAreaView style={styles.contentArea}>
-        <UpcomingClasses searchQuery={searchQuery} />
-      </SafeAreaView>
+      <StatefulPage>
+        <SafeAreaView style={styles.contentArea}>
+          <UpcomingClasses searchQuery={searchQuery} />
+        </SafeAreaView>
+      </StatefulPage>
     </View>
   );
 }

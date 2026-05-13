@@ -1,4 +1,5 @@
 import LiveCourses from '@/src/components/LiveCourses';
+import StatefulPage from '@/src/components/common/StatefulPage';
 import { useAuth } from '@/src/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -118,20 +119,22 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <View style={styles.contentArea}>
-        {/* Live Classes Banner */}
-        <View style={styles.banner}>
-          <Text style={styles.bannerLabel}>GLOBAL LEARNING</Text>
-          <Text style={styles.bannerTitle}>{liveClassCount} Active Classes</Text>
-          <Text style={styles.bannerSubtitle}>Join thousands of students learning right now.</Text>
-        </View>
+      <StatefulPage>
+        <View style={styles.contentArea}>
+          {/* Live Classes Banner */}
+          <View style={styles.banner}>
+            <Text style={styles.bannerLabel}>GLOBAL LEARNING</Text>
+            <Text style={styles.bannerTitle}>{liveClassCount} Active Classes</Text>
+            <Text style={styles.bannerSubtitle}>Join thousands of students learning right now.</Text>
+          </View>
 
-        <LiveCourses
-          onCoursesLoaded={setLiveClassCount}
-          searchQuery={searchQuery}
-          onJoinPress={handleJoinClass}
-        />
-      </View>
+          <LiveCourses
+            onCoursesLoaded={setLiveClassCount}
+            searchQuery={searchQuery}
+            onJoinPress={handleJoinClass}
+          />
+        </View>
+      </StatefulPage>
     </View>
   );
 }

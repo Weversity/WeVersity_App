@@ -1,39 +1,39 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, ViewStyle } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, ViewStyle, StyleProp } from 'react-native';
+import Animated, { 
+    useSharedValue, 
+    useAnimatedStyle, 
+    withRepeat, 
+    withTiming, 
+    withSequence,
+    Easing
+} from 'react-native-reanimated';
 
 interface SkeletonProps {
     width: number | string;
     height: number | string;
     borderRadius?: number;
-    style?: ViewStyle;
+    style?: StyleProp<ViewStyle>;
 }
 
 export const Skeleton = ({ width, height, borderRadius = 4, style }: SkeletonProps) => {
-    const shimmerValue = useRef(new Animated.Value(0)).current;
+    const opacity = useSharedValue(0.3);
 
     useEffect(() => {
-        const shimmerAnimation = Animated.loop(
-            Animated.sequence([
-                Animated.timing(shimmerValue, {
-                    toValue: 1,
-                    duration: 1000,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(shimmerValue, {
-                    toValue: 0,
-                    duration: 1000,
-                    useNativeDriver: true,
-                }),
-            ])
+        opacity.value = withRepeat(
+            withSequence(
+                withTiming(0.7, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+                withTiming(0.3, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+            ),
+            -1, // Infinite repeat
+            true // Reverse
         );
+    }, []);
 
-        shimmerAnimation.start();
-        return () => shimmerAnimation.stop();
-    }, [shimmerValue]);
-
-    const opacity = shimmerValue.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0.3, 0.7],
+    const animatedStyle = useAnimatedStyle(() => {
+        return {
+            opacity: opacity.value,
+        };
     });
 
     return (
@@ -44,8 +44,8 @@ export const Skeleton = ({ width, height, borderRadius = 4, style }: SkeletonPro
                     width: width as any,
                     height: height as any,
                     borderRadius,
-                    opacity
                 },
+                animatedStyle,
                 style,
             ]}
         />

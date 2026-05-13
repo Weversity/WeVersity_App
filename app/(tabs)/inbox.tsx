@@ -1,4 +1,5 @@
 import EmptyChatState from '@/src/components/chat/EmptyChatState';
+import StatefulPage from '@/src/components/common/StatefulPage';
 import UnreadEmptyState from '@/src/components/chat/UnreadEmptyState';
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
@@ -570,46 +571,48 @@ export default function InboxScreen() {
       <View style={styles.header}>
         <Text style={styles.headerText}>Inbox</Text>
       </View>
-      <View style={styles.contentArea}>
-        {!user ? (
-          <GuestView onGoToProfile={() => router.push('/profile')} />
-        ) : (
-          <>
-            <View style={styles.searchSection}>
-              <View style={styles.searchContainer}>
-                <Ionicons name="search" size={20} color="#9BA3AF" style={styles.searchIcon} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search messages..."
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholderTextColor="#9BA3AF"
-                />
-                {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearchQuery('')}>
-                    <Ionicons name="close-circle" size={20} color="#9BA3AF" />
-                  </TouchableOpacity>
-                )}
+      <StatefulPage>
+        <View style={styles.contentArea}>
+          {!user ? (
+            <GuestView onGoToProfile={() => router.push('/profile')} />
+          ) : (
+            <>
+              <View style={styles.searchSection}>
+                <View style={styles.searchContainer}>
+                  <Ionicons name="search" size={20} color="#9BA3AF" style={styles.searchIcon} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search messages..."
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholderTextColor="#9BA3AF"
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearchQuery('')}>
+                      <Ionicons name="close-circle" size={20} color="#9BA3AF" />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
-            </View>
 
-            {loading && conversations.length === 0 ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#8A2BE2" />
-              </View>
-            ) : (
-              <TabView
-                key={'tab-view-' + JSON.stringify(tabCounts)}
-                navigationState={{ index, routes }}
-                renderScene={renderScene}
-                onIndexChange={setIndex}
-                initialLayout={{ width: layout.width }}
-                renderTabBar={renderTabBar}
-              />
-            )}
-          </>
-        )}
-      </View>
+              {loading && conversations.length === 0 ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#8A2BE2" />
+                </View>
+              ) : (
+                <TabView
+                  key={'tab-view-' + JSON.stringify(tabCounts)}
+                  navigationState={{ index, routes }}
+                  renderScene={renderScene}
+                  onIndexChange={setIndex}
+                  initialLayout={{ width: layout.width }}
+                  renderTabBar={renderTabBar}
+                />
+              )}
+            </>
+          )}
+        </View>
+      </StatefulPage>
     </View>
   );
 }

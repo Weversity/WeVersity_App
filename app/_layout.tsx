@@ -6,6 +6,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
 import { CoursesProvider } from '@/src/context/CoursesContext';
+import { ErrorProvider } from '@/src/context/ErrorContext';
 import { registerForPushNotificationsAsync } from '@/src/services/pushNotifications';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -245,16 +246,18 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <CoursesProvider>
-            <AuthProvider>
-              <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                <BottomSheetModalProvider>
-                  <InitialLayout />
-                  <StatusBar style="auto" />
-                </BottomSheetModalProvider>
-              </ThemeProvider>
-            </AuthProvider>
-          </CoursesProvider>
+          <ErrorProvider>
+            <CoursesProvider>
+              <AuthProvider>
+                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                  <BottomSheetModalProvider>
+                    <InitialLayout />
+                    <StatusBar style="auto" />
+                  </BottomSheetModalProvider>
+                </ThemeProvider>
+              </AuthProvider>
+            </CoursesProvider>
+          </ErrorProvider>
         </QueryClientProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
