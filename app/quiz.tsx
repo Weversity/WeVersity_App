@@ -11,6 +11,7 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { HapticsService } from '@/src/utils/haptics';
 
 const { width } = Dimensions.get('window');
 
@@ -61,6 +62,7 @@ export default function QuizScreen() {
     const displayHeading = currentQuestion ? (currentQuestion.title || (lessonTitle as string) || "Quiz") : "";
 
     const handleOptionPress = (index: number) => {
+        HapticsService.light();
         setSelectedOption(index);
     };
 
@@ -97,6 +99,7 @@ export default function QuizScreen() {
 
     const handleNext = () => {
         if (selectedOption === null) return;
+        HapticsService.medium();
 
         // Check if correct
         const option = currentQuestion.options[selectedOption];
@@ -112,6 +115,12 @@ export default function QuizScreen() {
             setCurrentQuestionIndex(prev => prev + 1);
             setSelectedOption(null);
         } else {
+            const percentage = Math.round(((score + (isCorrect ? 1 : 0)) / questions.length) * 100);
+            if (percentage >= 80) {
+                HapticsService.success();
+            } else {
+                HapticsService.error();
+            }
             setShowResult(true);
             updateProgress(); // Mark completed when results are shown
         }

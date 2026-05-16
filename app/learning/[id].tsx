@@ -20,6 +20,8 @@ import {
     View
 } from 'react-native';
 import RenderHTML from 'react-native-render-html';
+import { HapticsService } from '@/src/utils/haptics';
+import { LearningSkeleton, LessonListSkeleton } from '@/src/components/skeletons/LearningSkeleton';
 
 const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = width * 0.85;
@@ -474,12 +476,14 @@ export default function LearningPlayerScreen() {
     };
 
     const toggleSection = (index: number) => {
+        HapticsService.light();
         const newSections = [...sections];
         newSections[index].isExpanded = !newSections[index].isExpanded;
         setSections(newSections);
     };
 
     const handleLessonSelect = (path: { s: number; l: number; sl?: number }) => {
+        HapticsService.light();
         setActiveLessonPath(path);
         toggleSidebar(false);
     };
@@ -558,6 +562,7 @@ export default function LearningPlayerScreen() {
         if (!lesson || !activeLessonPath) return;
 
         const lessonId = getPathKey(activeLessonPath.s, activeLessonPath.l, activeLessonPath.sl);
+        HapticsService.medium();
         const questions = lesson.questions || [];
         console.log('Final Questions Array (handleStartQuiz):', questions.length);
 
@@ -586,6 +591,7 @@ export default function LearningPlayerScreen() {
                 {
                     text: "Skip",
                     onPress: () => {
+                        HapticsService.medium();
                         if (!activeLessonPath) return;
                         const nextPath = getNextLessonPath(activeLessonPath);
                         if (nextPath) {
@@ -623,6 +629,7 @@ export default function LearningPlayerScreen() {
                     .eq('course_id', id);
 
                 if (!updateErr) {
+                    HapticsService.success();
                     setShowSuccessToast(true);
                     Animated.sequence([
                         Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
@@ -698,7 +705,7 @@ export default function LearningPlayerScreen() {
 
     // Loading State for Initial Metadata
     if (isMetaLoading && !courseMetadata) {
-        return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color="#8A2BE2" /></View>;
+        return <LearningSkeleton />;
     }
 
     // Error State for Initial Metadata
@@ -735,10 +742,7 @@ export default function LearningPlayerScreen() {
 
                         {/* Sidebar Content Loading State */}
                         {isContentLoading ? (
-                            <View style={{ padding: 20, alignItems: 'center' }}>
-                                <ActivityIndicator color="#8A2BE2" />
-                                <Text style={{ color: '#666', marginTop: 10, fontSize: 12 }}>Loading lessons...</Text>
-                            </View>
+                            <LessonListSkeleton />
                         ) : contentError ? (
                             <View style={{ padding: 20, alignItems: 'center' }}>
                                 <Text style={{ color: 'red', textAlign: 'center', marginBottom: 10 }}>Failed to load content</Text>

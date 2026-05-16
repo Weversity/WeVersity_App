@@ -11,6 +11,7 @@ import {
   Dimensions,
   ActivityIndicator,
   RefreshControl,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,7 +22,7 @@ import { HapticsService } from '@/src/utils/haptics';
 
 const { width } = Dimensions.get('window');
 
-const ReferralsPage = () => {
+const StudentReferralsPage = () => {
   const router = useRouter();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -71,7 +72,7 @@ const ReferralsPage = () => {
       }
     } catch (error) {
       console.error('Error fetching referral data:', error);
-      Alert.alert('Error', 'Failed to load referral statistics.');
+      // Silent fail or minimal UI feedback for production
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -122,6 +123,8 @@ const ReferralsPage = () => {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar barStyle="light-content" />
+      
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -230,7 +233,7 @@ const ReferralsPage = () => {
   );
 };
 
-export default ReferralsPage;
+export default StudentReferralsPage;
 
 const styles = StyleSheet.create({
   container: {
@@ -247,7 +250,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,
     paddingBottom: 20,
     backgroundColor: '#8A2BE2',
   },

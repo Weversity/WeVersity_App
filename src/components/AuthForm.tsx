@@ -20,6 +20,7 @@ import {
     View
 } from 'react-native';
 import { Role, useAuth } from '../context/AuthContext';
+import { HapticsService } from '../utils/haptics';
 import PhoneInput from './PhoneNumberInput';
 
 const AuthForm: React.FC<{
@@ -114,7 +115,11 @@ const AuthForm: React.FC<{
         };
 
         const handleLogin = async () => {
-            if (!validateForm()) return;
+            HapticsService.medium();
+            if (!validateForm()) {
+                HapticsService.error();
+                return;
+            }
 
             setIsLoading(true);
             try {
@@ -161,12 +166,15 @@ const AuthForm: React.FC<{
                     }
 
                     if (onAuthSuccess) {
+                        HapticsService.success();
                         onAuthSuccess();
                     } else {
+                        HapticsService.success();
                         router.replace('/(tabs)/profile');
                     }
                 }
             } catch (error: any) {
+                HapticsService.error();
                 Alert.alert('Login Failed', error.message || "An error occurred during login");
             } finally {
                 setIsLoading(false);
@@ -174,11 +182,16 @@ const AuthForm: React.FC<{
         }
 
         const handleSignUp = async () => {
+            HapticsService.medium();
             if (!isTermsAccepted) {
+                HapticsService.error();
                 Alert.alert("Privacy Policy", "Please check these privacy policy before signup");
                 return;
             }
-            if (!validateForm()) return;
+            if (!validateForm()) {
+                HapticsService.error();
+                return;
+            }
 
             setIsLoading(true);
             try {
@@ -256,10 +269,12 @@ const AuthForm: React.FC<{
                     }
 
                     if (role === 'student') {
+                        HapticsService.success();
                         Alert.alert("Success", "Verify your email to start learning!", [
                             { text: "OK", onPress: () => setIsSignUp(false) }
                         ]);
                     } else {
+                        HapticsService.success();
                         Alert.alert("Success", "Verify your email. Your dashboard will be active after admin approval.", [
                             { text: "OK", onPress: () => setIsSignUp(false) }
                         ]);
@@ -269,6 +284,7 @@ const AuthForm: React.FC<{
                     setConfirmPassword('');
                 }
             } catch (error: any) {
+                HapticsService.error();
                 console.error("Signup Error:", error);
 
                 // Handle "User already registered" - Redirect to Login

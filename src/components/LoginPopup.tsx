@@ -31,6 +31,7 @@ import Animated, {
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { HapticsService } from '../utils/haptics';
 import AuthForm from './AuthForm';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -99,10 +100,12 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
   }, [visible]);
 
   const handlePhoneLogin = () => {
+    HapticsService.medium();
     setShowPhoneLogin(true);
   };
 
   const handleSignUpPress = () => {
+    HapticsService.light();
     closeSheet();
     router.push('/signup');
   };
@@ -146,6 +149,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
           GoogleSignin.configure({
             offlineAccess: true,
             webClientId: '636424335937-7i9odsp5fr6sh0ppsjcb1v27bd0f0m74.apps.googleusercontent.com',
+            iosClientId: '636424335937-a2s6su815jjt90n9561ujagnblb8be16.apps.googleusercontent.com',
           });
         }
       } catch (e) {
@@ -159,6 +163,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
       Alert.alert('Development Build Required', 'Google Login requires a development build.');
       return;
     }
+    HapticsService.medium();
     try {
       let idToken;
       const { GoogleSignin } = require('@react-native-google-signin/google-signin');
@@ -195,6 +200,7 @@ const LoginPopup: React.FC<{ visible: boolean; onClose: () => void }> = ({ visib
   };
 
   const handleAppleLogin = async () => {
+    HapticsService.medium();
     try {
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [

@@ -25,6 +25,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChatDetailSkeleton } from '@/src/components/skeletons/ChatDetailSkeleton';
 
 type Message = {
   id: string;
@@ -614,9 +615,7 @@ export default function ChatScreen() {
       >
         <View style={styles.chatBody}>
           {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#8A2BE2" />
-            </View>
+            <ChatDetailSkeleton />
           ) : (
             <FlatList
               ref={flatListRef}

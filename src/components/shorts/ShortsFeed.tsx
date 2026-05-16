@@ -1,11 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { FlashList } from "@shopify/flash-list";
+import * as Device from 'expo-device';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Dimensions, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { videoService } from '../../services/videoService';
+import { HapticsService } from '../../utils/haptics';
 import ShortFeedItem from './ShortFeedItem';
+import { ShortsSkeleton } from '../skeletons/ShortsSkeleton';
 
-// Helper to shuffle array
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Helper to shuffle array (used for manual refresh to give variety)
 const shuffleArray = (array: any[]) => {
     const shuffled = [...array];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -19,12 +25,30 @@ export default function ShortsFeed() {
     const navigation = useNavigation();
     const [shorts, setShorts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [currentVisibleIndex, setCurrentVisibleIndex] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [isCommentsVisible, setIsCommentsVisible] = useState(false);
-    const [containerHeight, setContainerHeight] = useState(0);
-    const [containerWidth, setContainerWidth] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT);
+    const [containerWidth, setContainerWidth] = useState(SCREEN_WIDTH);
+    
+    // Pagination state
+    const [page, setPage] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const LIMIT = 10;
+
+    // Hardware based windowing
+    const [devicePower, setDevicePower] = useState<'high' | 'low'>('high');
+
+    useEffect(() => {
+        // Simple heuristic: If device memory is <= 3GB, treat as low-end
+        const ramBytes = Device.totalMemory || 4 * 1024 * 1024 * 1024; // Default to 4GB if null
+        const ram = ramBytes / (1024 * 1024 * 1024);
+        if (ram <= 3) {
+            setDevicePower('low');
+        }
+    }, []);
 
     const onLayout = (event: any) => {
         const { height, width } = event.nativeEvent.layout;
@@ -37,19 +61,20 @@ export default function ShortsFeed() {
     };
 
     const loadShorts = async (isManualRefresh = false) => {
-        try {
-            if (isManualRefresh) {
-                setIsRefreshing(true);
-                setShorts([]);
-            } else {
-                setLoading(true);
-            }
+        if (isManualRefresh) {
+            setIsRefreshing(true);
+            setPage(0);
+            setHasMore(true);
+        } else {
+            setLoading(true);
+        }
 
-            const data = await videoService.fetchShorts();
+        try {
+            const data = await videoService.fetchShorts({ page: 0, limit: LIMIT });
             if (data) {
                 const finalData = isManualRefresh ? shuffleArray(data) : data;
                 setShorts(finalData);
-                setCurrentVisibleIndex(0);
+                setHasMore(data.length === LIMIT);
             }
         } catch (error) {
             console.error("Failed to load shorts", error);
@@ -59,33 +84,54 @@ export default function ShortsFeed() {
         }
     };
 
+    const fetchMoreShorts = async () => {
+        if (loadingMore || !hasMore || shorts.length === 0) return;
+
+        setLoadingMore(true);
+        const nextPage = page + 1;
+        
+        try {
+            const data = await videoService.fetchShorts({ page: nextPage, limit: LIMIT });
+            if (data && data.length > 0) {
+                setShorts(prev => [...prev, ...data]);
+                setPage(nextPage);
+                setHasMore(data.length === LIMIT);
+            } else {
+                setHasMore(false);
+            }
+        } catch (error) {
+            console.error("Failed to fetch more shorts", error);
+        } finally {
+            setLoadingMore(false);
+        }
+    };
+
     useEffect(() => {
         loadShorts();
         const unsubscribe = (navigation as any).addListener('tabPress', () => {
             if (navigation.isFocused()) {
+                HapticsService.refreshPull();
                 loadShorts(true);
             }
         });
         return unsubscribe;
     }, [navigation]);
 
-    const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
+    // Use memoized callback for performance
+    const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
         if (viewableItems && viewableItems.length > 0) {
-            setCurrentVisibleIndex(viewableItems[0].index);
+            setCurrentVisibleIndex(viewableItems[0].index ?? 0);
         }
-    }).current;
+    }, []);
 
     const viewabilityConfig = useRef({
-        itemVisiblePercentThreshold: 80,
+        itemVisiblePercentThreshold: 50,
     }).current;
 
     const renderEmpty = () => {
         if (loading || isRefreshing) {
             return (
-                <View style={[styles.loadingContainer, { height: containerHeight || '100%' }]}>
-                    <ActivityIndicator size="large" color="#8A2BE2" />
-                    <Text style={{ color: '#fff', marginTop: 15, fontSize: 16 }}>Finding fresh videos...</Text>
-                </View>
+                <ShortsSkeleton />
             );
         }
         return (
@@ -97,11 +143,16 @@ export default function ShortsFeed() {
     };
 
     const renderItem = useCallback(({ item, index }: { item: any; index: number }) => {
+        // Pro Optimization: Strictly limit range to 1 to free up hardware decoders
+        const range = 1;
+        const shouldLoad = index >= currentVisibleIndex - range && index <= currentVisibleIndex + range;
+
         return (
             <View style={{ height: containerHeight }}>
                 <ShortFeedItem
                     item={item}
                     isVisible={index === currentVisibleIndex}
+                    shouldLoad={shouldLoad}
                     onRefresh={() => loadShorts(true)}
                     isMuted={isMuted}
                     setIsMuted={setIsMuted}
@@ -111,49 +162,38 @@ export default function ShortsFeed() {
                 />
             </View>
         );
-    }, [currentVisibleIndex, isMuted, containerHeight]);
+    }, [currentVisibleIndex, isMuted, containerHeight, containerWidth, devicePower]);
 
     if (loading && shorts.length === 0 && !isRefreshing) {
-        return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#8A2BE2" />
-            </View>
-        );
+        return <ShortsSkeleton />;
     }
 
     return (
         <View style={styles.container} onLayout={onLayout}>
             <StatusBar barStyle="light-content" backgroundColor="black" translucent />
             {containerHeight === 0 ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#8A2BE2" />
-                </View>
+                <ShortsSkeleton />
             ) : (
-                <FlatList
+                <FlashList
                     data={shorts}
                     renderItem={renderItem}
                     keyExtractor={(item) => item.id}
                     pagingEnabled={true}
                     scrollEnabled={!isCommentsVisible}
                     showsVerticalScrollIndicator={false}
-                    snapToInterval={containerHeight}
-                    snapToAlignment="start"
-                    decelerationRate="fast"
-                    disableIntervalMomentum={true}
                     onViewableItemsChanged={onViewableItemsChanged}
                     viewabilityConfig={viewabilityConfig}
                     ListEmptyComponent={renderEmpty}
-                    contentContainerStyle={{ flexGrow: 1 }}
-                    getItemLayout={(data, index) => ({
-                        length: containerHeight,
-                        offset: containerHeight * index,
-                        index,
-                    })}
+                    onEndReached={fetchMoreShorts}
+                    onEndReachedThreshold={0.5}
                     removeClippedSubviews={true}
-                    keyboardShouldPersistTaps="handled"
-                    initialNumToRender={2}
-                    maxToRenderPerBatch={2}
-                    windowSize={3}
+                    drawDistance={containerHeight * 2}
+                    extraData={currentVisibleIndex}
+                    ListFooterComponent={() => loadingMore ? (
+                        <View style={{ height: 100, justifyContent: 'center' }}>
+                            <ActivityIndicator color="#8A2BE2" />
+                        </View>
+                    ) : null}
                 />
             )}
         </View>

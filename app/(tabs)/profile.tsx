@@ -8,6 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StatusBar, StyleSheet, View } from 'react-native';
+import { ProfileSkeleton } from '@/src/components/skeletons/ProfileSkeleton';
 
 function ProfileScreen() {
   const { isAuthenticated, role, isLoading, logout } = useAuth();
@@ -30,11 +31,7 @@ function ProfileScreen() {
   );
 
   if (isLoading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#8A2BE2" />
-      </View>
-    );
+    return <ProfileSkeleton role={role || 'Student'} />;
   }
 
   return (

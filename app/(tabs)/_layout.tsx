@@ -1,4 +1,5 @@
 import { useAuth } from '@/src/context/AuthContext';
+import { HapticsService } from '@/src/utils/haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigationState } from '@react-navigation/native';
 import { Tabs, useRouter } from 'expo-router';
@@ -26,12 +27,18 @@ export default function TabLayout() {
       }}
       screenListeners={{
         tabPress: (e: any) => {
-          // Check if the user is logged out and pressing the profile tab
+          // 1. Haptic Feedback for premium feel
+          // e.target usually looks like "inbox-12345"
+          // We only vibrate if the target tab is NOT the current active tab
+          const targetName = e.target?.split('-')[0];
+          if (targetName && activeRouteName !== targetName) {
+            HapticsService.medium();
+          }
+
+          // 2. Auth Check for Profile Tab
           if (e.target?.includes('profile') && !isAuthenticated) {
-            // Also check if they are already on the profile screen
             if (activeRouteName === 'profile') {
-              e.preventDefault(); // Stop the default action
-              // Navigate with a param to trigger the popup
+              e.preventDefault();
               router.setParams({ repress: Date.now().toString() });
             }
           }

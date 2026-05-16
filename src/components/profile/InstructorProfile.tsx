@@ -10,11 +10,30 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Dimensions, FlatList, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, DeviceEventEmitter } from 'react-native';
+import {
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Dimensions,
+    FlatList,
+    Image,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+    DeviceEventEmitter
+} from 'react-native';
+import { AnimatedHeaderView, AnimatedBodyView, StaggerContainer } from '../common/ContentTransitions';
 import { coinService } from '@/src/services/coinService';
 import NotificationIcon from '../notifications/NotificationIcon';
 import DailyRewardModal from '../rewards/DailyRewardModal';
 import WeCoinIcon from '../common/WeCoinIcon';
+import OfferCard from '../common/OfferCard';
+import { HapticsService } from '../../utils/haptics';
+import { Skeleton } from '../common/Skeleton';
 
 const { width, height } = Dimensions.get('window');
 
@@ -22,10 +41,25 @@ const { width, height } = Dimensions.get('window');
 
 // Data based on the provided image inspiration
 const stats = [
-  { id: '1', title: 'Total Students', color: '#F7F0FF', icon: 'people', iconColor: '#6d28d9' },
-  { id: '3', title: 'Course Rating', color: '#F7F0FF', icon: 'star', iconColor: '#6d28d9' },
-  { id: '2', title: 'Total Courses', color: '#F7F0FF', icon: 'library', iconColor: '#6d28d9' },
+  { id: '1', title: 'Total Students', color: '#F7F0FF', icon: 'people', iconColor: '#8A2BE2', key: 'totalStudents', isCurrency: false },
+  { id: '2', title: 'Available Balance', color: '#F0FDF4', icon: 'wallet', iconColor: '#4CAF50', key: 'currentBalance', isCurrency: true },
+  { id: '3', title: 'Course Rating', color: '#FEF9C3', icon: 'star', iconColor: '#FFC107', key: 'courseRating', isCurrency: false },
+  { id: '4', title: 'Lifetime Earnings', color: '#FCE7F3', icon: 'cash', iconColor: '#E91E63', key: 'totalEarnings', isCurrency: true },
+  { id: '5', title: 'Live Sessions', color: '#E3F2FD', icon: 'videocam', iconColor: '#2196F3', key: 'liveSessions', isCurrency: false },
+  { id: '6', title: 'Pending Assignments', color: '#FFF3E0', icon: 'document-text', iconColor: '#FF9800', key: 'pendingAssignments', isCurrency: false },
+  { id: '7', title: 'Total Reviews', color: '#E0F7FA', icon: 'chatbubble-ellipses', iconColor: '#00BCD4', key: 'totalReviews', isCurrency: false },
+  { id: '8', title: 'Total Courses', color: '#F3E5F5', icon: 'library', iconColor: '#9C27B0', key: 'totalCourses', isCurrency: false },
 ];
+
+const StatCardSkeleton = () => {
+  return (
+    <View style={styles.statCard}>
+      <Skeleton width={32} height={32} borderRadius={16} style={styles.statIcon} color="#E1E9EE" />
+      <Skeleton width="70%" height={10} style={{ marginBottom: 8 }} color="#E1E9EE" />
+      <Skeleton width="40%" height={18} color="#E1E9EE" />
+    </View>
+  );
+};
 
 interface Short {
   id: string;
@@ -70,6 +104,7 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
 
   const menuItems = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
+    { id: 'analytics', title: 'Analytics', icon: 'stats-chart-outline', onPress: () => { onClose(); router.push('/instructor/analytics'); } },
     { id: 'google_meet', title: 'Google Meet', icon: 'logo-google', onPress: () => { onClose(); router.push('/live/googleMeet'); } },
     { id: '3', title: 'Public Profile', icon: 'person-circle-outline', onPress: () => { onClose(); onViewPublicProfile(); } },
     { id: 'leaderboard', title: 'Leaderboard', icon: 'trophy-outline', onPress: () => { onClose(); router.push('/leaderboard'); } },
@@ -98,7 +133,7 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
               <Text style={styles.menuProfileName} numberOfLines={1}>{firstName} {lastName}</Text>
             </View>
           </View>
-          <View style={styles.menuItems}>
+          <ScrollView style={styles.menuItems} showsVerticalScrollIndicator={false}>
             <Text style={styles.menuSubtitle}>MENU</Text>
             {menuItems.map((item, index) => (
               <TouchableOpacity key={item.id} style={[styles.menuItem, index === 0 && styles.activeMenuItem]} onPress={item.onPress}>
@@ -112,7 +147,7 @@ const SideMenu = ({ visible, onClose, logout, onUploadShort, onViewPublicProfile
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -263,6 +298,25 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const router = useRouter();
+
+  const handleStatPress = (id: string) => {
+    HapticsService.light();
+    switch (id) {
+      case '2': // Available Balance
+      case '4': // Lifetime Earnings
+        router.push('/instructor/wallet' as any);
+        break;
+      case '8': // Total Courses
+        router.push('/myUploadedCourses' as any);
+        break;
+      case '5': // Live Sessions
+      case '6': // Pending Assignments
+        router.push('/instructor/analytics' as any);
+        break;
+      default:
+        break;
+    }
+  };
   const heroScrollViewRef = useRef<ScrollView>(null);
   const [activeSlide, setActiveSlide] = useState(0);
   // rewardModalVisible: X press hides it BUT it can show again.
@@ -284,9 +338,23 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
   // Stats State
   const [statsData, setStatsData] = useState({
     totalStudents: 0,
+
+
+
+
+
     courseRating: 0,
     totalReviews: 0
   });
+  const [apiAnalytics, setApiAnalytics] = useState({
+    totalStudents: 0,
+    currentBalance: 0,
+    totalEarnings: 0,
+    liveSessions: 0,
+    pendingAssignments: 0,
+    totalCourses: 0,
+  });
+  const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -347,6 +415,38 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
         fetchCourses();
         fetchStats();
         
+        const fetchApiAnalytics = async () => {
+          try {
+            setLoadingAnalytics(true);
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData?.session?.access_token;
+            if (!token) return;
+
+            const response = await fetch('https://get-instructor-analytics.vercel.app/', {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            const data = await response.json();
+            if (data) {
+              setApiAnalytics({
+                totalStudents: data.totalStudents || 0,
+                currentBalance: data.currentBalance || 0,
+                totalEarnings: data.totalEarnings || 0,
+                liveSessions: data.liveSessions || 0,
+                pendingAssignments: data.pendingAssignments || 0,
+                totalCourses: data.totalCourses || 0,
+              });
+            }
+          } catch (error) {
+            console.error('Error fetching API analytics:', error);
+          } finally {
+            setLoadingAnalytics(false);
+          }
+        };
+        fetchApiAnalytics();
+
         // 4. Reward Eligibility (midnight-based via coinService)
         const checkEligibility = async () => {
           const { lastClaim } = await coinService.getRewardMeta(user.id);
@@ -487,21 +587,60 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
       const data = await courseService.fetchInstructorCourses(user?.id);
       if (!user?.id) return;
       setUploadedCourses(data);
-    } catch (error: any) {
-      if (error?.name === 'AuthSessionMissingError' || error?.message?.includes('session')) return;
-      console.error('Error fetching instructor courses:', error);
     } finally {
       setLoadingCourses(false);
     }
   };
 
+  const renderCoursesSkeleton = () => (
+    <View style={{ paddingHorizontal: 20 }}>
+      {[1, 2, 3].map(i => (
+        <View key={i} style={{ flexDirection: 'row', marginBottom: 12, alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 16 }}>
+          <Skeleton width={60} height={60} borderRadius={12} style={{ marginRight: 15 }} color="#E1E9EE" />
+          <View style={{ flex: 1 }}>
+            <Skeleton width="90%" height={16} style={{ marginBottom: 6 }} color="#E1E9EE" />
+            <Skeleton width="60%" height={12} color="#E1E9EE" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+
   const onRefresh = async () => {
+    HapticsService.refreshPull();
     setRefreshing(true);
+    
+    const refreshApiAnalytics = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (!token) return;
+        const response = await fetch('https://get-instructor-analytics.vercel.app/', {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data) {
+          setApiAnalytics({
+            totalStudents: data.totalStudents || 0,
+            currentBalance: data.currentBalance || 0,
+            totalEarnings: data.totalEarnings || 0,
+            liveSessions: data.liveSessions || 0,
+            pendingAssignments: data.pendingAssignments || 0,
+            totalCourses: data.totalCourses || 0,
+          });
+        }
+      } catch (error) {
+        console.error('Error refreshing analytics:', error);
+      }
+    };
+
     await Promise.all([
       fetchProfileData(),
       fetchStats(),
       fetchCourses(),
-      loadShorts()
+      loadShorts(),
+      refreshApiAnalytics()
     ]);
     setRefreshing(false);
   };
@@ -730,8 +869,12 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
               )}
             </TouchableOpacity>
             <View style={styles.profileTextContainer}>
-              <Text style={styles.welcomeText}>Welcome</Text>
-              <Text style={styles.profileTypeText}>{instructorName}</Text>
+              <AnimatedHeaderView>
+                <Text style={styles.welcomeText}>Welcome</Text>
+              </AnimatedHeaderView>
+              <AnimatedHeaderView delay={150}>
+                <Text style={styles.profileTypeText}>{instructorName}</Text>
+              </AnimatedHeaderView>
             </View>
           </View>
           <View style={styles.headerRight}>
@@ -791,13 +934,19 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
               {/* Slide 1: Welcome - Centered with Shake Animation */}
               <View style={styles.slide}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={styles.welcomeTitleWhite}>Welcome back,</Text>
+                  <AnimatedHeaderView delay={0}>
+                    <Text style={styles.welcomeTitleWhite}>Welcome back,</Text>
+                  </AnimatedHeaderView>
                   <Animated.View style={{ transform: [{ translateX: shakeAnimation }] }}>
                     <Text style={{ fontSize: 22, marginLeft: 8 }}>👋</Text>
                   </Animated.View>
                 </View>
-                <Text style={styles.instructorNameLarge}>{instructorName}!</Text>
-                <Text style={styles.welcomeSubtitleWhite}>Ready to inspire your students today?</Text>
+                <AnimatedHeaderView delay={150}>
+                  <Text style={styles.instructorNameLarge}>{instructorName}!</Text>
+                </AnimatedHeaderView>
+                <AnimatedHeaderView delay={300}>
+                  <Text style={styles.welcomeSubtitleWhite}>Ready to inspire your students today?</Text>
+                </AnimatedHeaderView>
               </View>
 
               {/* Slide 2: Public Impact - Re-layout */}
@@ -882,9 +1031,15 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
                   <Ionicons name="trophy" size={36} color="#FFD700" style={{ marginBottom: 4 }} />
                 </Animated.View>
 
-                <Text style={styles.motivationTitleBoldCenter}>Top Instructor Club</Text>
-                <Text style={styles.motivationSubtitleWhiteCenter}>Your teaching is changing lives.</Text>
-                <Text style={[styles.motivationSubtitleWhiteCenter, { fontWeight: 'bold', marginTop: 2 }]}>Keep it up!</Text>
+                <AnimatedHeaderView delay={0}>
+                  <Text style={styles.motivationTitleBoldCenter}>Top Instructor Club</Text>
+                </AnimatedHeaderView>
+                <AnimatedHeaderView delay={150}>
+                  <Text style={styles.motivationSubtitleWhiteCenter}>Your teaching is changing lives.</Text>
+                </AnimatedHeaderView>
+                <AnimatedHeaderView delay={300}>
+                  <Text style={[styles.motivationSubtitleWhiteCenter, { fontWeight: 'bold', marginTop: 2 }]}>Keep it up!</Text>
+                </AnimatedHeaderView>
               </View>
             </ScrollView>
           </View>
@@ -905,30 +1060,37 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
-          {stats.map((stat) => {
+          {stats.map((stat, index) => {
+            if (loadingAnalytics) {
+              return <StatCardSkeleton key={`skeleton-${stat.id}`} />;
+            }
+
             let displayValue = '---';
-            if (!loadingStats) {
-              if (stat.title === 'Total Students') {
-                displayValue = statsData.totalStudents.toLocaleString();
-              } else if (stat.title === 'Course Rating') {
-                const rating = statsData.courseRating.toFixed(1);
-                const reviews = statsData.totalReviews || 0;
-                displayValue = `${rating} (${reviews})`;
-              } else if (stat.title === 'Total Courses') {
-                displayValue = uploadedCourses.length.toString();
-              }
+            if (stat.key === 'courseRating') {
+              const rating = statsData.courseRating.toFixed(1);
+              displayValue = `${rating}`;
+            } else if (stat.key === 'totalReviews') {
+              displayValue = (statsData.totalReviews || 0).toString();
+            } else {
+              const value = apiAnalytics[stat.key as keyof typeof apiAnalytics] || 0;
+              displayValue = stat.isCurrency ? `$${value.toLocaleString()}` : value.toLocaleString();
             }
 
             return (
-              <View key={stat.id} style={styles.statCard}>
-                <View style={styles.statIconContainer}>
+              <AnimatedBodyView key={stat.id} delay={30 * index} style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: stat.color }]}>
                   <Ionicons name={stat.icon as any} size={20} color={stat.iconColor} />
                 </View>
                 <View style={styles.statInfo}>
                   <Text style={styles.statTitle}>{stat.title}</Text>
                   <Text style={styles.statValue}>{displayValue}</Text>
                 </View>
-              </View>
+                <TouchableOpacity 
+                  activeOpacity={0.6}
+                  onPress={() => handleStatPress(stat.id)}
+                  style={StyleSheet.absoluteFill}
+                />
+              </AnimatedBodyView>
             );
           })}
         </View>
@@ -938,20 +1100,22 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
 
 
         {/* Create Live Class Button */}
-        <TouchableOpacity
-          style={styles.liveClassButton}
-          activeOpacity={0.9}
-          onPress={() => router.push('/live/googleMeet' as any)}
-        >
-          <View style={styles.liveClassIconBox}>
-            <Ionicons name="videocam" size={24} color="#FFFFFF" />
-          </View>
-          <View style={styles.liveClassContent}>
-            <Text style={styles.liveClassTitle}>Create Live Class</Text>
-            <Text style={styles.liveClassSubtext}>Interact with your students real-time</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
+        <AnimatedBodyView delay={200}>
+          <TouchableOpacity
+            style={styles.liveClassButton}
+            activeOpacity={0.9}
+            onPress={() => router.push('/live/googleMeet' as any)}
+          >
+            <View style={styles.liveClassIconBox}>
+              <Ionicons name="videocam" size={24} color="#FFFFFF" />
+            </View>
+            <View style={styles.liveClassContent}>
+              <Text style={styles.liveClassTitle}>Create Live Class</Text>
+              <Text style={styles.liveClassSubtext}>Interact with your students real-time</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </AnimatedBodyView>
 
 
         {/* Recent Shorts Section */}
@@ -983,18 +1147,22 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
               }
               <View style={styles.shortsGrid}>
                 {shorts.slice(0, 6).map((short, index) => (
-                  <ShortCard
+                  <AnimatedBodyView
                     key={short.id}
-                    short={short}
-                    onPress={() => setSelectedShort(short)}
-                    onDelete={confirmDeleteShort}
-                    style={{
-                      width: DASHBOARD_SHORT_WIDTH,
-                      height: DASHBOARD_SHORT_WIDTH * 1.5,
-                      marginBottom: SHORT_CARD_GAP,
-                      marginRight: (index + 1) % 3 === 0 ? 0 : SHORT_CARD_GAP,
-                    }}
-                  />
+                    delay={300 + index * 50}
+                  >
+                    <ShortCard
+                      short={short}
+                      onPress={() => setSelectedShort(short)}
+                      onDelete={confirmDeleteShort}
+                      style={{
+                        width: DASHBOARD_SHORT_WIDTH,
+                        height: DASHBOARD_SHORT_WIDTH * 1.5,
+                        marginBottom: SHORT_CARD_GAP,
+                        marginRight: (index + 1) % 3 === 0 ? 0 : SHORT_CARD_GAP,
+                      }}
+                    />
+                  </AnimatedBodyView>
                 ))}
               </View>
               <TouchableOpacity
@@ -1019,10 +1187,7 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
           </View>
 
           {loadingCourses ? (
-            <View style={{ padding: 20, alignItems: 'center' }}>
-              <ActivityIndicator size="small" color="#8A2BE2" />
-              <Text style={{ marginTop: 10, color: '#888', fontSize: 12 }}>Loading courses...</Text>
-            </View>
+            renderCoursesSkeleton()
           ) : uploadedCourses.length === 0 ? (
             <View style={styles.emptyCoursesContainer}>
               <Ionicons name="library-outline" size={50} color="#D1C4E9" />
@@ -1032,43 +1197,47 @@ const InstructorProfile = ({ logout }: { logout: () => void }) => {
               </Text>
             </View>
           ) : (
-            uploadedCourses.slice(0, 3).map((course) => (
-              <TouchableOpacity
-                key={course.id}
-                style={styles.uploadedCourseCard}
-                onPress={() => handleCoursePress(course)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.imageContainer}>
-                  <Image
-                    source={{ uri: course.image_url || 'https://via.placeholder.com/150' }}
-                    style={styles.uploadedCourseImage}
-                  />
-                </View>
+            uploadedCourses.slice(0, 3).map((course, index) => (
+              <AnimatedBodyView key={course.id} delay={600 + index * 50}>
+                <TouchableOpacity
+                  style={styles.uploadedCourseCard}
+                  onPress={() => handleCoursePress(course)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.imageContainer}>
+                    <Image
+                      source={{ uri: course.image_url || 'https://via.placeholder.com/150' }}
+                      style={styles.uploadedCourseImage}
+                    />
+                  </View>
 
-                <View style={styles.uploadedCourseContent}>
-                  <Text style={styles.uploadedCourseTitle} numberOfLines={2}>{course.title}</Text>
-                  <View style={{ height: 4 }} />
-                  <Text style={styles.uploadedCourseCategory}>{course.categories || 'Uncategorized'}</Text>
+                  <View style={styles.uploadedCourseContent}>
+                    <Text style={styles.uploadedCourseTitle} numberOfLines={2}>{course.title}</Text>
+                    <View style={{ height: 4 }} />
+                    <Text style={styles.uploadedCourseCategory}>{course.categories || 'Uncategorized'}</Text>
 
-                  <View style={styles.badgeRow}>
-                    <View style={[styles.statusBadgePill, course.is_published ? styles.statusPublishedPill : styles.statusDraftPill]}>
-                      <Text style={[styles.statusTextPill, course.is_published ? styles.statusTextPublished : styles.statusTextDraft]}>
-                        {course.is_published ? 'PUBLISHED' : 'DRAFT'}
-                      </Text>
-                    </View>
+                    <View style={styles.badgeRow}>
+                      <View style={[styles.statusBadgePill, course.is_published ? styles.statusPublishedPill : styles.statusDraftPill]}>
+                        <Text style={[styles.statusTextPill, course.is_published ? styles.statusTextPublished : styles.statusTextDraft]}>
+                          {course.is_published ? 'PUBLISHED' : 'DRAFT'}
+                        </Text>
+                      </View>
 
-                    <View style={[styles.priceBadgePillRow, displayPrice(course.price) === 'Free' ? styles.badgeFree : styles.badgePaid]}>
-                      <Text style={styles.priceBadgeText}>
-                        {displayPrice(course.price)}
-                      </Text>
+                      <View style={[styles.priceBadgePillRow, displayPrice(course.price) === 'Free' ? styles.badgeFree : styles.badgePaid]}>
+                        <Text style={styles.priceBadgeText}>
+                          {displayPrice(course.price)}
+                        </Text>
+                      </View>
                     </View>
                   </View>
-                </View>
-              </TouchableOpacity >
+                </TouchableOpacity >
+              </AnimatedBodyView>
             ))
           )}
         </View >
+
+        {/* Referrals Offer Card */}
+        <OfferCard route="/instructor/referrals" />
 
       </ScrollView >
 
@@ -1244,12 +1413,13 @@ const styles = StyleSheet.create({
   statsContainer: {
     marginBottom: 20,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 12,
     width: '100%',
   },
   statCard: {
-    width: '31.5%',
+    width: '48%',
     backgroundColor: '#FFFDFF', // Ultra-light premium purple (almost white)
     borderRadius: 20,
     padding: 12,
@@ -1259,9 +1429,9 @@ const styles = StyleSheet.create({
     // Clean, soft shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03, // Thora aur kam kar diya
-    shadowRadius: 6,
-    elevation: 1, // Reduced elevation for a lighter shadow
+    shadowOpacity: 0.03,
+    shadowRadius: 15,
+    elevation: 1,
     borderWidth: 1,
     borderColor: '#F0EFFF', // Subtle border to refine edge
   },
@@ -1272,6 +1442,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F0FF', // Even softer lavender
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 8,
+  },
+  statIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     marginBottom: 8,
   },
   statInfo: {

@@ -5,10 +5,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Dimensions, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View, DeviceEventEmitter } from 'react-native';
+import { AnimatedHeaderView, AnimatedBodyView, StaggerContainer } from '../common/ContentTransitions';
 import { coinService } from '@/src/services/coinService';
 import NotificationIcon from '../notifications/NotificationIcon';
 import DailyRewardModal from '../rewards/DailyRewardModal';
 import WeCoinIcon from '../common/WeCoinIcon';
+import OfferCard from '../common/OfferCard';
+import { HapticsService } from '../../utils/haptics';
+import { Skeleton } from '../common/Skeleton';
 
 const { width } = Dimensions.get('window');
 const LIVE_CARD_WIDTH = width * 0.85;
@@ -33,6 +37,7 @@ const SideMenu = ({ visible, onClose, router, profileData }: { visible: boolean;
   const menuItemsStudent = [
     { id: '1', title: 'Dashboard', icon: 'grid-outline', onPress: () => { onClose(); } },
     { id: '2', title: 'Upcoming', icon: 'calendar-outline', onPress: () => { onClose(); router.push('/upcoming'); } },
+    { id: 'analytics', title: 'Analytics', icon: 'bar-chart-outline', onPress: () => { onClose(); router.push('/student/analytics'); } },
     { id: 'leaderboard', title: 'Leaderboard', icon: 'trophy-outline', onPress: () => { onClose(); router.push('/leaderboard'); } },
     { id: 'wallet', title: 'Wallet', icon: 'wallet-outline', onPress: () => { onClose(); router.push('/student/wallet'); } },
     { id: '4', title: 'Mentors/Instructors', icon: 'school-outline', onPress: () => { onClose(); router.push(`/allMentors`); } },
@@ -439,6 +444,7 @@ const StudentProfile = () => {
   }, [user?.id]);
 
   const onRefresh = async () => {
+    HapticsService.refreshPull();
     setRefreshing(true);
     const { supabase } = await import('@/src/auth/supabase');
     await Promise.all([
@@ -473,8 +479,12 @@ const StudentProfile = () => {
               )}
             </TouchableOpacity>
             <View style={styles.profileTextContainer}>
-              <Text style={styles.welcomeText}>Welcome</Text>
-              <Text style={styles.profileTypeText}>{userDisplayName}</Text>
+              <AnimatedHeaderView>
+                <Text style={styles.welcomeText}>Welcome</Text>
+              </AnimatedHeaderView>
+              <AnimatedHeaderView delay={150}>
+                <Text style={styles.profileTypeText}>{userDisplayName}</Text>
+              </AnimatedHeaderView>
             </View>
           </View>
           <View style={styles.topBarRight}>
@@ -507,11 +517,15 @@ const StudentProfile = () => {
           style={styles.welcomeCard}
         >
           <View style={styles.welcomeHeader}>
-            <Text style={styles.welcomeTitle}>Welcome back, {userDisplayName}! 👋</Text>
+            <AnimatedBodyView>
+              <Text style={styles.welcomeTitle}>Welcome back, {userDisplayName}! 👋</Text>
+            </AnimatedBodyView>
           </View>
-          <Text style={styles.welcomeSubtitle}>
-            You have {upcomingCount === 0 ? 'no' : upcomingCount} upcoming {upcomingCount === 1 ? 'class' : 'classes'} today.
-          </Text>
+          <AnimatedBodyView delay={150}>
+            <Text style={styles.welcomeSubtitle}>
+              You have {upcomingCount === 0 ? 'no' : upcomingCount} upcoming {upcomingCount === 1 ? 'class' : 'classes'} today.
+            </Text>
+          </AnimatedBodyView>
 
           <TouchableOpacity style={styles.aiHelpButton} onPress={() => router.push({ pathname: '/support', params: { chat: 'true' } })}>
             <Text style={styles.aiHelpText}>Ask AI Help</Text>
@@ -559,9 +573,8 @@ const StudentProfile = () => {
         </View>
 
         {isInitialLiveLoading ? (
-          <View style={[styles.emptyLiveCard, { borderStyle: 'solid' }]}>
-            <ActivityIndicator size="large" color="#8A2BE2" />
-            <Text style={[styles.emptyLiveText, { marginTop: 10 }]}>Loading live sessions...</Text>
+          <View style={{ paddingHorizontal: 20 }}>
+            <Skeleton width={width * 0.85} height={180} borderRadius={20} color="#E1E9EE" />
           </View>
         ) : activeSessions.length > 0 ? (
           <ScrollView
@@ -576,40 +589,40 @@ const StudentProfile = () => {
             scrollEventThrottle={16}
           >
             {activeSessions.map((session, index) => (
-              <View
+              <AnimatedBodyView 
                 key={session.id}
-                style={[
-                  styles.liveCard,
-                  activeSessions.length > 1
-                    ? { width: LIVE_CARD_WIDTH, marginRight: 15 }
-                    : { width: width - 40 }
-                ]}
+                delay={200 + (index * 100)}
+                style={activeSessions.length > 1
+                  ? { width: LIVE_CARD_WIDTH, marginRight: 15 }
+                  : { width: width - 40 }}
               >
-                <View style={styles.liveImageContainer}>
-                  <Image source={{ uri: session.image }} style={styles.liveImage} />
-                  <View style={styles.liveBadge}>
-                    <Text style={styles.liveBadgeText}>LIVE</Text>
-                  </View>
-                </View>
-                <View style={styles.liveContent}>
-                  <Text style={styles.liveTitle} numberOfLines={1}>{session.title}</Text>
-                  <Text style={styles.liveInstructor} numberOfLines={2}>{session.instructor}</Text>
-
-                  <View style={styles.liveMetaRow}>
-                    <View style={styles.metaItem}>
-                      <Ionicons name="time-outline" size={16} color="#8A2BE2" />
-                      <Text style={styles.metaText}>{formatTimeAgo(session.startedAt)}</Text>
+                <View style={styles.liveCard}>
+                  <View style={styles.liveImageContainer}>
+                    <Image source={{ uri: session.image }} style={styles.liveImage} />
+                    <View style={styles.liveBadge}>
+                      <Text style={styles.liveBadgeText}>LIVE</Text>
                     </View>
                   </View>
+                  <View style={styles.liveContent}>
+                    <Text style={styles.liveTitle} numberOfLines={1}>{session.title}</Text>
+                    <Text style={styles.liveInstructor} numberOfLines={2}>{session.instructor}</Text>
 
-                  <TouchableOpacity
-                    style={styles.joinSessionButton}
-                    onPress={() => router.push(`/live/${session.id}` as any)}
-                  >
-                    <Text style={styles.joinSessionText}>Join Session</Text>
-                  </TouchableOpacity>
+                    <View style={styles.liveMetaRow}>
+                      <View style={styles.metaItem}>
+                        <Ionicons name="time-outline" size={16} color="#8A2BE2" />
+                        <Text style={styles.metaText}>{formatTimeAgo(session.startedAt)}</Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.joinSessionButton}
+                      onPress={() => router.push(`/live/${session.id}` as any)}
+                    >
+                      <Text style={styles.joinSessionText}>Join Session</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
+              </AnimatedBodyView>
             ))}
           </ScrollView>
         ) : (
@@ -633,7 +646,14 @@ const StudentProfile = () => {
             contentContainerStyle={styles.mentorsScrollContainer}
           >
             {isLoadingInstructors ? (
-              <ActivityIndicator color="#8A2BE2" style={{ marginLeft: 20 }} />
+              <View style={{ flexDirection: 'row', marginLeft: 20 }}>
+                {[1, 2, 3, 4].map(i => (
+                  <View key={i} style={{ marginRight: 20, alignItems: 'center' }}>
+                    <Skeleton width={60} height={60} borderRadius={30} style={{ marginBottom: 8 }} color="#E1E9EE" />
+                    <Skeleton width={50} height={10} color="#E1E9EE" />
+                  </View>
+                ))}
+              </View>
             ) : topInstructors.length > 0 ? (
               topInstructors.map(mentor => (
                 <TouchableOpacity key={mentor.id} style={styles.mentorCard}>
@@ -661,24 +681,38 @@ const StudentProfile = () => {
           </TouchableOpacity>
         </View>
         {isLoadingRecent ? (
-          <ActivityIndicator color="#8A2BE2" style={{ marginVertical: 20 }} />
-        ) : recentCourses.length > 0 ? (
-          recentCourses.map((item, index) => (
-            <TouchableOpacity key={`${item.id}-${index}`} style={styles.learningCard} onPress={() => router.push(`/courseDetails/${item.id}` as any)}>
-              <Image source={{ uri: item.image }} style={styles.courseCardImage} />
-              <View style={styles.learningContent}>
-                <View style={styles.learningHeader}>
-                  <Text style={styles.learningTitle}>{item.title}</Text>
+          <View style={{ paddingHorizontal: 20 }}>
+            {[1, 2, 3].map(i => (
+              <View key={i} style={{ flexDirection: 'row', marginBottom: 12, alignItems: 'center' }}>
+                <Skeleton width={60} height={60} borderRadius={12} style={{ marginRight: 15 }} color="#E1E9EE" />
+                <View style={{ flex: 1 }}>
+                  <Skeleton width="90%" height={16} style={{ marginBottom: 6 }} color="#E1E9EE" />
+                  <Skeleton width="60%" height={12} color="#E1E9EE" />
                 </View>
-                <Text style={styles.instructorName}>{item.instructor}</Text>
-                <View style={styles.progressBarContainer}>
-                  <View style={[styles.progressBar, { width: `${Math.max((item.progress || 0) * 100, 2)}%`, backgroundColor: '#8A2BE2' }]} />
-                </View>
-                <Text style={styles.learningTime}>{Math.round((item.progress || 0) * 100)}% complete</Text>
               </View>
-              <Ionicons name="play" size={18} color="#aaa" />
-            </TouchableOpacity>
-          ))
+            ))}
+          </View>
+        ) : recentCourses.length > 0 ? (
+          <StaggerContainer interval={50}>
+            {recentCourses.map((item, index) => (
+              <AnimatedBodyView key={`${item.id}-${index}`}>
+                <TouchableOpacity style={styles.learningCard} onPress={() => router.push(`/courseDetails/${item.id}` as any)}>
+                  <Image source={{ uri: item.image }} style={styles.courseCardImage} />
+                  <View style={styles.learningContent}>
+                    <View style={styles.learningHeader}>
+                      <Text style={styles.learningTitle}>{item.title}</Text>
+                    </View>
+                    <Text style={styles.instructorName}>{item.instructor}</Text>
+                    <View style={styles.progressBarContainer}>
+                      <View style={[styles.progressBar, { width: `${Math.max((item.progress || 0) * 100, 2)}%`, backgroundColor: '#8A2BE2' }]} />
+                    </View>
+                    <Text style={styles.learningTime}>{Math.round((item.progress || 0) * 100)}% complete</Text>
+                  </View>
+                  <Ionicons name="play" size={18} color="#aaa" />
+                </TouchableOpacity>
+              </AnimatedBodyView>
+            ))}
+          </StaggerContainer>
         ) : (
           <View style={styles.emptyRecentCard}>
             <Ionicons name="school-outline" size={48} color="#ccc" />
@@ -690,6 +724,8 @@ const StudentProfile = () => {
           </View>
         )}
 
+        {/* Referrals Offer Card */}
+        <OfferCard route="/student/referrals" />
 
       </ScrollView>
       <SideMenu visible={menuVisible} onClose={() => setMenuVisible(false)} router={router} profileData={profileData} />

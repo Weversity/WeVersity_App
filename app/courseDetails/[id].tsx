@@ -3,6 +3,7 @@ import { supabase } from '@/src/auth/supabase';
 import AccessDeniedModal from '@/src/components/AccessDeniedModal';
 import { useAuth } from '@/src/context/AuthContext';
 import { courseService } from '@/src/services/courseService';
+import { HapticsService } from '@/src/utils/haptics';
 import { Course, Lesson, LessonType, Review, Section } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -19,6 +20,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { CourseDetailsSkeleton } from '@/src/components/skeletons/CourseDetailsSkeleton';
 
 // Local search params type for this screen
 interface CourseDetailsParams extends Record<string, string | string[] | undefined> {
@@ -575,10 +577,13 @@ export default function CourseDetailsScreen() {
         } else {
             // trying to access lesson without being enrolled
             if (sIdx !== undefined) {
+                HapticsService.error();
                 setIsAccessDeniedVisible(true);
             } else {
                 // Main Enroll Button
+                HapticsService.medium();
                 if (!user) {
+                    HapticsService.error();
                     Alert.alert(
                         "Login Required",
                         "Please login to enroll and start learning this course.",
@@ -602,6 +607,7 @@ export default function CourseDetailsScreen() {
                         .maybeSingle();
 
                     if (existingEnrollment) {
+                        HapticsService.success();
                         setIsEnrolled(true);
                         router.push(`/learning/${course.id}` as any);
                         return;
@@ -623,10 +629,12 @@ export default function CourseDetailsScreen() {
                     setIsEnrolled(true);
                     setCompletedLessonIds([]);
                     setProgress(0);
+                    HapticsService.success();
                     // Open first lesson by default on fresh enroll
                     router.push(`/learning/${course.id}` as any);
 
                 } catch (error) {
+                    HapticsService.error();
                     console.error("Enrollment failed:", error);
                     Alert.alert("Error", "Failed to enroll in course. Please try again.");
                 } finally {
@@ -642,9 +650,7 @@ export default function CourseDetailsScreen() {
     };
 
     if (loading || (isContentLoading && (!course?.sections || course.sections.length === 0))) return (
-        <View style={styles.center}>
-            <ActivityIndicator size="large" color="#8A2BE2" />
-        </View>
+        <CourseDetailsSkeleton />
     );
 
     if (error || !course) return (
@@ -687,7 +693,10 @@ export default function CourseDetailsScreen() {
 
                     <View style={styles.tabs}>
                         {['About', 'Lessons', 'Reviews'].map(t => (
-                            <TouchableOpacity key={t} onPress={() => setActiveTab(t as any)} style={[styles.tab, activeTab === t && styles.activeTab]}>
+                            <TouchableOpacity key={t} onPress={() => {
+                                HapticsService.light();
+                                setActiveTab(t as any);
+                            }} style={[styles.tab, activeTab === t && styles.activeTab]}>
                                 <Text style={[styles.tabText, activeTab === t && styles.activeTabText]}>{t}</Text>
                             </TouchableOpacity>
                         ))}

@@ -20,8 +20,10 @@ import {
   TextInput,
   ToastAndroid,
   TouchableOpacity,
-  View
+  View,
+  Switch
 } from 'react-native';
+import { HapticsService } from '@/src/utils/haptics';
 
 const CLOUDINARY_CLOUD_NAME = 'dn93gd6yw';
 const CLOUDINARY_UPLOAD_PRESET = 'weversity_unsigned';
@@ -226,6 +228,7 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
     // 1. State Lock - Prevent double clicks
     if (isUpdating) return;
 
+    HapticsService.medium();
     setIsUpdating(true);
     console.log('Starting profile update...');
 
@@ -282,6 +285,7 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
       });
 
       console.log('Update Success');
+      HapticsService.success();
 
       // 4. Critical Execution Order
       console.log('Executing refresh...');
@@ -301,6 +305,7 @@ const EditProfileModal = ({ visible, onClose, initialData, onRefresh }: { visibl
       }
 
     } catch (error: any) {
+      HapticsService.error();
       setIsUpdating(false); // Emergency spinner stop
       console.log('Update Error', error);
       console.error('Update profile error:', error);
@@ -508,6 +513,7 @@ const ChangePasswordModal = ({ visible, onClose }: { visible: boolean; onClose: 
 
       if (error) throw error;
 
+      HapticsService.success();
       Alert.alert('Success', `Password reset link sent to ${userEmail}`);
       onClose();
     } catch (error: any) {
@@ -637,6 +643,7 @@ export default function ProfileSettingsScreen() {
 
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
+  const [hapticsEnabled, setHapticsEnabled] = useState(HapticsService.getHapticsEnabled());
 
   useEffect(() => {
     fetchProfile(true); // First load with spinner
@@ -675,7 +682,16 @@ export default function ProfileSettingsScreen() {
   const initials = `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase() || (userEmail?.[0]?.toUpperCase() || 'U');
 
 
+  const toggleHaptics = async (value: boolean) => {
+    setHapticsEnabled(value);
+    await HapticsService.setHapticsEnabled(value);
+    if (value) {
+      HapticsService.light(); // Provide feedback when enabling
+    }
+  };
+
   const handleLogout = () => {
+    HapticsService.light();
     setLogoutDialogVisible(true);
   };
 
@@ -738,10 +754,38 @@ export default function ProfileSettingsScreen() {
 
             <View style={styles.actionButtonsRow}>
               {/* Removed My Contacts Button */}
-              <TouchableOpacity style={styles.actionButton} onPress={() => setEditProfileModalVisible(true)}>
+              <TouchableOpacity style={styles.actionButton} onPress={() => {
+                HapticsService.light();
+                setEditProfileModalVisible(true);
+              }}>
                 <Ionicons name="create-outline" size={18} color="#fff" style={styles.btnIcon} />
                 <Text style={styles.actionButtonText}>Edit Profile</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Preferences Card */}
+          <View style={styles.card}>
+            <View style={styles.accountHeaderRow}>
+              <View style={styles.accountLabelContainer}>
+                <Ionicons name="options-outline" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
+                <Text style={styles.cardSectionTitle}>Preferences</Text>
+              </View>
+            </View>
+
+            <View style={styles.separator} />
+
+            <View style={styles.preferenceRow}>
+              <View style={styles.preferenceTextContainer}>
+                <Text style={styles.preferenceLabel}>Haptic Feedback</Text>
+                <Text style={styles.preferenceSubLabel}>Vibrate on interactions</Text>
+              </View>
+              <Switch
+                value={hapticsEnabled}
+                onValueChange={toggleHaptics}
+                trackColor={{ false: "#D1D1D1", true: "#8A2BE2" }}
+                thumbColor={Platform.OS === 'ios' ? '#fff' : hapticsEnabled ? '#fff' : '#f4f3f4'}
+              />
             </View>
           </View>
 
@@ -752,7 +796,10 @@ export default function ProfileSettingsScreen() {
                 <Ionicons name="settings-outline" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
                 <Text style={styles.cardSectionTitle}>Account</Text>
               </View>
-              <TouchableOpacity style={styles.changePasswordBtn} onPress={() => setChangePasswordModalVisible(true)}>
+              <TouchableOpacity style={styles.changePasswordBtn} onPress={() => {
+                HapticsService.light();
+                setChangePasswordModalVisible(true);
+              }}>
                 <Text style={styles.changePasswordText}>Change Password</Text>
               </TouchableOpacity>
             </View>
@@ -816,6 +863,25 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 14,
     color: '#666',
+  },
+  preferenceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  preferenceTextContainer: {
+    flex: 1,
+  },
+  preferenceLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  preferenceSubLabel: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
   },
   header: {
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50,

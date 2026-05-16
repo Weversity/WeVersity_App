@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { AnimatedHeaderView, AnimatedBodyView } from '../../src/components/common/ContentTransitions';
+import { HapticsService } from '@/src/utils/haptics';
 
 export default function HomeScreen() {
   const { user, profile, role } = useAuth();
@@ -69,27 +71,34 @@ export default function HomeScreen() {
       {/* Purple Header */}
       <View style={styles.header}>
         <View>
-          <View style={styles.onAirBadge}>
-            <Animated.View
-              style={[
-                styles.liveDot,
-                {
-                  transform: [{ scale: pulseAnim }],
-                  shadowColor: '#FF3B5C',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.8,
-                  shadowRadius: 4,
-                }
-              ]}
-            />
-            <Text style={styles.onAirText}>ON AIR NOW</Text>
-          </View>
-          <Text style={styles.headerTitle}>Live Classes</Text>
+          <AnimatedHeaderView delay={0}>
+            <View style={styles.onAirBadge}>
+              <Animated.View
+                style={[
+                  styles.liveDot,
+                  {
+                    transform: [{ scale: pulseAnim }],
+                    shadowColor: '#FF3B5C',
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: 0.8,
+                    shadowRadius: 4,
+                  }
+                ]}
+              />
+              <Text style={styles.onAirText}>ON AIR NOW</Text>
+            </View>
+          </AnimatedHeaderView>
+          <AnimatedHeaderView delay={150}>
+            <Text style={styles.headerTitle}>Live Classes</Text>
+          </AnimatedHeaderView>
         </View>
 
         <TouchableOpacity
           style={styles.searchIcon}
-          onPress={() => setSearchVisible(!searchVisible)}
+          onPress={() => {
+            HapticsService.light();
+            setSearchVisible(!searchVisible);
+          }}
         >
           <Ionicons
             name={searchVisible ? "close" : "search"}
@@ -112,7 +121,10 @@ export default function HomeScreen() {
             autoFocus
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity onPress={() => {
+              HapticsService.light();
+              setSearchQuery('');
+            }}>
               <Ionicons name="close-circle" size={20} color="#999" />
             </TouchableOpacity>
           )}
@@ -122,17 +134,21 @@ export default function HomeScreen() {
       <StatefulPage>
         <View style={styles.contentArea}>
           {/* Live Classes Banner */}
-          <View style={styles.banner}>
-            <Text style={styles.bannerLabel}>GLOBAL LEARNING</Text>
-            <Text style={styles.bannerTitle}>{liveClassCount} Active Classes</Text>
-            <Text style={styles.bannerSubtitle}>Join thousands of students learning right now.</Text>
-          </View>
+          <AnimatedBodyView delay={200}>
+            <View style={styles.banner}>
+              <Text style={styles.bannerLabel}>GLOBAL LEARNING</Text>
+              <Text style={styles.bannerTitle}>{liveClassCount} Active Classes</Text>
+              <Text style={styles.bannerSubtitle}>Join thousands of students learning right now.</Text>
+            </View>
+          </AnimatedBodyView>
 
-          <LiveCourses
-            onCoursesLoaded={setLiveClassCount}
-            searchQuery={searchQuery}
-            onJoinPress={handleJoinClass}
-          />
+          <View style={{ flex: 1 }}>
+            <LiveCourses
+              onCoursesLoaded={setLiveClassCount}
+              searchQuery={searchQuery}
+              onJoinPress={handleJoinClass}
+            />
+          </View>
         </View>
       </StatefulPage>
     </View>

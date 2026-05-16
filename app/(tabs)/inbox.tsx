@@ -3,12 +3,14 @@ import StatefulPage from '@/src/components/common/StatefulPage';
 import UnreadEmptyState from '@/src/components/chat/UnreadEmptyState';
 import { useAuth } from '@/src/context/AuthContext';
 import { chatService } from '@/src/services/chatService';
+import { supabase } from '@/src/lib/supabase';
 import { Conversation } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { HapticsService } from '@/src/utils/haptics';
 import {
   ActivityIndicator,
   FlatList,
@@ -23,6 +25,8 @@ import {
   View
 } from 'react-native';
 import { TabBar, TabView } from 'react-native-tab-view';
+import { AnimatedHeaderView, AnimatedBodyView } from '../../src/components/common/ContentTransitions';
+import { ListRowSkeletonList } from '@/src/components/skeletons/ListRowSkeleton';
 
 const formatChatTime = (dateInput: string | number | null | undefined): { timeStr: string, timestamp: number } => {
   if (!dateInput) return { timeStr: '', timestamp: 0 };
@@ -110,7 +114,7 @@ const GuestView = ({ onGoToProfile }: { onGoToProfile: () => void }) => {
               </View>
               <View style={styles.stepContent}>
                 <Text style={styles.stepName}>View Your Inbox</Text>
-                <Text style={styles.stepDesc}>Once logged in, all your Messages will be automatically displayed here.</Text>
+                <Text style={styles.stepDesc}>Once logged in, all your Communities will be automatically displayed here.</Text>
               </View>
             </View>
           </View>
@@ -136,14 +140,90 @@ const GuestView = ({ onGoToProfile }: { onGoToProfile: () => void }) => {
   );
 };
 
-// Reusable Conversation Item Component
-const ConversationItem = memo(({ item, onPress }: { item: Conversation; onPress: (id: string) => void }) => {
+// Instructor Empty State Component
+const InstructorEmptyState = () => {
   return (
-    <TouchableOpacity
-      style={styles.conversationItem}
-      onPress={() => onPress(item.id)}
-      activeOpacity={0.7}
-    >
+    <View style={styles.guestContainer}>
+      <View style={styles.guestInner}>
+        <View style={styles.emptyIconContainer}>
+          <Ionicons name="people-circle-outline" size={80} color="#8A2BE2" />
+        </View>
+
+        <View style={styles.stepsCard}>
+          <Text style={styles.stepsTitle}>How to unlock Communities</Text>
+          <Text style={styles.stepsSubtitle}>You haven't uploaded any courses yet, so no communities are available to join.</Text>
+
+          <View style={styles.timelineContainer}>
+            {/* Step 1 */}
+            <View style={styles.stepItem}>
+              <View style={styles.badgeContainer}>
+                <View style={[styles.stepBadge, { backgroundColor: '#8A2BE2' }]}>
+                  <Text style={styles.badgeText}>1</Text>
+                </View>
+                <View style={styles.dashedLine} />
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepName}>Visit our Website</Text>
+                <Text style={styles.stepDesc}>Go to the WeVersity website on your desktop or mobile browser.</Text>
+              </View>
+            </View>
+
+            {/* Step 2 */}
+            <View style={styles.stepItem}>
+              <View style={styles.badgeContainer}>
+                <View style={[styles.stepBadge, { backgroundColor: '#8A2BE2' }]}>
+                  <Text style={styles.badgeText}>2</Text>
+                </View>
+                <View style={styles.dashedLine} />
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepName}>Login to Dashboard</Text>
+                <Text style={styles.stepDesc}>Use your current app credentials to login to your instructor dashboard.</Text>
+              </View>
+            </View>
+
+            {/* Step 3 */}
+            <View style={styles.stepItem}>
+              <View style={styles.badgeContainer}>
+                <View style={[styles.stepBadge, { backgroundColor: '#8A2BE2' }]}>
+                  <Text style={styles.badgeText}>3</Text>
+                </View>
+                <View style={styles.dashedLine} />
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepName}>Upload Your Course</Text>
+                <Text style={styles.stepDesc}>Upload your first course content and publish it to the platform.</Text>
+              </View>
+            </View>
+
+            {/* Step 4 */}
+            <View style={styles.stepItem}>
+              <View style={styles.badgeContainer}>
+                <View style={[styles.stepBadge, { backgroundColor: '#8A2BE2' }]}>
+                  <Text style={styles.badgeText}>4</Text>
+                </View>
+              </View>
+              <View style={styles.stepContent}>
+                <Text style={styles.stepName}>Community Unlocked</Text>
+                <Text style={styles.stepDesc}>Your dedicated course community will automatically appear here once the course is live.</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+// Reusable Conversation Item Component
+const ConversationItem = memo(({ item, index, onPress }: { item: Conversation; index: number; onPress: (id: string) => void }) => {
+  return (
+    <AnimatedBodyView delay={index * 50}>
+      <TouchableOpacity
+        style={styles.conversationItem}
+        onPress={() => onPress(item.id)}
+        activeOpacity={0.7}
+      >
       <View style={[styles.avatarContainer, { backgroundColor: item.avatarColor }]}>
         {item.avatar ? (
           <Image
@@ -189,55 +269,22 @@ const ConversationItem = memo(({ item, onPress }: { item: Conversation; onPress:
           </View>
         </View>
       </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </AnimatedBodyView>
   );
 });
 
-// Scenes for TabView
+// Scenes for TabView reordered and cleaned
 const renderEmptyMessages = (message: string) => (
   <View style={styles.emptyContainer}>
     <Text style={styles.emptyText}>{message}</Text>
   </View>
 );
 
-const ChatsRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => {
-  const directChats = conversations.filter(c => !c.isGroup);
-
-  if (directChats.length === 0) {
-    return (
-      <View style={{ flex: 1 }}>
-        <FlatList
-          data={[]}
-          renderItem={null}
-          ListEmptyComponent={EmptyChatState}
-          contentContainerStyle={{ flexGrow: 1 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
-          }
-        />
-      </View>
-    );
-  }
-
-  return (
-    <FlatList
-      data={directChats}
-      renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.listContent}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
-      }
-    />
-  );
-});
-
 const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh, onViewAll }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void; onViewAll: () => void }) => (
   <FlatList
     data={conversations.filter(c => (c.unread ?? 0) > 0)}
-    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
+    renderItem={({ item, index }) => <ConversationItem item={item} index={index} onPress={onPress} />}
     keyExtractor={(item) => item.id}
     contentContainerStyle={[styles.listContent, conversations.filter(c => (c.unread ?? 0) > 0).length === 0 && { flexGrow: 1 }]}
     showsVerticalScrollIndicator={false}
@@ -248,24 +295,29 @@ const UnreadRoute = memo(({ conversations, onPress, refreshing, onRefresh, onVie
   />
 ));
 
-const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void }) => (
+const CommunitiesRoute = memo(({ conversations, onPress, refreshing, onRefresh, role }: { conversations: Conversation[]; onPress: (id: string) => void; refreshing: boolean; onRefresh: () => void; role: string }) => (
   <FlatList
     data={conversations.filter((c) => c.isGroup)}
-    renderItem={({ item }) => <ConversationItem item={item} onPress={onPress} />}
+    renderItem={({ item, index }) => <ConversationItem item={item} index={index} onPress={onPress} />}
     keyExtractor={(item) => item.id}
-    contentContainerStyle={styles.listContent}
+    contentContainerStyle={[styles.listContent, conversations.filter((c) => c.isGroup).length === 0 && { flexGrow: 1 }]}
     showsVerticalScrollIndicator={false}
     refreshControl={
       <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8A2BE2" />
     }
-    ListEmptyComponent={() => renderEmptyMessages('No community groups found.')}
+    ListEmptyComponent={() => {
+      if (role.toLowerCase() === 'instructor') {
+        return <InstructorEmptyState />;
+      }
+      return renderEmptyMessages('No communities found. Enroll in a course to join its community.');
+    }}
   />
 ));
 
 export default function InboxScreen() {
   const router = useRouter();
   const layout = useWindowDimensions();
-  const { user, setUnreadCount } = useAuth();
+  const { user, role, setUnreadCount } = useAuth();
 
   // NOTE: isFocused can be used for manual refetch logic if needed, but per latest plan 
   // we primarily rely on mount/auth events to keep it simple.
@@ -274,9 +326,8 @@ export default function InboxScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [routes, setRoutes] = useState([
-    { key: 'chats', title: 'Chats' },
+    { key: 'communities', title: 'Communities' },
     { key: 'unread', title: 'Unread' },
-    { key: 'communities', title: 'Groups' },
   ]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -397,8 +448,8 @@ export default function InboxScreen() {
         setRefreshing(true); // Silent background refresh or manual pull-to-refresh
       }
 
-      console.log(`🔄 [Inbox] Fetching conversations...`);
-      const inboxData = await chatService.fetchInboxConversations(user.id, (user as any).role || 'student');
+      console.log(`🔄 [Inbox] Fetching conversations for role: ${role}`);
+      const inboxData = await chatService.fetchInboxConversations(user.id, role || 'student');
       // console.log('📦 [Inbox] Raw API Data:', JSON.stringify(inboxData, null, 2));
 
       const enhancedInboxData = await Promise.all(inboxData.map(async (conv) => {
@@ -488,23 +539,12 @@ export default function InboxScreen() {
     });
 
     return () => {
-      (async () => {
-        try {
-          // @ts-ignore
-          const { supabase } = await import('@/src/lib/supabase');
-          await supabase.removeChannel(subscription);
-        } catch (err) {
-          // Ignore clean up errors
-        }
-        // Local unsubscribe if method exists on the object
-        if (subscription && typeof subscription.unsubscribe === 'function') {
-          subscription.unsubscribe();
-        }
-      })();
+      supabase.removeChannel(subscription);
     };
   }, [user?.id]);
 
   const onRefresh = useCallback(() => {
+    HapticsService.refreshPull();
     loadChats(false);
   }, [loadChats]);
 
@@ -525,12 +565,10 @@ export default function InboxScreen() {
 
   const renderScene = useCallback(({ route }: { route: { key: string } }) => {
     switch (route.key) {
-      case 'chats':
-        return <ChatsRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
+      case 'communities':
+        return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} role={role || 'student'} />;
       case 'unread':
         return <UnreadRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} onViewAll={() => setIndex(0)} />;
-      case 'communities':
-        return <CommunitiesRoute conversations={filteredConversations} onPress={handleChatPress} refreshing={refreshing} onRefresh={onRefresh} />;
       default:
         return null;
     }
@@ -569,36 +607,40 @@ export default function InboxScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#8A2BE2" />
       <View style={styles.header}>
-        <Text style={styles.headerText}>Inbox</Text>
+        <AnimatedHeaderView>
+          <Text style={styles.headerText}>Inbox</Text>
+        </AnimatedHeaderView>
       </View>
       <StatefulPage>
         <View style={styles.contentArea}>
           {!user ? (
-            <GuestView onGoToProfile={() => router.push('/profile')} />
+            <AnimatedBodyView delay={100}>
+              <GuestView onGoToProfile={() => router.push('/profile')} />
+            </AnimatedBodyView>
           ) : (
             <>
-              <View style={styles.searchSection}>
-                <View style={styles.searchContainer}>
-                  <Ionicons name="search" size={20} color="#9BA3AF" style={styles.searchIcon} />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search messages..."
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    placeholderTextColor="#9BA3AF"
-                  />
-                  {searchQuery.length > 0 && (
-                    <TouchableOpacity onPress={() => setSearchQuery('')}>
-                      <Ionicons name="close-circle" size={20} color="#9BA3AF" />
-                    </TouchableOpacity>
-                  )}
+              <AnimatedBodyView delay={100}>
+                <View style={styles.searchSection}>
+                  <View style={styles.searchContainer}>
+                    <Ionicons name="search" size={20} color="#9BA3AF" style={styles.searchIcon} />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Search messages..."
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      placeholderTextColor="#9BA3AF"
+                    />
+                    {searchQuery.length > 0 && (
+                      <TouchableOpacity onPress={() => setSearchQuery('')}>
+                        <Ionicons name="close-circle" size={20} color="#9BA3AF" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-              </View>
+              </AnimatedBodyView>
 
               {loading && conversations.length === 0 ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#8A2BE2" />
-                </View>
+                <ListRowSkeletonList count={8} />
               ) : (
                 <TabView
                   key={'tab-view-' + JSON.stringify(tabCounts)}
@@ -639,16 +681,7 @@ const styles = StyleSheet.create({
   },
   stepsCard: {
     width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 24,
     padding: 20,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
     marginBottom: 30,
   },
   stepsTitle: {
@@ -936,5 +969,23 @@ const styles = StyleSheet.create({
     color: '#8A2BE2',
     fontSize: 11,
     fontWeight: 'bold',
+  },
+  emptyIconContainer: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: '#F3E8FF',
+    marginBottom: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  stepsSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+    paddingHorizontal: 10,
   },
 });

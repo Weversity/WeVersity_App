@@ -1,6 +1,6 @@
 import React from 'react';
 import { TextProps, TextStyle, StyleProp } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 interface AnimatedHeaderProps extends TextProps {
   children: React.ReactNode;
@@ -16,7 +16,7 @@ export const AnimatedHeader: React.FC<AnimatedHeaderProps> = ({
 }) => {
   return (
     <Animated.Text
-      entering={FadeInUp.delay(delay).duration(500).springify().damping(20).stiffness(100)}
+      entering={FadeInDown.delay(delay).duration(500).springify().damping(20).stiffness(100)}
       style={style}
       {...props}
     >

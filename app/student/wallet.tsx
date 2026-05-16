@@ -18,6 +18,7 @@ import {
     View,
     Dimensions,
 } from 'react-native';
+import { WalletSkeleton } from '@/src/components/skeletons/WalletSkeleton';
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Line } from 'react-native-svg';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { BlurView } from 'expo-blur';
@@ -34,6 +35,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
+import { HapticsService } from '@/src/utils/haptics';
 import DailyRewardModal from '@/src/components/rewards/DailyRewardModal';
 import EarningGuideModal from '@/src/components/rewards/EarningGuideModal';
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetTextInput, BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -155,6 +157,7 @@ const WalletScreen = () => {
 
     // ─── Handlers ────────────────────────────────────────────────────────
     const onRefresh = () => {
+        HapticsService.refreshPull();
         setRefreshing(true);
         fetchData();
     };
@@ -296,7 +299,7 @@ const WalletScreen = () => {
     }, [d, yieldData]);
 
     const triggerHaptic = () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        HapticsService.light();
     };
 
     const gesture = Gesture.Pan()
@@ -362,11 +365,7 @@ const WalletScreen = () => {
     });
 
     if (loading) {
-        return (
-            <View style={styles.centered}>
-                <ActivityIndicator size="large" color="#8A2BE2" />
-            </View>
-        );
+        return <WalletSkeleton />;
     }
 
     return (
@@ -686,7 +685,7 @@ const WalletScreen = () => {
                     style={styles.protocolTrigger} 
                     onPress={() => {
                         setShowProtocols(!showProtocols);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        HapticsService.light();
                     }}
                     activeOpacity={0.8}
                 >
@@ -724,7 +723,7 @@ const WalletScreen = () => {
                                 style={styles.fullGuideBtn}
                                 onPress={() => {
                                     setShowGuide(true);
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    HapticsService.medium();
                                 }}
                             >
                                 <Text style={styles.fullGuideText}>FULL GUIDE</Text>
@@ -779,7 +778,7 @@ const WalletScreen = () => {
                                     style={styles.proLearnMore}
                                     onPress={() => {
                                         setShowGuide(true);
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        HapticsService.medium();
                                     }}
                                 >
                                     <Text style={styles.proLearnText}>LEARN MORE</Text>

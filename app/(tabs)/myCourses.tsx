@@ -23,6 +23,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { AnimatedHeaderView, AnimatedBodyView } from '../../src/components/common/ContentTransitions';
+import { HapticsService } from '@/src/utils/haptics';
 
 
 const { width } = Dimensions.get('window');
@@ -161,6 +163,7 @@ export default function MyCoursesScreen() {
   }).current;
 
   const onRefresh = useCallback(async () => {
+    HapticsService.refreshPull();
     setRefreshing(true);
     setError(null);
     await refetch();
@@ -263,11 +266,13 @@ export default function MyCoursesScreen() {
       <View style={{ flex: 1, minHeight: 500 }}>
         <FlatList
           data={filteredCourses}
-          renderItem={({ item }: { item: Course }) => (
-            <CourseCard
-              course={item}
-              onPress={() => handleCoursePress(item)}
-            />
+          renderItem={({ item, index }: { item: Course; index: number }) => (
+            <AnimatedBodyView delay={Math.min(index * 50, 500)}>
+              <CourseCard
+                course={item}
+                onPress={() => handleCoursePress(item)}
+              />
+            </AnimatedBodyView>
           )}
           keyExtractor={(item: Course) => `course-${item.id}`}
           contentContainerStyle={styles.listContent}
@@ -304,7 +309,9 @@ export default function MyCoursesScreen() {
       <StatusBar barStyle="light-content" />
 
       <View style={styles.header}>
-        <Text style={styles.headerText}>Courses</Text>
+        <AnimatedHeaderView>
+          <Text style={styles.headerText}>Courses</Text>
+        </AnimatedHeaderView>
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={showFilter} style={styles.headerIcon}>
             <Ionicons name="filter-outline" size={24} color="#fff" />
@@ -333,7 +340,10 @@ export default function MyCoursesScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
-        <TouchableOpacity onPress={() => setSearchVisible(!searchVisible)} style={styles.searchIconContainer}>
+        <TouchableOpacity onPress={() => {
+          HapticsService.light();
+          setSearchVisible(!searchVisible);
+        }} style={styles.searchIconContainer}>
           <Ionicons name="search-outline" size={24} color="#8A2BE2" />
         </TouchableOpacity>
       </View>
@@ -348,7 +358,11 @@ export default function MyCoursesScreen() {
             onChangeText={setSearchQuery}
             placeholderTextColor="#999"
           />
-          <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchQuery('') }}>
+          <TouchableOpacity onPress={() => {
+            HapticsService.light();
+            setSearchVisible(false);
+            setSearchQuery('');
+          }}>
             <Ionicons name="close-circle" size={20} color="#999" />
           </TouchableOpacity>
         </View>
@@ -498,14 +512,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 15,
-    marginBottom: 10,
-    elevation: 2,
+    marginBottom: 12,
+    elevation: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    borderLeftWidth: 5,
-    borderLeftColor: '#8A2BE2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 15,
     alignItems: 'center',
     justifyContent: 'space-between',
   },

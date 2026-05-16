@@ -15,7 +15,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { CourseListSkeleton } from '@/src/components/skeletons/CourseListSkeleton';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { HapticsService } from '@/src/utils/haptics';
 
 export default function BookmarkedCoursesScreen() {
   const router = useRouter();
@@ -43,6 +45,7 @@ export default function BookmarkedCoursesScreen() {
   );
 
   const removeBookmark = (id: string) => {
+    HapticsService.light();
     bookmarksStore.delete(id);
     // Update local state immediately for better UX
     setCourses(prev => prev.filter(c => c.id !== id));
@@ -91,9 +94,7 @@ export default function BookmarkedCoursesScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#8A2BE2" />
-        </View>
+        <CourseListSkeleton />
       ) : (
         <FlatList
           data={courses}

@@ -23,6 +23,7 @@ import { supabase } from '../../src/lib/supabase';
 // @ts-ignore
 import { chatService } from '../../src/services/chatService';
 import { videoService } from '../../src/services/videoService';
+import { HapticsService } from '../../src/utils/haptics';
 
 const { width } = Dimensions.get('window');
 const CONTAINER_PADDING = 8;
@@ -231,6 +232,7 @@ export default function ViewProfile() {
     };
 
     const handleSocialToggle = async (targetUser: any) => {
+        HapticsService.light();
         if (!user?.id) {
             Alert.alert(
                 "Login Required",
@@ -282,6 +284,7 @@ export default function ViewProfile() {
     };
 
     const handleSendChatRequest = async () => {
+        HapticsService.medium();
         if (!user || !profile?.id) return;
         try {
             setSendingRequest(true);
@@ -301,6 +304,7 @@ export default function ViewProfile() {
     };
 
     const handleVideoPress = (item: any) => {
+        HapticsService.light();
         router.push({
             pathname: "/player",
             params: {
@@ -488,31 +492,7 @@ export default function ViewProfile() {
                                 );
                             })()}
 
-                            {chatRequestStatus === 'pending' ? (
-                                <TouchableOpacity
-                                    disabled={true}
-                                    style={[styles.messageButton, { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }]}
-                                >
-                                    <Ionicons name="time-outline" size={20} color="#9CA3AF" style={{ marginRight: 8 }} />
-                                    <Text style={[styles.messageButtonText, { color: '#9CA3AF' }]}>Requested</Text>
-                                </TouchableOpacity>
-                            ) : chatRequestStatus === 'accepted' ? (
-                                <TouchableOpacity
-                                    onPress={() => router.push('/(tabs)/inbox' as any)}
-                                    style={styles.messageButton}
-                                >
-                                    <Ionicons name="chatbubbles" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
-                                    <Text style={styles.messageButtonText}>Chat</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <TouchableOpacity
-                                    onPress={() => setIsChatModalVisible(true)}
-                                    style={styles.messageButton}
-                                >
-                                    <Ionicons name="chatbubble-ellipses" size={20} color="#8A2BE2" style={{ marginRight: 8 }} />
-                                    <Text style={styles.messageButtonText}>Message</Text>
-                                </TouchableOpacity>
-                            )}
+                            {/* Personal messaging removed for professional environment */}
                         </View>
                     )}
                 </View>

@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { CourseListSkeleton } from '@/src/components/skeletons/CourseListSkeleton';
 
 const WatchedCourseCard = ({ course, onPress }: { course: any; onPress: () => void }) => {
   return (
@@ -113,10 +114,7 @@ export default function AllWatchedCoursesScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#8A2BE2" />
-          <Text style={styles.loadingText}>Loading your courses...</Text>
-        </View>
+        <CourseListSkeleton />
       ) : courses.length > 0 ? (
         <FlatList
           data={courses}
@@ -210,12 +208,10 @@ const styles = StyleSheet.create({
     padding: 12, // Balanced padding
     borderRadius: 12,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
-    shadowRadius: 4,
+    shadowRadius: 15,
     elevation: 1,
   },
   courseCardImage: {

@@ -6,49 +6,80 @@ if (!supabaseUrl) {
     console.warn('chatService: EXPO_PUBLIC_SUPABASE_URL is not defined. Network requests will fail.');
 }
 export const chatService = {
-    // Fetch inbox conversations (chat groups)
-    // Note: Instructors fetch created groups; Students fetch groups they are members of.
+    // Fetch inbox conversations (Course Communities ONLY)
     async fetchInboxConversations(currentUserId: string, role: string = 'student'): Promise<any[]> {
         try {
-            let groups = [];
+            let groupsMap = new Map();
 
-            if (role === 'instructor') {
-                // Instructor: Fetch groups where creator_id is current user, include course details
-                const { data, error } = await supabase
-                    .from('chat_groups')
-                    .select(`
-                        *,
-                        courses(title, image_url),
-                        members:group_members(
-                            user:profiles(id, first_name, last_name, avatar_url)
-                        )
-                    `)
-                    .eq('creator_id', currentUserId)
-                    .order('created_at', { ascending: false });
+            // 1. Fetch Course Communities based on Role (Personal chats disabled)
+            const userRole = role.toLowerCase();
 
-                if (error) throw error;
-                groups = data || [];
-
-            } else {
-                // Student: Fetch groups via group_members junction table
-                const { data, error } = await supabase
-                    .from('group_members')
-                    .select(`
-                        group:chat_groups(
+            if (userRole === 'instructor') {
+                // Instructor: Fetch communities for courses they own
+                const { data: ownedCourses, error: courseError } = await supabase
+                    .from('courses')
+                    .select('id')
+                    .eq('instructor_id', currentUserId);
+                
+                if (courseError) {
+                    console.warn('chatService: Failed to fetch owned courses.', courseError);
+                } else if (ownedCourses && ownedCourses.length > 0) {
+                    const courseIds = ownedCourses.map(c => c.id);
+                    const { data: instructorGroups, error: instructorGroupsError } = await supabase
+                        .from('chat_groups')
+                        .select(`
                             *,
                             courses(title, image_url),
                             members:group_members(
                                 user:profiles(id, first_name, last_name, avatar_url)
                             )
-                        )
-                    `)
-                    .eq('user_id', currentUserId);
+                        `)
+                        .in('course_id', courseIds);
 
-                if (error) throw error;
-                groups = data ? data.map(item => item.group).filter(Boolean) : [];
+                    if (instructorGroupsError) {
+                        console.warn('chatService: Failed to fetch instructor groups.', instructorGroupsError);
+                    } else if (instructorGroups) {
+                        instructorGroups.forEach(group => {
+                            groupsMap.set(group.id, group);
+                        });
+                    }
+                }
+            } else if (userRole === 'student') {
+                // Student: Fetch communities for courses they are enrolled in
+                const { data: enrollments, error: enrollError } = await supabase
+                    .from('enrollments')
+                    .select('course_id')
+                    .eq('student_id', currentUserId);
+
+                if (enrollError) {
+                    console.warn('chatService: Failed to fetch student enrollments.', enrollError);
+                } else if (enrollments && enrollments.length > 0) {
+                    const courseIds = enrollments.map(e => e.course_id);
+                    const { data: studentGroups, error: studentGroupsError } = await supabase
+                        .from('chat_groups')
+                        .select(`
+                            *,
+                            courses(title, image_url),
+                            members:group_members(
+                                user:profiles(id, first_name, last_name, avatar_url)
+                            )
+                        `)
+                        .in('course_id', courseIds);
+
+                    if (studentGroupsError) {
+                        console.warn('chatService: Failed to fetch student groups.', studentGroupsError);
+                    } else if (studentGroups) {
+                        studentGroups.forEach(group => {
+                            groupsMap.set(group.id, group);
+                        });
+                    }
+                }
             }
 
-            // 1. Fetch unread counts for all these groups using the RPC
+            // Convert Map back to array
+            const groups = Array.from(groupsMap.values());
+
+            // 3. Fetch unread counts for all these groups using the RPC
             const { data: unreadData, error: unreadError } = await supabase
                 .rpc('get_unread_counts', { p_user_id: currentUserId });
 
@@ -64,7 +95,7 @@ export const chatService = {
                 });
             }
 
-            // Map groups to a standard format for the Inbox
+            // 4. Map groups to a standard format for the Inbox
             return groups.map(group => {
                 let displayName = group.courses?.title || (group as any).name;
                 let displayAvatar = group.courses?.image_url || (group as any).image;
@@ -104,8 +135,9 @@ export const chatService = {
 
     // Subscribe to real-time chat (global updates)
     subscribeToGlobalChat(callback: (payload: any) => void) {
+        const subscriptionId = `global-chat-updates-${Math.random().toString(36).substr(2, 9)}`;
         const channel = supabase
-            .channel('global-chat-updates')
+            .channel(subscriptionId)
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'chat_messages' },
@@ -458,20 +490,58 @@ export const chatService = {
     },
 
     // Get the total unread count across all conversations for a user
-    async getTotalUnreadCount(userId: string): Promise<number> {
+    async getTotalUnreadCount(userId: string, role: string = 'student'): Promise<number> {
         try {
-            const { data, error } = await supabase
+            const userRole = (role || 'student').toLowerCase();
+            
+            // 1. Get all unread counts from the RPC
+            const { data: unreadData, error: unreadError } = await supabase
                 .rpc('get_unread_counts', { p_user_id: userId });
 
-            if (error) {
-                console.warn('chatService: Failed to fetch total unread count.', error);
+            if (unreadError) {
+                console.warn('chatService: Failed to fetch total unread count from RPC.', unreadError);
                 return 0;
             }
 
-            if (!data) return 0;
+            if (!unreadData || unreadData.length === 0) return 0;
 
-            // Sum up the unread_count from each group/conversation
-            return data.reduce((sum: number, row: any) => sum + (Number(row.unread_count) || 0), 0);
+            // 2. Determine allowed course IDs based on role
+            let allowedCourseIds: string[] = [];
+            
+            if (userRole === 'instructor') {
+                const { data: courses } = await supabase
+                    .from('courses')
+                    .select('id')
+                    .eq('instructor_id', userId);
+                if (courses) allowedCourseIds = courses.map(c => c.id);
+            } else {
+                const { data: enrollments } = await supabase
+                    .from('enrollments')
+                    .select('course_id')
+                    .eq('student_id', userId);
+                if (enrollments) allowedCourseIds = enrollments.map(e => e.course_id);
+            }
+
+            if (allowedCourseIds.length === 0) return 0;
+
+            // 3. Fetch community group IDs for these courses
+            const { data: communityGroups } = await supabase
+                .from('chat_groups')
+                .select('id')
+                .in('course_id', allowedCourseIds);
+
+            if (!communityGroups || communityGroups.length === 0) return 0;
+
+            const communityGroupIds = new Set(communityGroups.map(g => g.id));
+
+            // 4. Count only the allowed unread communities (conversations)
+            return unreadData.reduce((count: number, row: any) => {
+                if (communityGroupIds.has(row.group_id) && (Number(row.unread_count) || 0) > 0) {
+                    return count + 1;
+                }
+                return count;
+            }, 0);
+
         } catch (error: any) {
             console.error('Error in getTotalUnreadCount:', error.message);
             return 0;

@@ -5,6 +5,9 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { liveSessionService } from '../services/liveSessionService';
 import NotificationPopup from './NotificationPopup';
+import { AnimatedBodyView } from './common/ContentTransitions';
+import { HapticsService } from '../utils/haptics';
+import { UpcomingClassesSkeleton } from './skeletons/UpcomingClassesSkeleton';
 
 // Helper to safely parse UTC date strings
 const parseUtcDate = (dateString: string) => {
@@ -220,7 +223,7 @@ const getTimeUntil = (dateString: string) => {
 };
 
 // Horizontal Card Component (Regular List)
-const SessionItem = memo(({ item, onNotify, isInterested }: { item: any; onNotify: (item: any) => void; isInterested: boolean }) => {
+const SessionItem = memo(({ item, index, onNotify, isInterested }: { item: any; index: number; onNotify: (item: any) => void; isInterested: boolean }) => {
     const course = getCourseData(item);
     const title = course?.title || 'Upcoming Class';
     const courseImage = course?.image_url || course?.thumbnail || course?.cover_image || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2670&auto=format&fit=crop';
@@ -233,7 +236,8 @@ const SessionItem = memo(({ item, onNotify, isInterested }: { item: any; onNotif
     const timeUntil = getTimeUntil(item.scheduled_at);
 
     return (
-        <View style={styles.horizontalCard}>
+        <AnimatedBodyView delay={300 + index * 50}>
+            <View style={styles.horizontalCard}>
             <View style={styles.cardTopRow}>
                 <View style={styles.horizontalImageContainer}>
                     <Image source={{ uri: courseImage }} style={styles.horizontalImage} />
@@ -275,6 +279,7 @@ const SessionItem = memo(({ item, onNotify, isInterested }: { item: any; onNotif
                 </TouchableOpacity>
             </View>
         </View>
+        </AnimatedBodyView>
     );
 });
 
@@ -320,6 +325,7 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
     }, [loadData]);
 
     const onRefresh = useCallback(() => {
+        HapticsService.refreshPull();
         setRefreshing(true);
         loadData();
     }, [loadData]);
@@ -395,12 +401,7 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
     };
 
     if (loading && !refreshing) {
-        return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#8A2BE2" />
-                <Text style={{ marginTop: 10, color: '#666' }}>Loading Classes...</Text>
-            </View>
-        );
+        return <UpcomingClassesSkeleton />;
     }
 
     return (
@@ -408,9 +409,10 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
             <FlatList
                 data={listData}
                 keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => (
+                renderItem={({ item, index }) => (
                     <SessionItem
                         item={item}
+                        index={index}
                         onNotify={handleNotify}
                         isInterested={interestedIds.has(item.id)}
                     />
@@ -418,16 +420,20 @@ const UpcomingClasses = ({ searchQuery = '' }: { searchQuery?: string }) => {
                 ListHeaderComponent={
                     <>
                         {spotlightClass && (
-                            <SpotlightCard
-                                item={spotlightClass}
-                                onNotify={handleNotify}
-                                isInterested={interestedIds.has(spotlightClass.id)}
-                            />
+                            <AnimatedBodyView delay={100}>
+                                <SpotlightCard
+                                    item={spotlightClass}
+                                    onNotify={handleNotify}
+                                    isInterested={interestedIds.has(spotlightClass.id)}
+                                />
+                            </AnimatedBodyView>
                         )}
-                        <View style={styles.resultsHeader}>
-                            <Text style={styles.upcomingListTitle}>Upcoming Events</Text>
-                            <Text style={styles.resultsCount}>{sessions.length} Results</Text>
-                        </View>
+                        <AnimatedBodyView delay={250}>
+                            <View style={styles.resultsHeader}>
+                                <Text style={styles.upcomingListTitle}>Upcoming Events</Text>
+                                <Text style={styles.resultsCount}>{sessions.length} Results</Text>
+                            </View>
+                        </AnimatedBodyView>
                     </>
                 }
                 ListEmptyComponent={
@@ -497,11 +503,11 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         overflow: 'hidden',
         backgroundColor: '#fff',
-        elevation: 6,
+        elevation: 1,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 20,
     },
     spotlightImageContainer: {
         width: '100%',
@@ -674,9 +680,9 @@ const styles = StyleSheet.create({
         padding: 16,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 2,
+        shadowOpacity: 0.03,
+        shadowRadius: 15,
+        elevation: 1,
     },
     cardTopRow: {
         flexDirection: 'row',

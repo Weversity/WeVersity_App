@@ -209,8 +209,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUnreadMessages = React.useCallback(async () => {
     if (!user?.id) return;
     try {
-      console.log('[AuthContext] Refreshing total unread messages...');
-      const count = await chatService.getTotalUnreadCount(user.id);
+      console.log('[AuthContext] Refreshing total unread messages for role:', role);
+      const count = await chatService.getTotalUnreadCount(user.id, role || 'student');
       setUnreadMessagesCount(count);
     } catch (err) {
       console.error('[AuthContext] Error refreshing unread messages:', err);

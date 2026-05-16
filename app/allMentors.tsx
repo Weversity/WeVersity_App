@@ -15,6 +15,8 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { HapticsService } from '@/src/utils/haptics';
+import { MentorGridSkeleton } from '@/src/components/skeletons/MentorSkeleton';
 
 const { width } = Dimensions.get('window');
 
@@ -87,11 +89,13 @@ export default function AllMentorsScreen() {
     );
 
     const onRefresh = useCallback(() => {
+        HapticsService.refreshPull();
         setRefreshing(true);
         fetchInstructors(search, true);
     }, [search]);
 
     const handleToggleFollow = (mentorId: string) => {
+        HapticsService.light();
         toggleFollow(mentorId);
         setFollowed(new Set(followedMentorsStore));
     };
@@ -165,17 +169,17 @@ export default function AllMentorsScreen() {
                     onChangeText={setSearch}
                 />
                 {search.length > 0 && (
-                    <TouchableOpacity onPress={() => setSearch('')}>
+                    <TouchableOpacity onPress={() => {
+                        HapticsService.light();
+                        setSearch('');
+                    }}>
                         <Ionicons name="close-circle" size={20} color="#999" />
                     </TouchableOpacity>
                 )}
             </View>
 
             {isLoading ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 }}>
-                    <ActivityIndicator size="large" color="#8A2BE2" />
-                    <Text style={{ marginTop: 10, color: '#666' }}>Loading mentors...</Text>
-                </View>
+                <MentorGridSkeleton />
             ) : instructors.length > 0 ? (
                 <FlatList
                     data={instructors}

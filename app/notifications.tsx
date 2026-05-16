@@ -8,6 +8,8 @@ import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, SectionList, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import ReactNativeModal from 'react-native-modal';
+import { HapticsService } from '@/src/utils/haptics';
+import { NotificationsSkeleton } from '@/src/components/skeletons/NotificationsSkeleton';
 
 
 // Mapping of notification types to badge icons
@@ -116,10 +118,7 @@ const NotificationScreen = () => {
   const [isClearing, setIsClearing] = useState(false);
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customDays, setCustomDays] = useState('');
-  const [activeTab, setActiveTab] = useState<'All' | 'Requests'>('All');
   const [actionStates, setActionStates] = useState<{ [key: string]: { status: 'Accepted' | 'Declined', time: string } }>({});
-
-  const REQUEST_TYPES = ['chat_invitation', 'message_request'];
 
 
   // Reset unread count when screen is opened
@@ -227,74 +226,6 @@ const NotificationScreen = () => {
     };
   }, [user]);
 
-  const handleAccept = async (item: Notification) => {
-    if (!user) return;
-    const actorId = item.actor?.id || item.actor_id;
-    if (!actorId) return;
-
-    try {
-      console.log('Accepted request for sender:', actorId);
-      const actionTime = new Date().toLocaleString();
-      const initials = getInitials(item.actor?.first_name || '', item.actor?.last_name || '');
-      const nameForMsg = item.actor ? `${item.actor.first_name || ''} ${item.actor.last_name || ''}`.trim() : 'Someone';
-      const messageText = `You accepted ${nameForMsg}'s chat request on ${actionTime}`;
-
-      await chatService.updateChatRequestStatus('accepted', actorId, user.id);
-
-      // Update notification in DB so it persists as accepted
-      const newType = 'request_accepted';
-      const newContent = { message: messageText };
-
-      await supabase.from('notifications').update({
-        content: newContent,
-        type: newType
-      }).eq('id', item.id);
-
-      // Optimistically update the UI by altering the local item
-      setNotifications(prev => prev.map(n =>
-        n.id === item.id ? { ...n, type: newType, content: newContent } : n
-      ));
-
-      Alert.alert('Success', 'Request Accepted');
-    } catch (error) {
-      console.error('Error in handleAccept:', error);
-      setActionStates(prev => { const st = { ...prev }; delete st[item.id]; return st; });
-      Alert.alert('Error', 'Could not accept request');
-    }
-  };
-
-  const handleDecline = async (item: Notification) => {
-    if (!user) return;
-    const actorId = item.actor?.id || item.actor_id;
-    if (!actorId) return;
-
-    try {
-      console.log('Declined request for sender:', actorId);
-      const actionTime = new Date().toLocaleString();
-      const nameForMsg = item.actor ? `${item.actor.first_name || ''} ${item.actor.last_name || ''}`.trim() : 'Someone';
-      const messageText = `You declined ${nameForMsg}'s chat request on ${actionTime}`;
-
-      await chatService.updateChatRequestStatus('declined', actorId, user.id);
-
-      // Update notification in DB so it persists
-      const newType = 'request_declined';
-      const newContent = { message: messageText };
-
-      await supabase.from('notifications').update({
-        content: newContent,
-        type: newType
-      }).eq('id', item.id);
-
-      // Optimistically update local item
-      setNotifications(prev => prev.map(n =>
-        n.id === item.id ? { ...n, type: newType, content: newContent } : n
-      ));
-
-    } catch (error) {
-      console.error('Error in handleDecline:', error);
-      setActionStates(prev => { const st = { ...prev }; delete st[item.id]; return st; });
-    }
-  };
 
 
   const handleClearNotifications = async (filterType: 'all' | 'custom', daysInput?: string) => {
@@ -457,41 +388,14 @@ const NotificationScreen = () => {
 
   // Filter and prepare notifications
   const getFilteredNotifications = () => {
-    let filtered = notifications;
-    if (activeTab === 'Requests') {
-      const REQUEST_ACTION_TYPES = [...REQUEST_TYPES, 'request_accepted', 'request_declined'];
-      filtered = notifications.filter(n => REQUEST_ACTION_TYPES.includes(n.type));
-    }
-    return filtered;
+    return notifications;
   };
 
 
   const displayNotifications = getFilteredNotifications();
   const groupedNotifications = groupNotificationsByDate(displayNotifications);
 
-  const pendingRequestsCount = notifications.filter(n =>
-    REQUEST_TYPES.includes(n.type) && !actionStates[n.id]
-  ).length;
-
-  const renderTabBar = () => (
-    <View style={styles.tabContainer}>
-      <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'All' && styles.activeTab]}
-        onPress={() => setActiveTab('All')}
-      >
-        <Text style={[styles.tabText, activeTab === 'All' && styles.activeTabText]}>All</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.tabButton, activeTab === 'Requests' && styles.activeTab]}
-        onPress={() => setActiveTab('Requests')}
-      >
-        <View style={styles.tabLabelContainer}>
-          <Text style={[styles.tabText, activeTab === 'Requests' && styles.activeTabText]}>Requests</Text>
-          {pendingRequestsCount > 0 && <View style={styles.badgeDot} />}
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
+  const renderTabBar = () => null;
 
 
   const renderItem = ({ item }: { item: Notification }) => {
@@ -570,13 +474,12 @@ const NotificationScreen = () => {
       );
     };
 
-    const REQUEST_ACTION_TYPES = [...REQUEST_TYPES, 'request_accepted', 'request_declined'];
-    const isRequestActionType = REQUEST_ACTION_TYPES.includes(item.type);
     const actionText = getNotificationActionText(item);
     const isSelfAction = actionText.toLowerCase().startsWith('you ');
     const startsWithActor = actionText.toLowerCase().startsWith(actorName.toLowerCase());
 
     const handleNotificationPress = () => {
+      HapticsService.light();
       if (item.type === 'new_follower' || item.type === 'follow_back') {
         const profileId = item.actor?.id || item.actor_id;
         if (profileId) {
@@ -595,10 +498,7 @@ const NotificationScreen = () => {
     };
 
     return (
-      <View style={[styles.notificationItem, isRequestActionType && styles.requestItem]}>
-        {isRequestActionType && (
-          <Text style={styles.requestLabel}>CHAT REQUEST</Text>
-        )}
+      <View style={styles.notificationItem}>
 
         <TouchableOpacity 
           style={styles.itemRow} 
@@ -653,33 +553,6 @@ const NotificationScreen = () => {
 
         </TouchableOpacity>
 
-        {!isSelfAction && REQUEST_TYPES.includes(item.type) && (
-          <View style={styles.actionSection}>
-            <View style={styles.requestButtons}>
-              <TouchableOpacity
-                style={styles.declineButton}
-                onPress={() => handleDecline(item)}
-              >
-                <Text style={styles.declineButtonText}>Decline</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => handleAccept(item)}
-                style={styles.acceptButtonWrapper}
-              >
-                <LinearGradient
-                  colors={['#8A2BE2', '#5D00B3']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.acceptButton}
-                >
-                  <Text style={styles.acceptButtonText}>Accept</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
       </View>
     );
   };
@@ -722,12 +595,14 @@ const NotificationScreen = () => {
           contentContainerStyle={styles.listContainer}
           stickySectionHeadersEnabled={false}
           ListEmptyComponent={
-            !loading ? (
+            loading ? (
+                <NotificationsSkeleton />
+            ) : (
               <View style={styles.emptyContainer}>
                 <Ionicons name="notifications-off-outline" size={48} color="#ccc" />
                 <Text style={styles.emptyText}>No notifications yet</Text>
               </View>
-            ) : null
+            )
           }
         />
       </View>
@@ -1035,96 +910,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
-  },
-  tabButton: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 3,
-    borderBottomColor: 'transparent',
-  },
-  activeTab: {
-    borderBottomColor: '#8A2BE2',
-  },
-  tabText: {
-    fontSize: 15,
-    color: '#888888',
-    fontWeight: '500',
-  },
-  activeTabText: {
-    color: '#8A2BE2',
-    fontWeight: 'bold',
-  },
-  tabLabelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  badgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#E74C3C',
-    marginLeft: 6,
-    marginBottom: 8,
-  },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  requestItem: {
-    flexDirection: 'column',
-    paddingTop: 12,
-  },
-  requestLabel: {
-    color: '#8A2BE2',
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    marginBottom: 10,
-  },
-  actionSection: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    width: '100%',
-  },
-  requestButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  declineButton: {
-    flex: 1,
-    height: 40,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  declineButtonText: {
-    color: '#666666',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  acceptButtonWrapper: {
-    flex: 1,
-  },
-  acceptButton: {
-    height: 40,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  acceptButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
+
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',

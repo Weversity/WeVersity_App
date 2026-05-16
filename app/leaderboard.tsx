@@ -24,7 +24,8 @@ import Animated, {
     Layout, 
     SlideInUp,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
+import { HapticsService } from '@/src/utils/haptics';
+import { LeaderboardSkeleton } from '@/src/components/skeletons/LeaderboardSkeleton';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -67,7 +68,7 @@ const PodiumItem = ({ entry, rank }: { entry: LeaderboardEntry; rank: number }) 
         <TouchableOpacity 
           activeOpacity={0.8}
           onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              HapticsService.light();
               router.push({ pathname: '/viewProfile/[id]', params: { id: entry.id } } as any);
           }}
           style={[styles.podiumAvatarContainer, { borderColor: podiumColors[0] }]}
@@ -129,6 +130,7 @@ export default function LeaderboardScreen() {
   }, [fetchData]);
 
   const onRefresh = () => {
+    HapticsService.refreshPull();
     setRefreshing(true);
     fetchData(false);
   };
@@ -230,7 +232,7 @@ export default function LeaderboardScreen() {
           <TouchableOpacity 
             style={[styles.toggleButton, period === 'all_time' && styles.toggleButtonActive]} 
             onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                HapticsService.medium();
                 setPeriod('all_time');
             }}
           >
@@ -239,7 +241,7 @@ export default function LeaderboardScreen() {
           <TouchableOpacity 
             style={[styles.toggleButton, period === 'weekly' && styles.toggleButtonActive]} 
             onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                HapticsService.medium();
                 setPeriod('weekly');
             }}
           >
@@ -249,10 +251,7 @@ export default function LeaderboardScreen() {
       </View>
 
       {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#8A2BE2" />
-          <Text style={styles.loadingText}>Analyzing leaderboard...</Text>
-        </View>
+        <LeaderboardSkeleton />
       ) : (
         <FlatList
           data={others}

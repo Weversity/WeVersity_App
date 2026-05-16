@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import WeCoinIcon from '@/src/components/common/WeCoinIcon';
+import { HapticsService } from '@/src/utils/haptics';
 
 const { width } = Dimensions.get('window');
 
@@ -46,6 +47,7 @@ const AchievementScreen = () => {
     }, [user?.id]);
 
     const onRefresh = () => {
+        HapticsService.refreshPull();
         setRefreshing(true);
         fetchData();
     };

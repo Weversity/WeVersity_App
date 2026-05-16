@@ -1,21 +1,22 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
 import Slider from '@react-native-community/slider';
 import { useIsFocused } from '@react-navigation/native';
 import { RelativePathString, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Dimensions, Image, Animated as RNAnimated, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState, memo, useCallback, useMemo } from 'react';
+import { Alert, Dimensions, Image, Animated as RNAnimated, Share, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Pressable } from 'react-native';
 import Animated, { Extrapolate, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useAuth } from '../../../src/context/AuthContext';
 import { videoService } from '../../services/videoService';
+import { HapticsService } from '../../utils/haptics';
 import CommentsSheet from './CommentsSheet';
 import ShortMediaFrame from './ShortMediaFrame';
 import FloatingRewardCoin from './FloatingRewardCoin';
+import { TapGestureHandler, State } from 'react-native-gesture-handler';
 
-const { width, height } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Biography character limit for showing Read More button
 const BIO_CHAR_LIMIT = 60;
 
 interface ShortItem {
@@ -39,6 +40,7 @@ interface ShortItem {
 interface ShortFeedItemProps {
     item: ShortItem;
     isVisible: boolean;
+    shouldLoad: boolean;
     onRefresh: () => void;
     isMuted: boolean;
     setIsMuted: (muted: boolean) => void;
@@ -66,7 +68,8 @@ const formatTime = (seconds: number) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-const ShortProgressBar = React.memo(({ player, isVisible }: { player: any, isVisible: boolean, containerWidth: number }) => {
+// ─── PROGRESS BAR COMPONENT ──────────────────────────────────────────
+const ShortProgressBar = memo(({ player, isVisible }: { player: any, isVisible: boolean }) => {
     const [currentTime, setCurrentTime] = useState(0);
     const isDraggingRef = useRef(false);
     const initiallyPlayingRef = useRef(false);
@@ -116,155 +119,217 @@ const ShortProgressBar = React.memo(({ player, isVisible }: { player: any, isVis
     );
 });
 
-export default function ShortFeedItem({
+// ─── VIDEO PLAYER WRAPPER ───────────────────────────────────────────
+const VideoPlayerWrapper = memo(({ 
+    videoUrl, 
+    isVisible, 
+    isMuted, 
+    isFocused, 
+    onPlayerReady
+}: { 
+    videoUrl: string, 
+    isVisible: boolean, 
+    isMuted: boolean, 
+    isFocused: boolean,
+    containerWidth: number,
+    containerHeight: number,
+    onPlayerReady: (player: any) => void
+}) => {
+    const [isPlaying, setIsPlaying] = useState(isVisible);
+    const [hasError, setHasError] = useState(false);
+    const [iconOpacity] = useState(new RNAnimated.Value(0));
+    const [showIcon, setShowIcon] = useState(false);
+
+    const player = useVideoPlayer(videoUrl, (p) => {
+        p.loop = true;
+        p.muted = isMuted;
+        // Pro Optimization: Dynamic Buffering based on visibility
+        const isCurrentlyVisible = isVisible && isFocused;
+        p.timeUpdateEventInterval = 0.25;
+        p.showNowPlayingNotification = false;
+        
+        if ('bufferOptions' in p) {
+            (p as any).bufferOptions = {
+                // Active video gets 6s buffer for stability, neighbors get 2s to save RAM
+                preferredForwardBufferDuration: isCurrentlyVisible ? 6 : 2,
+                waitsToMinimizeStalling: isCurrentlyVisible,
+            };
+        } else {
+            (p as any).waitsToMinimizeStalling = isCurrentlyVisible;
+        }
+
+        p.addListener('statusChange', (status: any) => {
+            if (status === 'error') {
+                setHasError(true);
+                HapticsService.error();
+            }
+        });
+    });
+
+    useEffect(() => {
+        if (player.status === 'error') {
+            setHasError(true);
+            HapticsService.error();
+        }
+    }, [player.status]);
+
+    useEffect(() => {
+        if (player) {
+            onPlayerReady(player);
+            return () => onPlayerReady(null);
+        }
+    }, [player, onPlayerReady]);
+
+    useEffect(() => {
+        if (isFocused && isVisible) {
+            player.play();
+            setIsPlaying(true);
+            setShowIcon(false);
+            RNAnimated.timing(iconOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+        } else {
+            player.pause();
+            setIsPlaying(false);
+            setShowIcon(true);
+            RNAnimated.timing(iconOpacity, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+        }
+    }, [isFocused, isVisible, player]);
+
+    useEffect(() => {
+        player.muted = isMuted;
+    }, [isMuted, player]);
+
+    const onTapGestureEvent = (event: any) => {
+        if (event.nativeEvent.state === State.ACTIVE) {
+            if (!player) return;
+            HapticsService.success(); // Instant feedback
+
+            if (player.playing) {
+                player.pause();
+                setIsPlaying(false);
+                setShowIcon(true);
+                RNAnimated.timing(iconOpacity, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+            } else {
+                player.play();
+                setIsPlaying(true);
+                RNAnimated.timing(iconOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+                    setShowIcon(false);
+                });
+            }
+        }
+    };
+
+    if (hasError) {
+        return (
+            <View style={styles.errorContainer}>
+                <MaterialIcons name="lock-outline" size={80} color="rgba(255,255,255,0.4)" />
+                <Text style={styles.errorHeading}>Content Removed by Admin</Text>
+                <Text style={styles.errorSubHeading}>This video was removed due to a violation of our privacy and safety guidelines.</Text>
+            </View>
+        );
+    }
+
+    return (
+        <View 
+            style={{ flex: 1, width: '100%', height: '100%' }}
+            renderToHardwareTextureAndroid={true}
+        >
+            <TapGestureHandler onHandlerStateChange={onTapGestureEvent}>
+                <View style={StyleSheet.absoluteFillObject}>
+                    {/* Layer 0: The Video (Passthrough) */}
+                    <VideoView 
+                        player={player} 
+                        style={StyleSheet.absoluteFillObject} 
+                        contentFit="contain" 
+                        nativeControls={false} 
+                        pointerEvents="none" 
+                    />
+                    
+                    {/* Instant Center Pause/Play Status Overlays */}
+                    {showIcon && (
+                        <RNAnimated.View style={[styles.playIconContainer, { opacity: iconOpacity, zIndex: 20 }]}>
+                            <Ionicons name="pause" size={55} color="rgba(255,255,255,0.75)" />
+                        </RNAnimated.View>
+                    )}
+                </View>
+            </TapGestureHandler>
+        </View>
+    );
+});
+
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────
+const ShortFeedItem = ({
     item,
     isVisible,
+    shouldLoad,
     onRefresh,
     isMuted,
     setIsMuted,
     onCommentsVisibilityChange,
-    containerHeight = Dimensions.get('window').height,
-    containerWidth = Dimensions.get('window').width
-}: ShortFeedItemProps) {
+    containerHeight = SCREEN_HEIGHT,
+    containerWidth = SCREEN_WIDTH
+}: ShortFeedItemProps) => {
     const router = useRouter();
     const { user } = useAuth();
     const isFocused = useIsFocused();
 
-    const [isPlaying, setIsPlaying] = useState(isVisible);
     const [isExpanded, setIsExpanded] = useState(false);
     const [likesCount, setLikesCount] = useState(item.likes_count || 0);
     const [userReaction, setUserReaction] = useState<'like' | null>(null);
     const [showComments, setShowComments] = useState(false);
+    const [activePlayer, setActivePlayer] = useState<any>(null);
 
     const sheetRef = useRef<BottomSheetModal>(null);
     const animatedIndex = useSharedValue<number>(-1);
 
+    // Existing Reanimated Styles (Preserved)
     const videoAnimatedStyle = useAnimatedStyle(() => {
-        const scale = interpolate(
-            animatedIndex.value,
-            [-1, 0],
-            [1, 0.75],
-            Extrapolate.CLAMP
-        );
-        const translateY = interpolate(
-            animatedIndex.value,
-            [-1, 0],
-            [0, -(containerHeight ?? height) * 0.4],
-            Extrapolate.CLAMP
-        );
-        const borderRadius = interpolate(
-            animatedIndex.value,
-            [-1, 0],
-            [0, 20],
-            Extrapolate.CLAMP
-        );
-        return {
-            transform: [
-                { scale },
-                { translateY }
-            ],
-            borderRadius,
-            overflow: 'hidden'
-        };
+        const scale = interpolate(animatedIndex.value, [-1, 0], [1, 0.75], Extrapolate.CLAMP);
+        const translateY = interpolate(animatedIndex.value, [-1, 0], [0, -containerHeight * 0.4], Extrapolate.CLAMP);
+        const borderRadius = interpolate(animatedIndex.value, [-1, 0], [0, 20], Extrapolate.CLAMP);
+        return { transform: [{ scale }, { translateY }], borderRadius, overflow: 'hidden' };
     });
 
     const uiAnimatedStyle = useAnimatedStyle(() => {
-        const opacity = interpolate(
-            animatedIndex.value,
-            [-1, -0.8],
-            [1, 0],
-            Extrapolate.CLAMP
-        );
-        return {
-            opacity,
-            pointerEvents: animatedIndex.value > -0.9 ? 'none' : 'auto'
-        };
+        const opacity = interpolate(animatedIndex.value, [-1, -0.8], [1, 0], Extrapolate.CLAMP);
+        return { opacity, pointerEvents: animatedIndex.value > -0.9 ? 'none' : 'auto' };
     });
 
     useEffect(() => {
         onCommentsVisibilityChange?.(showComments);
-    }, [showComments]);
+    }, [showComments, onCommentsVisibilityChange]);
 
     const [likeScale] = useState(new RNAnimated.Value(1));
-    const [playIconOpacity] = useState(new RNAnimated.Value(0));
 
-    const getMediaType = (): 'image' | 'video' => {
+    const mediaType = useMemo(() => {
         if (item.type) return item.type;
         const url = item.video_url.toLowerCase();
         const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
         return imageExtensions.some(ext => url.includes(ext)) ? 'image' : 'video';
-    };
+    }, [item.video_url, item.type]);
 
-    const mediaType = getMediaType();
     const isVideo = mediaType === 'video';
 
-    const player = useVideoPlayer(isVideo ? item.video_url : '', player => {
-        if (isVideo) {
-            player.loop = true;
-            player.muted = isMuted;
-        }
-    });
+    const checkUserReaction = useCallback(async () => {
+        if (!user) return;
+        const reaction = await videoService.getUserReaction(item.id, user.id);
+        setUserReaction(reaction);
+    }, [user, item.id]);
+
+    useEffect(() => {
+        if (user && item.id) checkUserReaction();
+    }, [user, item.id, checkUserReaction]);
 
     const toggleBioExpansion = () => {
-        if (!isExpanded) {
-            if (isVideo && player) {
-                player.pause();
-                setIsPlaying(false);
-                RNAnimated.timing(playIconOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-            }
-        } else {
-            if (isVideo && player && isFocused && isVisible) {
-                player.play();
-                setIsPlaying(true);
-                RNAnimated.timing(playIconOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
-            }
+        if (!isExpanded && isVideo && activePlayer) {
+            activePlayer.pause();
+        } else if (isExpanded && isVideo && activePlayer && isFocused && isVisible) {
+            activePlayer.play();
         }
         setIsExpanded(!isExpanded);
     };
 
-    useEffect(() => {
-        if (isVideo && player) {
-            if (isFocused && isVisible) {
-                player.play();
-                setIsPlaying(true);
-                RNAnimated.timing(playIconOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
-            } else {
-                player.pause();
-                setIsPlaying(false);
-                RNAnimated.timing(playIconOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-            }
-        }
-    }, [isFocused, isVisible, player, isVideo]);
-
-    useEffect(() => {
-        if (isVideo && player) player.muted = isMuted;
-    }, [isMuted, player, isVideo]);
-
-    useEffect(() => {
-        if (user && item.id) checkUserReaction();
-    }, [user, item.id]);
-
-    const checkUserReaction = async () => {
-        if (!user) return;
-        const reaction = await videoService.getUserReaction(item.id, user.id);
-        setUserReaction(reaction);
-    };
-
-    const togglePlay = () => {
-        if (!isVideo) return;
-        if (player.playing) {
-            player.pause();
-            setIsPlaying(false);
-            RNAnimated.timing(playIconOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-        } else {
-            player.play();
-            setIsPlaying(true);
-            RNAnimated.timing(playIconOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
-        }
-    };
-
     const toggleMute = () => {
-        if (player) player.muted = !isMuted;
+        if (activePlayer) activePlayer.muted = !isMuted;
         setIsMuted(!isMuted);
     };
 
@@ -278,7 +343,11 @@ export default function ShortFeedItem({
             Alert.alert('Login Required', 'Please login to interact with videos.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Go to Profile', onPress: () => router.push('/profile') }]);
             return;
         }
-        RNAnimated.sequence([RNAnimated.timing(likeScale, { toValue: 1.2, duration: 100, useNativeDriver: true }), RNAnimated.timing(likeScale, { toValue: 1, duration: 100, useNativeDriver: true })]).start();
+        HapticsService.success();
+        RNAnimated.sequence([
+            RNAnimated.timing(likeScale, { toValue: 1.2, duration: 100, useNativeDriver: true }),
+            RNAnimated.timing(likeScale, { toValue: 1, duration: 100, useNativeDriver: true })
+        ]).start();
         try {
             const result = await videoService.handleReaction(item.id, user.id, type);
             setLikesCount(result.likes);
@@ -288,32 +357,49 @@ export default function ShortFeedItem({
 
     const handleShare = async () => {
         try {
-            await Share.share({
-                message: `Check out this WeVersity Short!\nhttps://weversity.org/shorts/${item.id}`,
-            });
-        } catch (error: any) {
-            console.error("Error sharing:", error.message);
-        }
+            await Share.share({ message: `Check out this WeVersity Short!\nhttps://weversity.org/shorts/${item.id}` });
+        } catch (error: any) { console.error("Error sharing:", error.message); }
+    };
+
+    // Fix: Memoize callback to prevent re-renders
+    const onPlayerReady = useCallback((player: any) => {
+        setActivePlayer(player);
+    }, []);
+
+    // Fix: Handle lazy-loading modal presentation
+    const openComments = () => {
+        setShowComments(true);
+        // We use a small timeout to allow React to mount the CommentsSheet 
+        // before we call present() on its ref.
+        setTimeout(() => {
+            sheetRef.current?.present();
+        }, 100);
     };
 
     return (
         <View style={[styles.container, { height: containerHeight, width: containerWidth, backgroundColor: 'black' }]}>
             <Animated.View style={[{ width: containerWidth, height: containerHeight, position: 'absolute', top: 0, left: 0, zIndex: 1 }, videoAnimatedStyle]}>
                 <ShortMediaFrame containerWidth={containerWidth} containerHeight={containerHeight}>
-                    <TouchableOpacity activeOpacity={1} onPress={togglePlay} style={[styles.videoContainer, { height: '100%', width: '100%' }]}>
-                        {isVideo ? (
-                            <>
-                                <VideoView player={player} style={[styles.video, { height: '100%' }]} contentFit="contain" nativeControls={false} />
-                                {!isPlaying && (
-                                    <RNAnimated.View style={[styles.playIconContainer, { opacity: playIconOpacity }]}>
-                                        <Ionicons name="play" size={50} color="rgba(255,255,255,0.7)" />
-                                    </RNAnimated.View>
-                                )}
-                            </>
+                    {isVideo ? (
+                        shouldLoad ? (
+                            <VideoPlayerWrapper 
+                                videoUrl={item.video_url}
+                                isVisible={isVisible}
+                                isMuted={isMuted}
+                                isFocused={isFocused}
+                                containerWidth={containerWidth}
+                                containerHeight={containerHeight}
+                                onPlayerReady={onPlayerReady}
+                            />
                         ) : (
-                            <Image source={{ uri: item.video_url }} style={[styles.video, { height: '100%' }]} resizeMode="contain" />
-                        )}
-                    </TouchableOpacity>
+                            <View style={{ flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' }}>
+                                <Image source={{ uri: item.video_url }} style={styles.video} resizeMode="contain" />
+                                <ActivityIndicator size="small" color="#8A2BE2" style={{ position: 'absolute' }} />
+                            </View>
+                        )
+                    ) : (
+                        <Image source={{ uri: item.video_url }} style={[styles.video, { height: '100%' }]} resizeMode="contain" />
+                    )}
                 </ShortMediaFrame>
             </Animated.View>
 
@@ -355,10 +441,7 @@ export default function ShortFeedItem({
                         <Text style={styles.actionText}>{likesCount}</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.actionButton} onPress={() => {
-                        setShowComments(true);
-                        sheetRef.current?.present();
-                    }}>
+                    <TouchableOpacity style={styles.actionButton} onPress={openComments}>
                         <View style={styles.iconCircle}>
                             <Ionicons name="chatbox-ellipses-outline" size={24} color="white" />
                         </View>
@@ -388,31 +471,34 @@ export default function ShortFeedItem({
                 </View>
             </Animated.View>
 
-            {isVideo && <ShortProgressBar player={player} isVisible={isVisible} containerWidth={containerWidth} />}
+            {isVideo && shouldLoad && <ShortProgressBar player={activePlayer} isVisible={isVisible} />}
 
             <FloatingRewardCoin 
                 videoId={item.id}
                 isVisible={isVisible}
                 mediaType={mediaType}
-                player={player}
+                player={activePlayer}
             />
 
+            {/* Fix: Lazy-load CommentsSheet only when showComments is true */}
             <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-                <CommentsSheet
-                    ref={sheetRef}
-                    videoId={item.id}
-                    onClose={() => setShowComments(false)}
-                    currentUser={user}
-                    videoOwnerId={item.instructor_id || item.instructor?.id}
-                    animatedIndex={animatedIndex}
-                    onChange={(index) => {
-                        if (index === -1) setShowComments(false);
-                    }}
-                />
+                {showComments && (
+                    <CommentsSheet
+                        ref={sheetRef}
+                        videoId={item.id}
+                        onClose={() => setShowComments(false)}
+                        currentUser={user}
+                        videoOwnerId={item.instructor_id || item.instructor?.id}
+                        animatedIndex={animatedIndex}
+                        onChange={(index) => { if (index === -1) setShowComments(false); }}
+                    />
+                )}
             </View>
         </View>
     );
-}
+};
+
+export default memo(ShortFeedItem);
 
 const styles = StyleSheet.create({
     container: { backgroundColor: 'black' },
@@ -437,5 +523,27 @@ const styles = StyleSheet.create({
     slider: { width: '100%', height: 30 },
     timeLabelContainer: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, marginBottom: -9 },
     timeText: { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '600' },
-    bottomUIContainer: { position: 'absolute', bottom: 28, left: 0, right: 0, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 15 }
+    bottomUIContainer: { position: 'absolute', bottom: 28, left: 0, right: 0, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 15 },
+    errorContainer: {
+        flex: 1,
+        backgroundColor: '#000',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 40,
+        zIndex: 99,
+    },
+    errorHeading: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: 'bold',
+        marginTop: 20,
+        textAlign: 'center',
+    },
+    errorSubHeading: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: 14,
+        marginTop: 12,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
 });

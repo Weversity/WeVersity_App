@@ -4,8 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import React, { useState } from 'react';
 import { StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { AnimatedHeaderView, AnimatedBodyView } from '../../src/components/common/ContentTransitions';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import UpcomingClasses from '../../src/components/UpcomingClasses';
+import { HapticsService } from '@/src/utils/haptics';
 
 export default function UpcomingScreen() {
   const { user } = useAuth();
@@ -14,10 +16,6 @@ export default function UpcomingScreen() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // No complex fetch guards needed
-  // UpcomingClasses handles its own data fetching on mount.
-
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -25,13 +23,20 @@ export default function UpcomingScreen() {
       {/* Purple Header */}
       <View style={styles.header}>
         <View style={styles.headerTextContainer}>
-          <Text style={styles.headerTitle}>Upcoming Classes</Text>
-          <Text style={styles.headerSubTitle}>Find your next big learning moment</Text>
+          <AnimatedHeaderView>
+            <Text style={styles.headerTitle}>Upcoming Classes</Text>
+          </AnimatedHeaderView>
+          <AnimatedHeaderView delay={150}>
+            <Text style={styles.headerSubTitle}>Find your next big learning moment</Text>
+          </AnimatedHeaderView>
         </View>
 
         <TouchableOpacity
           style={styles.searchIcon}
-          onPress={() => setSearchVisible(!searchVisible)}
+          onPress={() => {
+            HapticsService.light();
+            setSearchVisible(!searchVisible);
+          }}
         >
           <Ionicons
             name={searchVisible ? "close" : "search"}
@@ -54,7 +59,10 @@ export default function UpcomingScreen() {
             autoFocus
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity onPress={() => {
+              HapticsService.light();
+              setSearchQuery('');
+            }}>
               <Ionicons name="close-circle" size={20} color="#999" />
             </TouchableOpacity>
           )}
@@ -63,7 +71,9 @@ export default function UpcomingScreen() {
 
       <StatefulPage>
         <SafeAreaView style={styles.contentArea}>
-          <UpcomingClasses searchQuery={searchQuery} />
+          <View style={{ flex: 1 }}>
+            <UpcomingClasses searchQuery={searchQuery} />
+          </View>
         </SafeAreaView>
       </StatefulPage>
     </View>

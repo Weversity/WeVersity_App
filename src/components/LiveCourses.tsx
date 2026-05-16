@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { AnimatedBodyView } from './common/ContentTransitions';
+import { HapticsService } from '../utils/haptics';
+import { CourseListSkeleton } from './skeletons/CourseCardSkeleton';
 
-const CourseItem = memo(({ item, onJoinPress }: { item: any, onJoinPress?: (id: string) => void }) => {
-  // item is a live_session object
+const CourseItem = memo(({ item, index, onJoinPress }: { item: any, index: number, onJoinPress?: (id: string) => void }) => {
   const course = item.course || {};
   const instructor = item.instructor || {};
   const instructorName = `${instructor.first_name || ''} ${instructor.last_name || ''}`.trim() || 'Instructor';
@@ -13,7 +15,8 @@ const CourseItem = memo(({ item, onJoinPress }: { item: any, onJoinPress?: (id: 
   const category = (typeof course.categories === 'string' ? course.categories : null) || 'DEVELOPMENT';
 
   return (
-    <View style={styles.courseCard}>
+    <AnimatedBodyView delay={index * 50}>
+      <View style={styles.courseCard}>
       {/* Image Section with Badges */}
       <View style={styles.imageContainer}>
         <Image source={{ uri: courseImage }} style={styles.courseImage} />
@@ -56,6 +59,7 @@ const CourseItem = memo(({ item, onJoinPress }: { item: any, onJoinPress?: (id: 
         </View>
       </View>
     </View>
+    </AnimatedBodyView>
   );
 });
 
@@ -140,6 +144,7 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
   }, []);
 
   const onRefresh = useCallback(() => {
+    HapticsService.refreshPull();
     setRefreshing(true);
     loadSessions();
   }, [loadSessions]);
@@ -191,12 +196,14 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
     }
   }, [filteredSessions.length, onCoursesLoaded]);
 
-  const renderItem = useCallback(({ item }: { item: any }) => (
-    <CourseItem item={item} onJoinPress={onJoinPress} />
+  const renderItem = useCallback(({ item, index }: { item: any, index: number }) => (
+    <CourseItem item={item} index={index} onJoinPress={onJoinPress} />
   ), [onJoinPress]);
 
   const renderEmpty = useCallback(() => {
-    if (loading) return null;
+    if (loading) {
+      return <CourseListSkeleton count={3} />;
+    }
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconContainer}>
@@ -214,7 +221,7 @@ const LiveCourses: React.FC<LiveCoursesProps> = ({ onCoursesLoaded, searchQuery 
   }, [loading, onRefresh]);
 
   const renderFooter = useCallback(() => {
-    if (!loading || filteredSessions.length > 0) return null;
+    if (!loading || filteredSessions.length === 0) return null;
     return <ActivityIndicator style={{ marginVertical: 20 }} size="large" color="#8A2BE2" />;
   }, [loading, filteredSessions]);
 
@@ -251,9 +258,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOpacity: 0.03,
+    shadowRadius: 15,
+    elevation: 1,
     overflow: 'hidden',
   },
   imageContainer: {
